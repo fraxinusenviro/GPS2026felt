@@ -67,7 +67,11 @@ export class App {
     this.featureEditor = new FeatureEditor(this.presetManager);
     this.geometryEditor = new GeometryEditor(this.mapManager);
     this.onlineDataPanel = new OnlineDataPanel(this.mapManager);
-    this.layersPanel = new LayersPanel(this.importManager, this.exportManager);
+    this.layersPanel = new LayersPanel(this.importManager, this.exportManager, () => {
+      const b = this.mapManager.getBounds();
+      if (!b) return null;
+      return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
+    });
 
     this.hud = new HUD();
     this.hud.applySettings(this.settings);

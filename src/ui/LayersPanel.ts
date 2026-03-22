@@ -1,9 +1,11 @@
-import type { ImportedLayer, FieldFeature } from '../types';
+import type { ImportedLayer, FieldFeature, GeoJSONGeometry } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import type { ImportManager } from '../io/ImportManager';
 import type { ExportManager } from '../io/ExportManager';
 import { FeltExportDialog } from './FeltExportDialog';
+
+type MapBounds = { west: number; south: number; east: number; north: number };
 
 export class LayersPanel {
   private panel = document.getElementById('layers-panel')!;
@@ -15,11 +17,13 @@ export class LayersPanel {
 
   // Export state
   private exportFeatures: FieldFeature[] = [];
-  private exportDateFilter = 'all';
+  private exportSelectedDates = new Set<string>(['all']);
+  private exportSpatialFilter: 'all' | 'extent' = 'all';
 
   constructor(
     private importManager: ImportManager,
-    private exportManager: ExportManager
+    private exportManager: ExportManager,
+    private getMapBounds: () => MapBounds | null = () => null
   ) {
     this.fileInput = document.createElement('input');
     this.fileInput.type = 'file';
@@ -72,19 +76,9 @@ export class LayersPanel {
 
   toggleExport(): void {
     this.activeTab = 'export';
-    this.exportFeatures = []; // reset so loading state shows
+    this.exportFeatures = [];
     this.open();
-    // Load features asynchronously and update the tab content
-    void this.storage.getAllFeatures().then(features => {
-      this.exportFeatures = features;
-      if (this.isOpen && this.activeTab === 'export') {
-        const content = this.panel.querySelector<HTMLElement>('#layer-tab-content');
-        if (content) {
-          content.innerHTML = this.renderExportTab();
-          this.wireExportButtons();
-        }
-      }
-    });
+    void this.reloadExportFeatures();
   }
 
   private activeTab: 'layers' | 'import' | 'export' = 'layers';
@@ -100,6 +94,18 @@ export class LayersPanel {
     this.isOpen = false;
     this.panel.classList.remove('open');
     setTimeout(() => { if (!this.isOpen) this.panel.style.display = 'none'; }, 300);
+  }
+
+  private async reloadExportFeatures(): Promise<void> {
+    const features = await this.storage.getAllFeatures();
+    this.exportFeatures = features;
+    if (this.isOpen && this.activeTab === 'export') {
+      const content = this.panel.querySelector<HTMLElement>('#layer-tab-content');
+      if (content) {
+        content.innerHTML = this.renderExportTab();
+        this.wireExportButtons();
+      }
+    }
   }
 
   private render(): void {
@@ -136,20 +142,11 @@ export class LayersPanel {
 
     this.panel.querySelectorAll<HTMLButtonElement>('.tab-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
-        const newTab = btn.dataset.tab as 'layers' | 'import' | 'export';
-        this.activeTab = newTab;
-        if (newTab === 'export') {
+        this.activeTab = btn.dataset.tab as 'layers' | 'import' | 'export';
+        if (this.activeTab === 'export') {
           this.exportFeatures = [];
           this.render();
-          const features = await this.storage.getAllFeatures();
-          this.exportFeatures = features;
-          if (this.activeTab === 'export') {
-            const content = this.panel.querySelector<HTMLElement>('#layer-tab-content');
-            if (content) {
-              content.innerHTML = this.renderExportTab();
-              this.wireExportButtons();
-            }
-          }
+          await this.reloadExportFeatures();
         } else {
           this.render();
         }
@@ -159,60 +156,125 @@ export class LayersPanel {
     this.wireTab();
   }
 
-  // ── Date filter helpers ──────────────────────────────────────
+  // ── Feature filtering ────────────────────────────────────
 
-  private filterFeaturesByDate(features: FieldFeature[], filter: string): FieldFeature[] {
-    if (filter === 'all') return features;
-    const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
-    const dateStr = filter === 'today' ? today : filter;
-    return features.filter(f => f.created_at.startsWith(dateStr));
+  private filterByDate(features: FieldFeature[], selected: Set<string>): FieldFeature[] {
+    if (selected.has('all') || selected.size === 0) return features;
+    const today = new Date().toLocaleDateString('en-CA');
+    const dates = new Set([...selected].map(s => s === 'today' ? today : s));
+    return features.filter(f => dates.has(f.created_at.substring(0, 10)));
   }
+
+  private featureCentroid(f: FieldFeature): [number, number] {
+    if (f.lat !== null && f.lon !== null) return [f.lon, f.lat];
+    const g = f.geometry as GeoJSONGeometry;
+    if (g.type === 'LineString') {
+      const c = g.coordinates as number[][];
+      return [c.reduce((s, p) => s + p[0], 0) / c.length, c.reduce((s, p) => s + p[1], 0) / c.length];
+    }
+    if (g.type === 'Polygon') {
+      const c = g.coordinates[0] as number[][];
+      return [c.reduce((s, p) => s + p[0], 0) / c.length, c.reduce((s, p) => s + p[1], 0) / c.length];
+    }
+    return [0, 0];
+  }
+
+  private filterByExtent(features: FieldFeature[]): FieldFeature[] {
+    if (this.exportSpatialFilter === 'all') return features;
+    const b = this.getMapBounds();
+    if (!b) return features;
+    return features.filter(f => {
+      const [lon, lat] = this.featureCentroid(f);
+      return lon >= b.west && lon <= b.east && lat >= b.south && lat <= b.north;
+    });
+  }
+
+  private getFilteredFeatures(): FieldFeature[] {
+    return this.filterByExtent(this.filterByDate(this.exportFeatures, this.exportSelectedDates));
+  }
+
+  private countFiltered(): number {
+    return this.getFilteredFeatures().length;
+  }
+
+  // ── Export tab rendering ─────────────────────────────────
 
   private formatDateLabel(isoDate: string): string {
-    const d = new Date(isoDate + 'T12:00:00');
-    return d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' });
+    return new Date(isoDate + 'T12:00:00').toLocaleDateString('en-CA', {
+      month: 'short', day: 'numeric', year: 'numeric'
+    });
   }
-
-  // ── Export tab rendering ─────────────────────────────────────
 
   private renderExportTab(): string {
     const features = this.exportFeatures;
     const today = new Date().toLocaleDateString('en-CA');
     const todayCount = features.filter(f => f.created_at.startsWith(today)).length;
+    const uniqueDates = [...new Set(features.map(f => f.created_at.substring(0, 10)))].sort().reverse();
+    const isLoading = features.length === 0;
+    const isAllSelected = this.exportSelectedDates.has('all');
 
-    // Unique dates that have features, newest first
-    const uniqueDates = [...new Set(features.map(f => f.created_at.substring(0, 10)))]
-      .sort().reverse();
-
-    const dateOptions = [
-      `<option value="all" ${this.exportDateFilter === 'all' ? 'selected' : ''}>All Dates (${features.length} feature${features.length !== 1 ? 's' : ''})</option>`,
-      `<option value="today" ${this.exportDateFilter === 'today' ? 'selected' : ''}>Today (${todayCount} feature${todayCount !== 1 ? 's' : ''})</option>`,
+    const dateRows = isLoading ? '' : [
+      // "All Dates" master checkbox
+      `<label class="export-date-row">
+        <input type="checkbox" class="export-date-cb" value="all" ${isAllSelected ? 'checked' : ''} />
+        <span>All Dates <span class="export-date-count">(${features.length})</span></span>
+      </label>`,
+      // "Today" shortcut
+      `<label class="export-date-row export-date-row-indent">
+        <input type="checkbox" class="export-date-cb" value="today"
+          ${!isAllSelected && this.exportSelectedDates.has('today') ? 'checked' : ''} />
+        <span>Today <span class="export-date-count">(${todayCount})</span></span>
+      </label>`,
+      // Individual dates
       ...uniqueDates.map(d => {
         const df = features.filter(f => f.created_at.startsWith(d));
         const types = [...new Set(df.map(f => f.type).filter(Boolean))].slice(0, 3).join(', ');
-        const label = `${this.formatDateLabel(d)} — ${df.length} feature${df.length !== 1 ? 's' : ''}${types ? ' · ' + types : ''}`;
-        return `<option value="${d}" ${this.exportDateFilter === d ? 'selected' : ''}>${label}</option>`;
+        return `<label class="export-date-row export-date-row-indent">
+          <input type="checkbox" class="export-date-cb" value="${d}"
+            ${!isAllSelected && this.exportSelectedDates.has(d) ? 'checked' : ''} />
+          <span>${this.formatDateLabel(d)} <span class="export-date-count">(${df.length}${types ? ' · ' + types : ''})</span></span>
+        </label>`;
       })
     ].join('');
 
-    const filtered = this.filterFeaturesByDate(features, this.exportDateFilter);
-    const isLoading = features.length === 0;
+    const n = this.countFiltered();
 
     return `
       <div class="export-section">
 
+        <!-- Date filter -->
         <div class="felt-field">
           <label class="felt-label">Date Filter</label>
           ${isLoading
-            ? `<select class="felt-select" disabled><option>Loading…</option></select>`
-            : `<select id="export-date-filter" class="felt-select">${dateOptions}</select>`
+            ? `<div class="settings-hint">Loading…</div>`
+            : `<div class="export-date-list">${dateRows}</div>`
           }
-          <p class="settings-hint" id="export-count" style="margin-top:4px">
-            ${isLoading ? '' : `${filtered.length} feature${filtered.length !== 1 ? 's' : ''} selected`}
-          </p>
         </div>
 
-        <div style="margin-top:16px">
+        <!-- Spatial filter -->
+        <div class="felt-field">
+          <label class="felt-label">Spatial Filter</label>
+          <div class="felt-radio-group">
+            <label class="felt-radio">
+              <input type="radio" name="export-spatial" value="all"
+                ${this.exportSpatialFilter === 'all' ? 'checked' : ''} />
+              <span>All features</span>
+            </label>
+            <label class="felt-radio">
+              <input type="radio" name="export-spatial" value="extent"
+                ${this.exportSpatialFilter === 'extent' ? 'checked' : ''} />
+              <span>Current map view</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Selection count -->
+        <p class="settings-hint" id="export-count" style="margin:0 0 14px;font-weight:500">
+          ${isLoading ? '' : `${n} feature${n !== 1 ? 's' : ''} selected`}
+        </p>
+
+        <!-- Local save -->
+        <div>
           <h4 style="margin:0 0 8px">Save to Device</h4>
           <div class="export-btn-grid">
             <button class="btn-outline export-btn" data-format="geojson">
@@ -230,11 +292,10 @@ export class LayersPanel {
           </div>
         </div>
 
-        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border,#333)">
+        <!-- Felt upload -->
+        <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border,#333)">
           <h4 style="margin:0 0 6px">Upload to Felt</h4>
-          <p class="settings-hint" style="margin-bottom:10px">
-            Upload the selected features as a GeoJSON layer to a Felt map.
-          </p>
+          <p class="settings-hint" style="margin-bottom:10px">Uploads the selected features as a GeoJSON layer.</p>
           <button class="btn-primary export-btn" data-format="felt" style="width:100%">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;margin-right:6px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             Upload to Felt
@@ -246,22 +307,54 @@ export class LayersPanel {
   }
 
   private wireExportButtons(): void {
-    const filterSel = this.panel.querySelector<HTMLSelectElement>('#export-date-filter');
     const countEl = this.panel.querySelector<HTMLElement>('#export-count');
 
-    filterSel?.addEventListener('change', () => {
-      this.exportDateFilter = filterSel.value;
-      const n = this.filterFeaturesByDate(this.exportFeatures, this.exportDateFilter).length;
-      if (countEl) countEl.textContent = `${n} feature${n !== 1 ? 's' : ''} selected`;
+    const updateCount = () => {
+      if (countEl) {
+        const n = this.countFiltered();
+        countEl.textContent = `${n} feature${n !== 1 ? 's' : ''} selected`;
+      }
+    };
+
+    // Date checkboxes
+    this.panel.querySelectorAll<HTMLInputElement>('.export-date-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.value === 'all') {
+          if (cb.checked) {
+            // Select all — uncheck individual dates
+            this.exportSelectedDates = new Set(['all']);
+            this.panel.querySelectorAll<HTMLInputElement>('.export-date-cb:not([value="all"])').forEach(o => { o.checked = false; });
+          } else {
+            this.exportSelectedDates.delete('all');
+          }
+        } else {
+          // Individual date or "today"
+          const allCb = this.panel.querySelector<HTMLInputElement>('.export-date-cb[value="all"]');
+          if (allCb) allCb.checked = false;
+          this.exportSelectedDates.delete('all');
+          if (cb.checked) this.exportSelectedDates.add(cb.value);
+          else this.exportSelectedDates.delete(cb.value);
+        }
+        updateCount();
+      });
     });
 
+    // Spatial filter radios
+    this.panel.querySelectorAll<HTMLInputElement>('input[name="export-spatial"]').forEach(r => {
+      r.addEventListener('change', () => {
+        this.exportSpatialFilter = r.value as 'all' | 'extent';
+        updateCount();
+      });
+    });
+
+    // Export buttons
     this.panel.querySelectorAll<HTMLButtonElement>('.export-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const fmt = btn.dataset.format;
-        const features = this.filterFeaturesByDate(this.exportFeatures, this.exportDateFilter);
+        const features = this.getFilteredFeatures();
 
         if (features.length === 0) {
-          EventBus.emit('toast', { message: 'No features in selected date range', type: 'warning' });
+          EventBus.emit('toast', { message: 'No features match the current filters', type: 'warning' });
           return;
         }
 
@@ -282,7 +375,7 @@ export class LayersPanel {
     });
   }
 
-  // ── Layers tab ───────────────────────────────────────────────
+  // ── Layers tab ───────────────────────────────────────────
 
   private getFieldNames(layer: ImportedLayer): string[] {
     if (!layer.data || layer.data.features.length === 0) return [];
@@ -335,7 +428,7 @@ export class LayersPanel {
     `;
   }
 
-  // ── Import tab ───────────────────────────────────────────────
+  // ── Import tab ───────────────────────────────────────────
 
   private renderImportTab(): string {
     return `
@@ -349,15 +442,11 @@ export class LayersPanel {
 
         <h4 style="margin-top:20px">Import Raster Tiles</h4>
         <p class="settings-hint">MBTiles (.mbtiles) — offline tile packages. File is cached locally.</p>
-        <button class="btn-outline" id="import-mbtiles-btn">
-          Choose MBTiles File
-        </button>
+        <button class="btn-outline" id="import-mbtiles-btn">Choose MBTiles File</button>
 
         <h4 style="margin-top:20px">GeoPDF Map</h4>
-        <p class="settings-hint">Georeferenced PDF maps are overlaid directly on the map. Open the basemap mixer to control opacity and visibility. If no geo-registration is found, the PDF opens in a new tab for reference.</p>
-        <button class="btn-outline" id="import-geopdf-btn">
-          Import GeoPDF
-        </button>
+        <p class="settings-hint">Georeferenced PDF maps are overlaid directly on the map.</p>
+        <button class="btn-outline" id="import-geopdf-btn">Import GeoPDF</button>
 
         <div class="import-drag-area" id="drag-drop-area">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:40px;height:40px;opacity:0.4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -367,7 +456,7 @@ export class LayersPanel {
     `;
   }
 
-  // ── Tab wiring ───────────────────────────────────────────────
+  // ── Tab wiring ───────────────────────────────────────────
 
   private wireTab(): void {
     if (this.activeTab === 'layers') {
@@ -416,12 +505,10 @@ export class LayersPanel {
         this.fileInput.accept = '.geojson,.json,.kml,.gpx,.shp,.zip';
         this.fileInput.click();
       });
-
       document.getElementById('import-mbtiles-btn')?.addEventListener('click', () => {
         this.fileInput.accept = '.mbtiles';
         this.fileInput.click();
       });
-
       document.getElementById('import-geopdf-btn')?.addEventListener('click', () => {
         this.fileInput.accept = '.pdf';
         this.fileInput.click();
