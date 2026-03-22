@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#1e40af" />
+    <meta name="description" content="GeoPDF Web Viewer – offline-capable field map viewer with GPS, waypoints, and track recording" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <title>GeoPDF Web Viewer</title>
+    <style>
+      /* Prevent flash of unstyled content */
+      html, body, #root { height: 100%; margin: 0; padding: 0; background: #0f172a; }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <!-- Fallback shown if React fails to mount -->
+      <div id="js-fallback" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0f172a;color:#94a3b8;font-family:sans-serif;font-size:14px;flex-direction:column;gap:12px;">
+        <div style="font-size:24px;">⚙</div>
+        <div>Loading GeoPDF Viewer…</div>
+        <div id="js-error" style="color:#f87171;font-size:12px;max-width:400px;text-align:center;display:none;"></div>
+      </div>
+    </div>
+    <script>
+      // Unregister any stale service workers — a cached SW from a previous production build
+      // served on the same origin will intercept requests and return stale files, causing a
+      // blank page even after code changes. This ensures a clean slate on every load.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          regs.forEach(function(r) { r.unregister(); });
+        });
+        // Also clear all caches so the next load fetches fresh assets
+        if ('caches' in window) {
+          caches.keys().then(function(keys) {
+            keys.forEach(function(k) { caches.delete(k); });
+          });
+        }
+      }
+    </script>
+    <script>
+      // Show errors in a persistent banner that survives React mounting/unmounting.
+      // Appends to document.body so it exists regardless of #root content.
+      function showError(msg) {
+        var b = document.getElementById('__err_banner');
+        if (!b) {
+          b = document.createElement('div');
+          b.id = '__err_banner';
+          b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#7f1d1d;color:#fca5a5;padding:10px 14px;font-family:monospace;font-size:12px;white-space:pre-wrap;overflow:auto;max-height:40vh;';
+          document.body.appendChild(b);
+        }
+        b.textContent += msg + '\n';
+      }
+      window.addEventListener('error', function(e) {
+        showError('Error: ' + e.message + '\n  at ' + e.filename + ':' + e.lineno);
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var r = e.reason;
+        showError('Unhandled rejection: ' + (r && r.stack ? r.stack : (r && r.message ? r.message : String(r))));
+      });
+      // Timeout: if React hasn't mounted after 8s, show a hint
+      setTimeout(function() {
+        if (document.getElementById('js-fallback')) {
+          showError('Timeout: React did not mount after 8s. Check browser console (F12) for module loading errors.');
+        }
+      }, 8000);
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

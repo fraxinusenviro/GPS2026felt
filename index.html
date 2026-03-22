@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1a3a2a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="FieldMapper" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
+  <link rel="manifest" href="./manifest.json" />
+  <title>Fraxinus Field Mapper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+</head>
+<body>
+  <div id="app">
+    <!-- Top Header Bar -->
+    <header id="header">
+      <div id="header-left">
+        <button id="btn-settings" class="icon-btn" title="Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div id="branding">
+          <img src="/logo.jpg" id="brand-logo" alt="Fraxinus"
+               onerror="this.onerror=null;this.src='/logo.svg'" />
+        </div>
+        <div id="session-id">Field Mapper <span id="session-label"></span></div>
+      </div>
+      <div id="header-right">
+        <div id="hud-coords">
+          <div id="hud-latlon">---, ---</div>
+          <div id="hud-utm">---</div>
+        </div>
+        <div id="gps-badge" class="gps-badge gps-unknown" title="GPS Accuracy">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+          <span id="gps-accuracy-text">--</span>
+        </div>
+        <button id="btn-copy-coords" class="icon-btn" title="Copy Coordinates">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button id="btn-hud-toggle" class="icon-btn" title="Toggle HUD Source">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Map Container -->
+    <div id="map-container">
+      <div id="map"></div>
+
+      <!-- Crosshair -->
+      <div id="crosshair">
+        <div class="ch-h"></div>
+        <div class="ch-v"></div>
+        <div class="ch-dot"></div>
+      </div>
+
+      <!-- Left Toolbar -->
+      <nav id="left-toolbar">
+        <div class="toolbar-section">
+          <span class="toolbar-section-label">GPS</span>
+          <div class="toolbar-group">
+            <button id="btn-gps-point" class="tool-btn active" data-tool="gps-point" title="GPS Single Point">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            </button>
+            <button id="btn-gps-point-stream" class="tool-btn" data-tool="gps-point-stream" title="GPS Stream Points (toggle on/off)">
+              <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="5" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg>
+            </button>
+            <button id="btn-gps-line" class="tool-btn" data-tool="gps-line" title="GPS Line (toggle on/off to complete)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </button>
+            <button id="btn-gps-polygon" class="tool-btn" data-tool="gps-polygon" title="GPS Polygon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="toolbar-separator"></div>
+        <div class="toolbar-section">
+          <span class="toolbar-section-label">SKETCH</span>
+          <div class="toolbar-group">
+            <button id="btn-sketch-point" class="tool-btn" data-tool="sketch-point" title="Sketch Point">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button id="btn-sketch-line" class="tool-btn" data-tool="sketch-line" title="Sketch Line (tap button again to complete)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3 L21 21"/></svg>
+            </button>
+            <button id="btn-sketch-polygon" class="tool-btn" data-tool="sketch-polygon" title="Sketch Polygon (tap button again to complete)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6 L12 3 L21 6 L21 18 L12 21 L3 18 Z"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="toolbar-separator"></div>
+        <div class="toolbar-section">
+          <span class="toolbar-section-label">EDIT</span>
+          <div class="toolbar-group">
+            <button id="btn-select" class="tool-btn" data-tool="select" title="Select / Edit Feature">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-7 1-4 7z"/></svg>
+            </button>
+            <button id="btn-edit-attrs" class="tool-btn" data-tool="edit-attrs" title="Edit Attributes">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <button id="btn-delete-feature" class="tool-btn" data-tool="delete" title="Delete Feature">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Right Controls -->
+      <div id="right-controls">
+        <button id="btn-zoom-in" class="map-ctrl-btn" title="Zoom In">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button id="btn-zoom-out" class="map-ctrl-btn" title="Zoom Out">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <div id="zoom-level-display" class="zoom-level-badge">z--</div>
+        <div class="ctrl-separator"></div>
+        <button id="btn-locate" class="map-ctrl-btn" title="Zoom to My Location">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+        </button>
+        <button id="btn-follow" class="map-ctrl-btn" title="Follow My Location" data-active="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+        </button>
+        <div class="ctrl-separator"></div>
+        <button id="btn-crosshair" class="map-ctrl-btn" title="Toggle Crosshair" data-active="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+        </button>
+        <button id="btn-basemap" class="map-ctrl-btn" title="Basemap &amp; Layers">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        </button>
+        <button id="btn-grid" class="map-ctrl-btn" title="Toggle Grid" data-active="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+        </button>
+        <div class="ctrl-separator"></div>
+        <button id="btn-wakelock" class="map-ctrl-btn" title="Screen Wake Lock" data-active="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 0 1 10 10c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2z"/><path d="M12 6v6l4 2"/></svg>
+        </button>
+        <div class="ctrl-separator"></div>
+        <button id="btn-layers" class="map-ctrl-btn" title="Layers &amp; Data">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="4" rx="1"/><rect x="2" y="10" width="20" height="4" rx="1"/><rect x="2" y="17" width="20" height="4" rx="1"/></svg>
+        </button>
+        <button id="btn-online-data" class="map-ctrl-btn" title="Online Data Sources">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        </button>
+        <button id="btn-import" class="map-ctrl-btn" title="Import Data">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </button>
+        <button id="btn-export" class="map-ctrl-btn" title="Export Data">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+        <button id="btn-console" class="map-ctrl-btn" title="Debug Console">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        </button>
+      </div>
+
+      <!-- Grid Info -->
+      <div id="grid-info" style="display:none">
+        <span id="grid-interval-label">--</span>
+        <span id="grid-area-label">-- ha</span>
+      </div>
+
+      <!-- Quick Entry Buttons (up to 3, stacked) -->
+      <div id="quick-entry-container">
+        <button id="btn-quick-entry-3" class="quick-entry-btn" title="Quick Entry 3" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span id="quick-entry-label-3">QE 3</span>
+        </button>
+        <button id="btn-quick-entry-2" class="quick-entry-btn" title="Quick Entry 2" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span id="quick-entry-label-2">QE 2</span>
+        </button>
+        <button id="btn-quick-entry" class="quick-entry-btn" title="Quick Entry">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span id="quick-entry-label">Quick Entry</span>
+        </button>
+      </div>
+
+      <!-- Persistent Point Entry HUD (gps-point and sketch-point tools) -->
+      <div id="point-entry-hud" style="display:none">
+        <div class="point-hud-row1">
+          <span class="point-hud-title">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11"><circle cx="12" cy="12" r="5"/></svg>
+            Point tools: Values
+          </span>
+          <select id="type-selector">
+            <option value="">-- Type --</option>
+          </select>
+        </div>
+        <input type="text" id="point-entry-desc" placeholder="Description..." autocomplete="off" />
+      </div>
+
+      <!-- GPS Capture Controls (shown when GPS capture active or in setup) -->
+      <div id="capture-controls" style="display:none">
+        <!-- Type + Description (meta fields) -->
+        <div id="capture-meta">
+          <select id="capture-type">
+            <option value="">-- Select Type --</option>
+          </select>
+          <input type="text" id="capture-desc" placeholder="Description..." autocomplete="off" />
+        </div>
+        <!-- Buttons + stats -->
+        <div id="capture-actions">
+          <button id="btn-capture-start" class="capture-btn capture-start" title="Start / Resume" disabled>
+            <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5,3 19,12 5,21"/></svg>
+          </button>
+          <button id="btn-capture-pause" class="capture-btn" title="Pause" disabled>
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          </button>
+          <button id="btn-capture-stop" class="capture-btn danger" title="Stop / Discard" disabled>
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+          </button>
+          <div id="capture-stats">
+            <span id="capture-points">0 pts</span>
+            <span id="capture-distance">0 m</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Panels (hidden by default) -->
+    <div id="settings-panel" class="side-panel" style="display:none"></div>
+    <div id="layers-panel" class="side-panel" style="display:none"></div>
+    <div id="online-data-panel" class="side-panel" style="display:none"></div>
+    <div id="import-panel" class="side-panel" style="display:none"></div>
+    <div id="export-panel" class="side-panel" style="display:none"></div>
+    <div id="basemap-panel" class="floating-panel" style="display:none"></div>
+    <div id="feature-editor-panel" class="floating-panel" style="display:none"></div>
+
+    <!-- Toast notifications -->
+    <div id="toast-container"></div>
+
+    <!-- Modal overlay -->
+    <div id="modal-overlay" style="display:none">
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
