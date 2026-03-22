@@ -13,6 +13,10 @@ export class LayersPanel {
   private fileInput!: HTMLInputElement;
   private feltDialog = new FeltExportDialog();
 
+  // Export state
+  private exportFeatures: FieldFeature[] = [];
+  private exportDateFilter = 'all';
+
   constructor(
     private importManager: ImportManager,
     private exportManager: ExportManager
@@ -67,9 +71,20 @@ export class LayersPanel {
   }
 
   toggleExport(): void {
-    this.open();
     this.activeTab = 'export';
-    this.render();
+    this.exportFeatures = []; // reset so loading state shows
+    this.open();
+    // Load features asynchronously and update the tab content
+    void this.storage.getAllFeatures().then(features => {
+      this.exportFeatures = features;
+      if (this.isOpen && this.activeTab === 'export') {
+        const content = this.panel.querySelector<HTMLElement>('#layer-tab-content');
+        if (content) {
+          content.innerHTML = this.renderExportTab();
+          this.wireExportButtons();
+        }
+      }
+    });
   }
 
   private activeTab: 'layers' | 'import' | 'export' = 'layers';
@@ -120,14 +135,154 @@ export class LayersPanel {
     this.panel.querySelector('#layers-done')?.addEventListener('click', () => this.close());
 
     this.panel.querySelectorAll<HTMLButtonElement>('.tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.activeTab = btn.dataset.tab as 'layers' | 'import' | 'export';
-        this.render();
+      btn.addEventListener('click', async () => {
+        const newTab = btn.dataset.tab as 'layers' | 'import' | 'export';
+        this.activeTab = newTab;
+        if (newTab === 'export') {
+          this.exportFeatures = [];
+          this.render();
+          const features = await this.storage.getAllFeatures();
+          this.exportFeatures = features;
+          if (this.activeTab === 'export') {
+            const content = this.panel.querySelector<HTMLElement>('#layer-tab-content');
+            if (content) {
+              content.innerHTML = this.renderExportTab();
+              this.wireExportButtons();
+            }
+          }
+        } else {
+          this.render();
+        }
       });
     });
 
     this.wireTab();
   }
+
+  // ── Date filter helpers ──────────────────────────────────────
+
+  private filterFeaturesByDate(features: FieldFeature[], filter: string): FieldFeature[] {
+    if (filter === 'all') return features;
+    const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+    const dateStr = filter === 'today' ? today : filter;
+    return features.filter(f => f.created_at.startsWith(dateStr));
+  }
+
+  private formatDateLabel(isoDate: string): string {
+    const d = new Date(isoDate + 'T12:00:00');
+    return d.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  // ── Export tab rendering ─────────────────────────────────────
+
+  private renderExportTab(): string {
+    const features = this.exportFeatures;
+    const today = new Date().toLocaleDateString('en-CA');
+    const todayCount = features.filter(f => f.created_at.startsWith(today)).length;
+
+    // Unique dates that have features, newest first
+    const uniqueDates = [...new Set(features.map(f => f.created_at.substring(0, 10)))]
+      .sort().reverse();
+
+    const dateOptions = [
+      `<option value="all" ${this.exportDateFilter === 'all' ? 'selected' : ''}>All Dates (${features.length} feature${features.length !== 1 ? 's' : ''})</option>`,
+      `<option value="today" ${this.exportDateFilter === 'today' ? 'selected' : ''}>Today (${todayCount} feature${todayCount !== 1 ? 's' : ''})</option>`,
+      ...uniqueDates.map(d => {
+        const df = features.filter(f => f.created_at.startsWith(d));
+        const types = [...new Set(df.map(f => f.type).filter(Boolean))].slice(0, 3).join(', ');
+        const label = `${this.formatDateLabel(d)} — ${df.length} feature${df.length !== 1 ? 's' : ''}${types ? ' · ' + types : ''}`;
+        return `<option value="${d}" ${this.exportDateFilter === d ? 'selected' : ''}>${label}</option>`;
+      })
+    ].join('');
+
+    const filtered = this.filterFeaturesByDate(features, this.exportDateFilter);
+    const isLoading = features.length === 0;
+
+    return `
+      <div class="export-section">
+
+        <div class="felt-field">
+          <label class="felt-label">Date Filter</label>
+          ${isLoading
+            ? `<select class="felt-select" disabled><option>Loading…</option></select>`
+            : `<select id="export-date-filter" class="felt-select">${dateOptions}</select>`
+          }
+          <p class="settings-hint" id="export-count" style="margin-top:4px">
+            ${isLoading ? '' : `${filtered.length} feature${filtered.length !== 1 ? 's' : ''} selected`}
+          </p>
+        </div>
+
+        <div style="margin-top:16px">
+          <h4 style="margin:0 0 8px">Save to Device</h4>
+          <div class="export-btn-grid">
+            <button class="btn-outline export-btn" data-format="geojson">
+              <span class="export-icon">{ }</span>GeoJSON
+            </button>
+            <button class="btn-outline export-btn" data-format="kml">
+              <span class="export-icon">KML</span>KML
+            </button>
+            <button class="btn-outline export-btn" data-format="shp">
+              <span class="export-icon">SHP</span>Shapefile
+            </button>
+            <button class="btn-outline export-btn" data-format="csv">
+              <span class="export-icon">CSV</span>CSV
+            </button>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border,#333)">
+          <h4 style="margin:0 0 6px">Upload to Felt</h4>
+          <p class="settings-hint" style="margin-bottom:10px">
+            Upload the selected features as a GeoJSON layer to a Felt map.
+          </p>
+          <button class="btn-primary export-btn" data-format="felt" style="width:100%">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;margin-right:6px;vertical-align:-2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Upload to Felt
+          </button>
+        </div>
+
+      </div>
+    `;
+  }
+
+  private wireExportButtons(): void {
+    const filterSel = this.panel.querySelector<HTMLSelectElement>('#export-date-filter');
+    const countEl = this.panel.querySelector<HTMLElement>('#export-count');
+
+    filterSel?.addEventListener('change', () => {
+      this.exportDateFilter = filterSel.value;
+      const n = this.filterFeaturesByDate(this.exportFeatures, this.exportDateFilter).length;
+      if (countEl) countEl.textContent = `${n} feature${n !== 1 ? 's' : ''} selected`;
+    });
+
+    this.panel.querySelectorAll<HTMLButtonElement>('.export-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const fmt = btn.dataset.format;
+        const features = this.filterFeaturesByDate(this.exportFeatures, this.exportDateFilter);
+
+        if (features.length === 0) {
+          EventBus.emit('toast', { message: 'No features in selected date range', type: 'warning' });
+          return;
+        }
+
+        if (fmt === 'geojson') {
+          const json = await this.exportManager.buildGeoJSON(features);
+          this.exportManager.downloadGeoJSONString(json);
+        } else if (fmt === 'kml') {
+          await this.exportManager.exportKML(features);
+        } else if (fmt === 'shp') {
+          await this.exportManager.exportShapefile(features);
+        } else if (fmt === 'csv') {
+          await this.exportManager.exportCSV(features);
+        } else if (fmt === 'felt') {
+          const json = await this.exportManager.buildGeoJSON(features);
+          this.feltDialog.show(json);
+        }
+      });
+    });
+  }
+
+  // ── Layers tab ───────────────────────────────────────────────
 
   private getFieldNames(layer: ImportedLayer): string[] {
     if (!layer.data || layer.data.features.length === 0) return [];
@@ -180,6 +335,8 @@ export class LayersPanel {
     `;
   }
 
+  // ── Import tab ───────────────────────────────────────────────
+
   private renderImportTab(): string {
     return `
       <div class="import-section">
@@ -210,32 +367,7 @@ export class LayersPanel {
     `;
   }
 
-  private renderExportTab(): string {
-    return `
-      <div class="export-section">
-        <h4>Export Collected Features</h4>
-        <p class="settings-hint">Exports all features in the selected format.</p>
-        <div class="export-btn-grid">
-          <button class="btn-outline export-btn" data-format="geojson">
-            <span class="export-icon">{ }</span>
-            GeoJSON
-          </button>
-          <button class="btn-outline export-btn" data-format="kml">
-            <span class="export-icon">KML</span>
-            KML
-          </button>
-          <button class="btn-outline export-btn" data-format="shp">
-            <span class="export-icon">SHP</span>
-            Shapefile (ZIP)
-          </button>
-          <button class="btn-outline export-btn" data-format="csv">
-            <span class="export-icon">CSV</span>
-            CSV
-          </button>
-        </div>
-      </div>
-    `;
-  }
+  // ── Tab wiring ───────────────────────────────────────────────
 
   private wireTab(): void {
     if (this.activeTab === 'layers') {
@@ -312,24 +444,7 @@ export class LayersPanel {
     }
 
     if (this.activeTab === 'export') {
-      this.panel.querySelectorAll<HTMLButtonElement>('.export-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const fmt = btn.dataset.format;
-          if (fmt === 'geojson') {
-            // Open the Felt export dialog: user can save locally and/or upload to Felt
-            const geojson = await this.exportManager.buildGeoJSON();
-            this.feltDialog.show(geojson, () => {
-              this.exportManager.downloadGeoJSONString(geojson);
-            });
-          } else if (fmt === 'kml') {
-            await this.exportManager.exportKML();
-          } else if (fmt === 'shp') {
-            await this.exportManager.exportShapefile();
-          } else if (fmt === 'csv') {
-            await this.exportManager.exportCSV();
-          }
-        });
-      });
+      this.wireExportButtons();
     }
   }
 }

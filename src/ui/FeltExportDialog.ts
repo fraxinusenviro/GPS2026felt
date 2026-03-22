@@ -1,6 +1,5 @@
 // ============================================================
-// Felt Export Dialog
-// Multi-step dialog: export options → Felt destination picker
+// Felt Export Dialog — upload GeoJSON to a Felt map
 // API patterns confirmed against https://github.com/fraxinusenviro/FELT
 // ============================================================
 
@@ -8,20 +7,17 @@ import { FeltService } from '../io/FeltService';
 import type { FeltProject, FeltMap } from '../io/FeltService';
 import { EventBus } from '../utils/EventBus';
 
-// Match the localStorage key used in the companion FELT repo
 const API_KEY_STORAGE = 'felt_key';
 
-type Step = 'options' | 'destination';
+type Step = 'apikey' | 'destination';
 
 export class FeltExportDialog {
   private overlay: HTMLElement;
 
   // State
-  private step: Step = 'options';
+  private step: Step = 'apikey';
   private apiKey = '';
   private saveKey = true;
-  private saveLocally = true;
-  private uploadToFelt = true;
   private felt?: FeltService;
   private projects: FeltProject[] = [];
   private maps: FeltMap[] = [];
@@ -30,7 +26,6 @@ export class FeltExportDialog {
 
   // Payload
   private geojsonStr = '';
-  private onLocalSave?: () => void;
 
   constructor() {
     this.overlay = document.createElement('div');
@@ -43,11 +38,10 @@ export class FeltExportDialog {
     });
   }
 
-  /** Open the dialog with the GeoJSON string and a callback for the local-save action. */
-  show(geojsonStr: string, onLocalSave: () => void): void {
+  /** Open the dialog with the GeoJSON string to upload. */
+  show(geojsonStr: string): void {
     this.geojsonStr = geojsonStr;
-    this.onLocalSave = onLocalSave;
-    this.step = 'options';
+    this.step = 'apikey';
     this.apiKey = localStorage.getItem(API_KEY_STORAGE) ?? '';
     this.projects = [];
     this.maps = [];
@@ -68,41 +62,27 @@ export class FeltExportDialog {
   // ── Rendering ─────────────────────────────────────────────
 
   private render(): void {
-    if (this.step === 'options') this.renderOptions();
+    if (this.step === 'apikey') this.renderApiKey();
     else this.renderDestination();
   }
 
-  private renderOptions(): void {
+  private renderApiKey(): void {
     this.overlay.innerHTML = `
       <div class="felt-dialog">
         <div class="felt-dialog-header">
           <div class="felt-dialog-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Export GeoJSON
+            Upload to Felt
           </div>
           <button class="panel-close" id="fd-close">✕</button>
         </div>
         <div class="felt-dialog-body">
 
           <div class="felt-section">
-            <div class="felt-section-title">Export Options</div>
-            <label class="toggle-label">
-              <span>Save to device</span>
-              <input type="checkbox" id="fd-opt-local" ${this.saveLocally ? 'checked' : ''} />
-              <span class="toggle-slider"></span>
-            </label>
-            <label class="toggle-label" style="margin-top:10px">
-              <span>Upload to Felt</span>
-              <input type="checkbox" id="fd-opt-felt" ${this.uploadToFelt ? 'checked' : ''} />
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-
-          <div id="fd-api-section" class="felt-section" style="${this.uploadToFelt ? '' : 'display:none'}">
             <div class="felt-section-title">Felt API Key</div>
             <input type="password" id="fd-api-key" class="felt-input"
               value="${this.esc(this.apiKey)}"
-              placeholder="felt_pat_..."
+              placeholder="felt_pat_…"
               autocomplete="off"
               spellcheck="false" />
             <label class="toggle-label" style="margin-top:10px">
@@ -118,47 +98,18 @@ export class FeltExportDialog {
         </div>
         <div class="felt-dialog-footer">
           <button class="btn-outline" id="fd-cancel">Cancel</button>
-          <button class="btn-primary" id="fd-next">
-            ${this.uploadToFelt ? 'Next →' : 'Export'}
-          </button>
+          <button class="btn-primary" id="fd-next">Next →</button>
         </div>
       </div>
     `;
 
-    const closeBtn = this.overlay.querySelector('#fd-close')!;
-    const cancelBtn = this.overlay.querySelector('#fd-cancel')!;
+    this.overlay.querySelector('#fd-close')!.addEventListener('click', () => this.hide());
+    this.overlay.querySelector('#fd-cancel')!.addEventListener('click', () => this.hide());
+
     const nextBtn = this.overlay.querySelector<HTMLButtonElement>('#fd-next')!;
-    const optFelt = this.overlay.querySelector<HTMLInputElement>('#fd-opt-felt')!;
-    const optLocal = this.overlay.querySelector<HTMLInputElement>('#fd-opt-local')!;
-    const apiSection = this.overlay.querySelector<HTMLElement>('#fd-api-section')!;
-
-    closeBtn.addEventListener('click', () => this.hide());
-    cancelBtn.addEventListener('click', () => this.hide());
-
-    optFelt.addEventListener('change', () => {
-      this.uploadToFelt = optFelt.checked;
-      apiSection.style.display = this.uploadToFelt ? '' : 'none';
-      nextBtn.textContent = this.uploadToFelt ? 'Next →' : 'Export';
-    });
-
-    optLocal.addEventListener('change', () => { this.saveLocally = optLocal.checked; });
-
     nextBtn.addEventListener('click', async () => {
-      this.saveLocally = optLocal.checked;
-      this.uploadToFelt = optFelt.checked;
       this.apiKey = (this.overlay.querySelector<HTMLInputElement>('#fd-api-key')?.value ?? '').trim();
       this.saveKey = this.overlay.querySelector<HTMLInputElement>('#fd-save-key')?.checked ?? false;
-
-      if (!this.uploadToFelt) {
-        if (!this.saveLocally) {
-          EventBus.emit('toast', { message: 'Select at least one export option', type: 'warning' });
-          return;
-        }
-        this.onLocalSave?.();
-        this.hide();
-        EventBus.emit('toast', { message: 'GeoJSON saved to device', type: 'success' });
-        return;
-      }
 
       if (!this.apiKey) {
         EventBus.emit('toast', { message: 'Enter your Felt API key', type: 'warning' });
@@ -197,6 +148,7 @@ export class FeltExportDialog {
     const defaultTitle = `Field Map Export ${new Date().toLocaleDateString('en-CA')}`;
     const hasProject = Boolean(this.selectedProjectId);
     const hasExistingMaps = this.maps.length > 0;
+    const forceNew = !hasProject || !hasExistingMaps;
 
     const projectOpts = [
       `<option value="">— No Project / Personal —</option>`,
@@ -209,15 +161,12 @@ export class FeltExportDialog {
       `<option value="${this.esc(m.id)}">${this.esc(m.title)}</option>`
     ).join('');
 
-    // If no project selected, existing maps can't be listed — force create new
-    const forceNew = !hasProject || !hasExistingMaps;
-
     this.overlay.innerHTML = `
       <div class="felt-dialog">
         <div class="felt-dialog-header">
           <div class="felt-dialog-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-            Upload to Felt
+            Choose Destination
           </div>
           <button class="panel-close" id="fd-close">✕</button>
         </div>
@@ -228,7 +177,7 @@ export class FeltExportDialog {
             <select id="fd-project" class="felt-select">
               ${projectOpts}
             </select>
-            ${!hasProject ? '<p class="settings-hint" style="margin-top:4px">Select a project to see existing maps, or create a new map below.</p>' : ''}
+            ${!hasProject ? '<p class="settings-hint" style="margin-top:4px">Select a project to see existing maps.</p>' : ''}
           </div>
 
           <div class="felt-field">
@@ -238,11 +187,10 @@ export class FeltExportDialog {
                 <input type="radio" name="fd-map-mode" value="existing"
                   ${!forceNew ? 'checked' : ''}
                   ${forceNew ? 'disabled' : ''} />
-                <span>Use existing map${!hasProject ? ' (select a project first)' : hasExistingMaps ? '' : ' (none in this project)'}</span>
+                <span>${!hasProject ? 'Use existing map (select a project first)' : hasExistingMaps ? 'Use existing map' : 'Use existing map (none in this project)'}</span>
               </label>
               <label class="felt-radio">
-                <input type="radio" name="fd-map-mode" value="new"
-                  ${forceNew ? 'checked' : ''} />
+                <input type="radio" name="fd-map-mode" value="new" ${forceNew ? 'checked' : ''} />
                 <span>Create new map</span>
               </label>
             </div>
@@ -267,10 +215,6 @@ export class FeltExportDialog {
             <input type="text" id="fd-layer-name" class="felt-input" value="Field Data" />
           </div>
 
-          ${this.saveLocally
-            ? '<div class="felt-local-note">✓ GeoJSON will also be saved to device</div>'
-            : ''}
-
         </div>
         <div class="felt-dialog-footer">
           <button class="btn-outline" id="fd-back">← Back</button>
@@ -281,7 +225,7 @@ export class FeltExportDialog {
 
     this.overlay.querySelector('#fd-close')!.addEventListener('click', () => this.hide());
     this.overlay.querySelector('#fd-back')!.addEventListener('click', () => {
-      this.step = 'options';
+      this.step = 'apikey';
       this.render();
     });
 
@@ -317,7 +261,6 @@ export class FeltExportDialog {
       const layerName = (this.overlay.querySelector<HTMLInputElement>('#fd-layer-name')?.value ?? '').trim() || 'Field Data';
       const mode = this.overlay.querySelector<HTMLInputElement>('input[name="fd-map-mode"]:checked')?.value ?? 'new';
 
-      uploadBtn.textContent = 'Uploading…';
       uploadBtn.disabled = true;
 
       try {
@@ -337,14 +280,11 @@ export class FeltExportDialog {
           mapUrl = this.maps.find(m => m.id === mapId)?.url ?? '';
         }
 
-        if (this.saveLocally) this.onLocalSave?.();
-
         uploadBtn.textContent = 'Uploading data…';
         await this.felt!.uploadGeoJSON(mapId, this.geojsonStr, layerName);
 
         this.hide();
 
-        // Show success with link to open the map
         if (mapUrl) {
           EventBus.emit('toast', {
             message: `Uploaded to Felt! <a href="${mapUrl}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">Open map ↗</a>`,
