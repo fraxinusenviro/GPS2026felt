@@ -114,6 +114,18 @@ export class SettingsPanel {
           <!-- Presets (rendered by PresetManager) -->
           <div id="presets-settings-container"></div>
 
+          <!-- Integrations -->
+          <div class="settings-section">
+            <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Integrations</h4>
+            <label>Felt API Key
+              <input type="password" id="s-felt-key"
+                value="${localStorage.getItem('felt_key') ?? ''}"
+                placeholder="felt_pat_…"
+                autocomplete="off" spellcheck="false" />
+              <span class="settings-hint">Used for uploading to Felt. Get from Felt → Workspace Settings → Developers → Create token.</span>
+            </label>
+          </div>
+
           <!-- Data Management -->
           <div class="settings-section">
             <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>Data Management</h4>
@@ -187,6 +199,12 @@ export class SettingsPanel {
     this.settings.grid_visible = get<HTMLInputElement>('s-grid')?.checked ?? false;
     this.settings.follow_user = get<HTMLInputElement>('s-follow')?.checked ?? false;
     this.settings.auto_save = get<HTMLInputElement>('s-autosave')?.checked ?? true;
+
+    // Felt API key — stored directly in localStorage, not in AppSettings
+    const feltKey = (get<HTMLInputElement>('s-felt-key')?.value ?? '').trim();
+    if (feltKey) localStorage.setItem('felt_key', feltKey);
+    else localStorage.removeItem('felt_key');
+
     const ids = this.presetManager['quickEntryPresetIds'] as [string, string, string];
     this.settings.quick_entry_preset_id   = ids[0];
     this.settings.quick_entry_preset_id_2 = ids[1];
