@@ -100,9 +100,10 @@ export class FeltService {
    * Step 2: multipart POST to S3 (file field must be last per AWS requirements)
    */
   async uploadGeoJSON(mapId: string, geojsonStr: string, layerName: string): Promise<void> {
-    const fileName = `${layerName.replace(/[^a-z0-9_-]/gi, '_')}.geojson`;
+    const fileName = 'data.geojson'; // fixed name matches server.js behaviour
 
     // Step 1: Request presigned S3 URL from Felt
+    console.log('[FeltService] Requesting presigned upload URL for map:', mapId, 'layer:', layerName);
     const feltRes = await fetch(`${FELT_API}/maps/${mapId}/upload`, {
       method: 'POST',
       headers: this.headers,
@@ -111,14 +112,24 @@ export class FeltService {
 
     if (!feltRes.ok) {
       const text = await feltRes.text();
+      console.error('[FeltService] Upload init failed:', feltRes.status, text);
       throw new Error(`Felt upload init failed (${feltRes.status}): ${text}`);
     }
 
-    const { url, presigned_attributes } = await feltRes.json();
+    const payload = await feltRes.json();
+    console.log('[FeltService] Upload init response keys:', Object.keys(payload));
+
+    const { url, presigned_attributes } = payload;
 
     if (!url || !presigned_attributes) {
-      throw new Error('Felt API did not return presigned upload details — check API key permissions.');
+      console.error('[FeltService] Missing presigned details. Full response:', payload);
+      throw new Error(
+        `Felt API did not return presigned upload details — check API key permissions.\n` +
+        `Response keys: ${Object.keys(payload).join(', ')}`
+      );
     }
+
+    console.log('[FeltService] S3 URL received. Presigned fields:', Object.keys(presigned_attributes));
 
     // Step 2: POST file to S3 (file field MUST be appended last per AWS requirements)
     const formData = new FormData();
@@ -127,10 +138,16 @@ export class FeltService {
     }
     formData.append('file', new Blob([geojsonStr], { type: 'application/geo+json' }), fileName);
 
+    console.log('[FeltService] Posting to S3…');
     const s3Res = await fetch(url, { method: 'POST', body: formData });
+    console.log('[FeltService] S3 response status:', s3Res.status);
+
     if (s3Res.status !== 204) {
-      const s3Body = await s3Res.text();
+      const s3Body = await s3Res.text().catch(() => '(unreadable)');
+      console.error('[FeltService] S3 error body:', s3Body);
       throw new Error(`S3 upload failed (${s3Res.status}): ${s3Body}`);
     }
+
+    console.log('[FeltService] Upload complete ✓');
   }
 }

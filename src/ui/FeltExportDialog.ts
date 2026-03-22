@@ -322,24 +322,41 @@ export class FeltExportDialog {
 
       try {
         let mapId: string;
+        let mapUrl = '';
 
         if (mode === 'new') {
           const title = (this.overlay.querySelector<HTMLInputElement>('#fd-new-title')?.value ?? '').trim() || defaultTitle;
+          uploadBtn.textContent = 'Creating map…';
           const newMap = await this.felt!.createMap(title, this.selectedProjectId || undefined);
           mapId = newMap.id;
+          mapUrl = newMap.url;
+          console.log('[FeltExportDialog] Created map:', mapId, mapUrl);
         } else {
           mapId = this.overlay.querySelector<HTMLSelectElement>('#fd-map-sel')?.value ?? '';
           if (!mapId) throw new Error('No map selected');
+          mapUrl = this.maps.find(m => m.id === mapId)?.url ?? '';
         }
 
         if (this.saveLocally) this.onLocalSave?.();
 
+        uploadBtn.textContent = 'Uploading data…';
         await this.felt!.uploadGeoJSON(mapId, this.geojsonStr, layerName);
 
-        EventBus.emit('toast', { message: 'Uploaded to Felt successfully!', type: 'success' });
         this.hide();
+
+        // Show success with link to open the map
+        if (mapUrl) {
+          EventBus.emit('toast', {
+            message: `Uploaded to Felt! <a href="${mapUrl}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">Open map ↗</a>`,
+            type: 'success',
+            duration: 8000,
+          });
+        } else {
+          EventBus.emit('toast', { message: 'Uploaded to Felt successfully!', type: 'success' });
+        }
       } catch (err) {
-        EventBus.emit('toast', { message: `Upload failed: ${(err as Error).message}`, type: 'error' });
+        console.error('[FeltExportDialog] Upload error:', err);
+        EventBus.emit('toast', { message: `Upload failed: ${(err as Error).message}`, type: 'error', duration: 6000 });
         uploadBtn.textContent = 'Upload to Felt';
         uploadBtn.disabled = false;
       }
