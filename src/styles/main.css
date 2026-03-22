@@ -1474,6 +1474,67 @@ label textarea {
   padding: 24px;
 }
 
+.export-date-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.export-date-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.export-date-row:hover {
+  background: var(--color-surface-2);
+}
+
+.export-date-row input[type="checkbox"] {
+  flex-shrink: 0;
+  accent-color: var(--color-accent);
+  width: 15px;
+  height: 15px;
+}
+
+.export-filter-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.export-filter-row:hover {
+  background: var(--color-surface-2);
+}
+
+.export-filter-row input[type="radio"] {
+  flex-shrink: 0;
+  accent-color: var(--color-accent);
+  width: 15px;
+  height: 15px;
+}
+
+.export-date-row-indent {
+  padding-left: 20px;
+}
+
 /* ============================================================
    Toast
    ============================================================ */
@@ -1493,6 +1554,7 @@ label textarea {
 .toast {
   display: flex;
   align-items: center;
+  pointer-events: auto;
   gap: 8px;
   padding: 10px 14px;
   border-radius: var(--radius);
@@ -2626,6 +2688,7 @@ input[type=color] {
 
 .felt-radio {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 8px;
   cursor: pointer;

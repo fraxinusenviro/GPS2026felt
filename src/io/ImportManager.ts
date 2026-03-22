@@ -163,7 +163,7 @@ export class ImportManager {
     // Dynamically load sql.js to avoid blocking main bundle
     const initSqlJs = (await import('sql.js')).default;
     const SQL = await initSqlJs({
-      locateFile: (_filename: string) => '/sql-wasm-browser.wasm'
+      locateFile: (_filename: string) => `${import.meta.env.BASE_URL}sql-wasm-browser.wasm`
     });
 
     const db = new SQL.Database(new Uint8Array(buffer));
