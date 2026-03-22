@@ -1,13 +1,15 @@
 // ============================================================
 // Felt Export Dialog
-// Multi-step dialog for GeoJSON export with optional Felt upload
+// Multi-step dialog: export options → Felt destination picker
+// API patterns confirmed against https://github.com/fraxinusenviro/FELT
 // ============================================================
 
 import { FeltService } from '../io/FeltService';
 import type { FeltProject, FeltMap } from '../io/FeltService';
 import { EventBus } from '../utils/EventBus';
 
-const API_KEY_STORAGE = 'felt_api_key';
+// Match the localStorage key used in the companion FELT repo
+const API_KEY_STORAGE = 'felt_key';
 
 type Step = 'options' | 'destination';
 
@@ -41,7 +43,7 @@ export class FeltExportDialog {
     });
   }
 
-  /** Open the dialog with the GeoJSON string and a callback for local-save action. */
+  /** Open the dialog with the GeoJSON string and a callback for the local-save action. */
   show(geojsonStr: string, onLocalSave: () => void): void {
     this.geojsonStr = geojsonStr;
     this.onLocalSave = onLocalSave;
@@ -193,11 +195,13 @@ export class FeltExportDialog {
 
   private renderDestination(): void {
     const defaultTitle = `Field Map Export ${new Date().toLocaleDateString('en-CA')}`;
+    const hasProject = Boolean(this.selectedProjectId);
+    const hasExistingMaps = this.maps.length > 0;
 
     const projectOpts = [
       `<option value="">— No Project / Personal —</option>`,
       ...this.projects.map(p =>
-        `<option value="${this.esc(p.id)}" ${p.id === this.selectedProjectId ? 'selected' : ''}>${this.esc(p.title)}</option>`
+        `<option value="${this.esc(p.id)}" ${p.id === this.selectedProjectId ? 'selected' : ''}>${this.esc(p.name)}</option>`
       )
     ].join('');
 
@@ -205,7 +209,8 @@ export class FeltExportDialog {
       `<option value="${this.esc(m.id)}">${this.esc(m.title)}</option>`
     ).join('');
 
-    const hasExistingMaps = this.maps.length > 0;
+    // If no project selected, existing maps can't be listed — force create new
+    const forceNew = !hasProject || !hasExistingMaps;
 
     this.overlay.innerHTML = `
       <div class="felt-dialog">
@@ -223,33 +228,34 @@ export class FeltExportDialog {
             <select id="fd-project" class="felt-select">
               ${projectOpts}
             </select>
+            ${!hasProject ? '<p class="settings-hint" style="margin-top:4px">Select a project to see existing maps, or create a new map below.</p>' : ''}
           </div>
 
           <div class="felt-field">
             <label class="felt-label">Destination Map</label>
             <div class="felt-radio-group">
-              <label class="felt-radio ${hasExistingMaps ? '' : 'felt-radio-disabled'}">
+              <label class="felt-radio ${forceNew ? 'felt-radio-disabled' : ''}">
                 <input type="radio" name="fd-map-mode" value="existing"
-                  ${!this.createNew && hasExistingMaps ? 'checked' : ''}
-                  ${hasExistingMaps ? '' : 'disabled'} />
-                <span>Use existing map</span>
+                  ${!forceNew ? 'checked' : ''}
+                  ${forceNew ? 'disabled' : ''} />
+                <span>Use existing map${!hasProject ? ' (select a project first)' : hasExistingMaps ? '' : ' (none in this project)'}</span>
               </label>
               <label class="felt-radio">
                 <input type="radio" name="fd-map-mode" value="new"
-                  ${this.createNew || !hasExistingMaps ? 'checked' : ''} />
+                  ${forceNew ? 'checked' : ''} />
                 <span>Create new map</span>
               </label>
             </div>
           </div>
 
-          <div id="fd-existing-map" class="felt-field" style="${this.createNew || !hasExistingMaps ? 'display:none' : ''}">
+          <div id="fd-existing-map" class="felt-field" style="${forceNew ? 'display:none' : ''}">
             <label class="felt-label">Select Map</label>
             <select id="fd-map-sel" class="felt-select">
               ${mapOpts}
             </select>
           </div>
 
-          <div id="fd-new-map" class="felt-field" style="${this.createNew || !hasExistingMaps ? '' : 'display:none'}">
+          <div id="fd-new-map" class="felt-field" style="${!forceNew ? 'display:none' : ''}">
             <label class="felt-label">New Map Title</label>
             <input type="text" id="fd-new-title" class="felt-input"
               value="${this.esc(defaultTitle)}"
@@ -287,7 +293,7 @@ export class FeltExportDialog {
       uploadBtn.disabled = true;
       try {
         this.maps = await this.felt!.getMaps(this.selectedProjectId || undefined);
-        this.createNew = this.maps.length === 0;
+        this.createNew = this.maps.length === 0 || !this.selectedProjectId;
         this.renderDestination();
       } catch (err) {
         EventBus.emit('toast', { message: `Failed to load maps: ${(err as Error).message}`, type: 'error' });
@@ -309,7 +315,7 @@ export class FeltExportDialog {
     this.overlay.querySelector('#fd-upload')?.addEventListener('click', async () => {
       const uploadBtn = this.overlay.querySelector<HTMLButtonElement>('#fd-upload')!;
       const layerName = (this.overlay.querySelector<HTMLInputElement>('#fd-layer-name')?.value ?? '').trim() || 'Field Data';
-      const mode = (this.overlay.querySelector<HTMLInputElement>('input[name="fd-map-mode"]:checked')?.value) ?? 'new';
+      const mode = this.overlay.querySelector<HTMLInputElement>('input[name="fd-map-mode"]:checked')?.value ?? 'new';
 
       uploadBtn.textContent = 'Uploading…';
       uploadBtn.disabled = true;
@@ -326,7 +332,6 @@ export class FeltExportDialog {
           if (!mapId) throw new Error('No map selected');
         }
 
-        // Save locally if requested
         if (this.saveLocally) this.onLocalSave?.();
 
         await this.felt!.uploadGeoJSON(mapId, this.geojsonStr, layerName);
