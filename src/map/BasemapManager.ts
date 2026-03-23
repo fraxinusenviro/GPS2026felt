@@ -26,6 +26,7 @@ interface UserLayerInfo {
   mapLayerId: string;
   bounds?: [number, number, number, number];
   fileType?: string;
+  tileUrl?: string; // used when promoting raster layer to the active stack
 }
 
 interface PDFLayerInfo {
@@ -49,6 +50,8 @@ export class BasemapManager {
   private pdfLayers: PDFLayerInfo[] = [];
   private onDeletePDF: ((id: string) => void) | null = null;
   private onDeleteUserLayer: ((id: string) => void) | null = null;
+  // Sections collapsed by default (except 'basemaps' which starts open)
+  private collapsedSections = new Set<string>(['pdfs', 'lidar', 'userlayers']);
 
   constructor(private mapManager: MapManager) {}
 
@@ -82,6 +85,23 @@ export class BasemapManager {
     if (this.stack.length <= 1) return;
     this.stack = this.stack.filter(l => l.instanceId !== instanceId);
     this.rebuildMap();
+  }
+
+  private addUserLayerToStack(ul: UserLayerInfo, container: HTMLElement, onClose: () => void): void {
+    if (!ul.tileUrl) return;
+    const instanceId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+    this.stack.unshift({
+      instanceId, defId: ul.id, label: ul.name, url: ul.tileUrl,
+      tileSize: 256, maxZoom: 22,
+      opacity: ul.opacity, visible: ul.visible,
+      hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
+    });
+    // Remove the original standalone map entry
+    try { this.mapManager.removeLayer(ul.mapLayerId); } catch { /* ignore */ }
+    try { this.mapManager.getMap().removeSource(`src-${ul.mapLayerId}`); } catch { /* ignore */ }
+    this.userLayers = this.userLayers.filter(l => l.id !== ul.id);
+    this.rebuildMap();
+    this.renderContent(container, onClose);
   }
 
   private rebuildMap(): void {
@@ -121,6 +141,19 @@ export class BasemapManager {
 
   // ---- Palette helpers ----
 
+  private sectionToggle(id: string, label: string, hint: string): string {
+    const open = !this.collapsedSections.has(id);
+    return `<button class="bm-section-toggle" data-section="${id}" data-open="${open}">
+      ${label} <span class="bm-section-hint">${hint}</span>
+      <span class="bm-toggle-chevron">▾</span>
+    </button>`;
+  }
+
+  private sectionBody(id: string, content: string): string {
+    const open = !this.collapsedSections.has(id);
+    return `<div class="bm-section-body" data-section-body="${id}" data-open="${open}">${content}</div>`;
+  }
+
   private renderOverlayPalette(): string {
     const ungrouped = BASEMAP_OVERLAYS.filter(o => !o.group);
     const groupNames = [...new Set(BASEMAP_OVERLAYS.filter(o => o.group).map(o => o.group!))]
@@ -132,128 +165,106 @@ export class BasemapManager {
         <button class="bm-add-btn" data-def-id="${ov.id}" title="Add to stack">+</button>
       </div>`).join('');
 
-    let html = `<div class="bm-section-title">LiDAR Hillshades <span class="bm-section-hint">click + to add</span></div>`;
-    if (ungrouped.length) html += `<div class="bm-palette">${rows(ungrouped)}</div>`;
+    let bodyHtml = '';
+    if (ungrouped.length) bodyHtml += `<div class="bm-palette">${rows(ungrouped)}</div>`;
     for (const g of groupNames) {
+      const gKey = `group-${g.replace(/\s+/g, '-').toLowerCase()}`;
       const items = BASEMAP_OVERLAYS.filter(o => o.group === g);
-      html += `
-        <div class="bm-overlay-group-header">${g} <span class="bm-section-hint">${items.length} layers</span></div>
-        <div class="bm-palette bm-palette-group">${rows(items)}</div>`;
+      const groupOpen = !this.collapsedSections.has(gKey);
+      bodyHtml += `
+        <button class="bm-section-toggle" data-section="${gKey}" data-open="${groupOpen}" style="font-size:10px;padding:4px 2px;margin-top:4px">
+          ${g} <span class="bm-section-hint">${items.length} layers</span>
+          <span class="bm-toggle-chevron">▾</span>
+        </button>
+        <div class="bm-section-body bm-palette bm-palette-group" data-section-body="${gKey}" data-open="${groupOpen}">${rows(items)}</div>`;
     }
-    return html;
+
+    return this.sectionToggle('lidar', 'LiDAR Hillshades', 'click + to add') +
+      this.sectionBody('lidar', bodyHtml);
   }
 
   private renderUserLayersSection(): string {
     if (this.userLayers.length === 0) return '';
     const eyeSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
     const zoomSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`;
-    const dragDots = `<svg viewBox="0 0 10 16" fill="currentColor" width="10" height="16"><circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/><circle cx="3" cy="6" r="1.5"/><circle cx="7" cy="6" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/></svg>`;
-    return `
-      <div class="bm-section-title">Your Layers <span class="bm-section-hint">imported &amp; online</span></div>
-      <div class="bm-pdf-layers">
-        ${this.userLayers.map(l => {
-          const badge = (l.fileType ?? l.kind).toUpperCase();
-          return `
-          <div class="bm-stack-item" data-ulid="${l.id}">
-            <div class="bm-item-main">
-              <div class="bm-drag-handle" style="pointer-events:none;opacity:0.3">${dragDots}</div>
-              <span class="bm-layer-label" title="${l.name}">${l.name}</span>
-              <span class="bm-base-badge" style="background:var(--color-accent-dim,#1a3a2a);color:var(--color-accent,#4ade80);border:1px solid var(--color-accent,#4ade80)">${badge}</span>
-              <div class="bm-layer-controls">
-                <input type="range" class="bm-opacity-slider bm-ul-opacity" data-ulid="${l.mapLayerId}"
-                  min="0" max="100" value="${Math.round(l.opacity * 100)}" title="Opacity" />
-                <span class="bm-opacity-val">${Math.round(l.opacity * 100)}%</span>
-                <button class="bm-vis-btn ${l.visible ? 'active' : ''} bm-ul-vis" data-ulid="${l.mapLayerId}" title="${l.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
-                ${l.bounds ? `<button class="bm-adj-toggle bm-ul-zoom" data-ulid="${l.id}" title="Zoom to layer">${zoomSvg}</button>` : ''}
-                <button class="bm-del-btn bm-ul-del" data-ulid="${l.id}" title="Remove layer">✕</button>
-              </div>
+
+    const body = `<div class="bm-pdf-layers">
+      ${this.userLayers.map(l => {
+        const badge = (l.fileType ?? l.kind).toUpperCase();
+        const canStack = l.kind === 'raster' && !!l.tileUrl;
+        return `
+        <div class="bm-stack-item" data-ulid="${l.id}">
+          <div class="bm-item-main">
+            <span class="bm-layer-label" title="${l.name}">${l.name}</span>
+            <span class="bm-base-badge" style="background:var(--color-accent-dim,#1a3a2a);color:var(--color-accent,#4ade80);border:1px solid var(--color-accent,#4ade80)">${badge}</span>
+            <div class="bm-layer-controls">
+              <input type="range" class="bm-opacity-slider bm-ul-opacity" data-ulid="${l.mapLayerId}"
+                min="0" max="100" value="${Math.round(l.opacity * 100)}" title="Opacity" />
+              <span class="bm-opacity-val">${Math.round(l.opacity * 100)}%</span>
+              <button class="bm-vis-btn ${l.visible ? 'active' : ''} bm-ul-vis" data-ulid="${l.mapLayerId}" title="${l.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
+              ${l.bounds ? `<button class="bm-adj-toggle bm-ul-zoom" data-ulid="${l.id}" title="Zoom to layer">${zoomSvg}</button>` : ''}
+              ${canStack ? `<button class="bm-add-btn bm-ul-stack" data-ulid="${l.id}" title="Add to active stack" style="width:22px;height:22px;font-size:14px">+</button>` : ''}
+              <button class="bm-del-btn bm-ul-del" data-ulid="${l.id}" title="Remove layer">✕</button>
             </div>
-          </div>`;
-        }).join('')}
-      </div>`;
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+    return this.sectionToggle('userlayers', 'Your Layers', 'imported &amp; online') +
+      this.sectionBody('userlayers', body);
   }
 
   // ---- PDF overlay section ----
 
   private renderPDFSection(): string {
     if (this.pdfLayers.length === 0) return '';
-    return `
-      <div class="bm-pdf-layers">
-        ${this.pdfLayers.map(l => `
-          <div class="bm-stack-item" data-pdfid="${l.id}">
-            <div class="bm-item-main">
-              <div class="bm-drag-handle" style="pointer-events:none;opacity:0.3">
-                <svg viewBox="0 0 10 16" fill="currentColor" width="10" height="16">
-                  <circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/>
-                  <circle cx="3" cy="6" r="1.5"/><circle cx="7" cy="6" r="1.5"/>
-                  <circle cx="3" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/>
-                  <circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/>
-                </svg>
-              </div>
-              <span class="bm-layer-label" title="${l.name}">${l.name}</span>
-              <span class="bm-base-badge" style="background:var(--green-mid,#2d6a4f)">PDF</span>
-              <div class="bm-layer-controls">
-                <input type="range" class="bm-opacity-slider bm-pdf-opacity" data-pdfid="${l.id}"
-                  min="0" max="100" value="${Math.round(l.opacity * 100)}" title="Opacity" />
-                <span class="bm-opacity-val">${Math.round(l.opacity * 100)}%</span>
-                <button class="bm-vis-btn bm-pdf-vis ${l.visible ? 'active' : ''}" data-pdfid="${l.id}" title="${l.visible ? 'Hide' : 'Show'}">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                    <circle cx="12" cy="12" r="3"/>
-                  </svg>
-                </button>
-                ${l.bounds ? `
-                <button class="bm-adj-toggle bm-pdf-zoom" data-pdfid="${l.id}" title="Zoom to map">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14">
-                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                    <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
-                  </svg>
-                </button>` : ''}
-                <button class="bm-del-btn bm-pdf-del" data-pdfid="${l.id}" title="Delete PDF">✕</button>
-              </div>
-            </div>
+    const eyeSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    const zoomSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`;
+    const body = `<div class="bm-pdf-layers">
+      ${this.pdfLayers.map(l => `
+        <div class="bm-stack-item" data-pdfid="${l.id}">
+          <div class="bm-item-row1">
+            <span class="bm-layer-label" title="${l.name}">${l.name}</span>
+            <span class="bm-base-badge" style="background:var(--green-mid,#2d6a4f)">PDF</span>
           </div>
-        `).join('')}
-      </div>`;
+          <div class="bm-item-row2">
+            <input type="range" class="bm-opacity-slider bm-pdf-opacity" data-pdfid="${l.id}"
+              min="0" max="100" value="${Math.round(l.opacity * 100)}" title="Opacity" />
+            <span class="bm-opacity-val">${Math.round(l.opacity * 100)}%</span>
+            <button class="bm-vis-btn bm-pdf-vis ${l.visible ? 'active' : ''}" data-pdfid="${l.id}" title="${l.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
+            ${l.bounds ? `<button class="bm-adj-toggle bm-pdf-zoom" data-pdfid="${l.id}" title="Zoom to map">${zoomSvg}</button>` : ''}
+            <button class="bm-del-btn bm-pdf-del" data-pdfid="${l.id}" title="Delete PDF">✕</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+    return this.sectionToggle('pdfs', 'GeoPDF Layers', `${this.pdfLayers.length} loaded`) +
+      this.sectionBody('pdfs', body);
   }
 
   // ---- Stack item rendering ----
 
   private renderStackItem(layer: StackLayer, idx: number): string {
     const isBase = idx === this.stack.length - 1;
+    const eyeSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    const adjSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="currentColor" stroke="none"/></svg>`;
+    const dragSvg = `<svg viewBox="0 0 10 16" fill="currentColor" width="10" height="16"><circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/><circle cx="3" cy="6" r="1.5"/><circle cx="7" cy="6" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/></svg>`;
     return `
       <div class="bm-stack-item ${isBase ? 'bm-base-item' : ''}"
            draggable="true" data-idx="${idx}" data-iid="${layer.instanceId}">
-        <div class="bm-item-main">
-          <div class="bm-drag-handle" title="Drag to reorder">
-            <svg viewBox="0 0 10 16" fill="currentColor" width="10" height="16">
-              <circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/>
-              <circle cx="3" cy="6" r="1.5"/><circle cx="7" cy="6" r="1.5"/>
-              <circle cx="3" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/>
-              <circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/>
-            </svg>
-          </div>
+        <div class="bm-item-row1">
+          <div class="bm-drag-handle" title="Drag to reorder">${dragSvg}</div>
           <span class="bm-layer-label" title="${layer.label}">${layer.label}</span>
           ${isBase ? '<span class="bm-base-badge">BASE</span>' : ''}
-          <div class="bm-layer-controls">
-            <input type="range" class="bm-opacity-slider" data-iid="${layer.instanceId}"
-              min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity" />
-            <span class="bm-opacity-val">${Math.round(layer.opacity * 100)}%</span>
-            <button class="bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                <circle cx="12" cy="12" r="3"/>
-              </svg>
-            </button>
-            <button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="Image adjustments">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14">
-                <line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor" stroke="none"/>
-                <line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="currentColor" stroke="none"/>
-                <line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="currentColor" stroke="none"/>
-              </svg>
-            </button>
-            ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
-          </div>
+        </div>
+        <div class="bm-item-row2">
+          <input type="range" class="bm-opacity-slider" data-iid="${layer.instanceId}"
+            min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity" />
+          <span class="bm-opacity-val">${Math.round(layer.opacity * 100)}%</span>
+          <button class="bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
+          <button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="Image adjustments">${adjSvg}</button>
+          ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
         <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
           <div class="bm-adj-row">
@@ -283,6 +294,7 @@ export class BasemapManager {
   // ---- Main render ----
 
   private renderContent(container: HTMLElement, onClose: () => void): void {
+    const basemapsOpen = !this.collapsedSections.has('basemaps');
     container.innerHTML = `
       <div class="panel-header">
         <h3>Basemap &amp; Overlays</h3>
@@ -290,7 +302,7 @@ export class BasemapManager {
       </div>
       <div class="panel-body bm-panel-body">
 
-        <div class="bm-section-title">
+        <div class="bm-section-title-static">
           Active Layers
           <span class="bm-section-hint">drag to reorder · top = drawn on top</span>
         </div>
@@ -298,10 +310,8 @@ export class BasemapManager {
           ${this.stack.map((layer, idx) => this.renderStackItem(layer, idx)).join('')}
         </div>
 
-        ${this.renderPDFSection()}
-
-        <div class="bm-section-title">Standard Basemaps <span class="bm-section-hint">click + to add</span></div>
-        <div class="bm-palette">
+        ${this.sectionToggle('basemaps', 'Standard Basemaps', 'click + to add')}
+        ${this.sectionBody('basemaps', `<div class="bm-palette">
           ${BASEMAPS.map(bm => `
             <div class="bm-palette-row">
               <img class="bm-thumb" src="${thumbUrl(bm.url)}" loading="lazy"
@@ -310,9 +320,10 @@ export class BasemapManager {
               <button class="bm-add-btn" data-def-id="${bm.id}" title="Add to stack">+</button>
             </div>
           `).join('')}
-        </div>
+        </div>`)}
 
         ${this.renderOverlayPalette()}
+        ${this.renderPDFSection()}
         ${this.renderUserLayersSection()}
 
       </div>
@@ -327,24 +338,43 @@ export class BasemapManager {
   private wireContent(container: HTMLElement, onClose: () => void): void {
     const allDefs = ALL_DEFS();
 
-    // Add to stack
-    container.querySelectorAll<HTMLButtonElement>('.bm-add-btn').forEach(btn => {
+    // Collapse section toggles
+    container.querySelectorAll<HTMLButtonElement>('.bm-section-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.section!;
+        if (this.collapsedSections.has(id)) this.collapsedSections.delete(id);
+        else this.collapsedSections.add(id);
+        this.renderContent(container, onClose);
+      });
+    });
+
+    // Add to stack from palette
+    container.querySelectorAll<HTMLButtonElement>('.bm-add-btn:not(.bm-ul-stack)').forEach(btn => {
       btn.addEventListener('click', () => {
         const def = allDefs.find(d => d.id === btn.dataset.defId);
         if (def) { this.addToStack(def); this.renderContent(container, onClose); }
       });
     });
 
-    // Opacity sliders
-    container.querySelectorAll<HTMLInputElement>('.bm-opacity-slider').forEach(slider => {
+    // Promote user layer to active stack
+    container.querySelectorAll<HTMLButtonElement>('.bm-ul-stack').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.ulid!;
+        const ul = this.userLayers.find(l => l.id === id);
+        if (ul) this.addUserLayerToStack(ul, container, onClose);
+      });
+    });
+
+    // Opacity sliders (stack items)
+    container.querySelectorAll<HTMLInputElement>('.bm-opacity-slider:not(.bm-pdf-opacity):not(.bm-ul-opacity)').forEach(slider => {
       slider.addEventListener('input', () => {
         const iid = slider.dataset.iid!;
         const opacity = parseInt(slider.value) / 100;
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
         layer.opacity = opacity;
-        slider.closest('.bm-item-main')?.querySelector('.bm-opacity-val')!
-          && (slider.closest('.bm-item-main')!.querySelector('.bm-opacity-val')!.textContent = `${Math.round(opacity * 100)}%`);
+        const valEl = slider.closest('.bm-stack-item')?.querySelector('.bm-opacity-val');
+        if (valEl) valEl.textContent = `${Math.round(opacity * 100)}%`;
         const isBase = iid === this.stack[this.stack.length - 1]?.instanceId;
         if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? opacity : 0);
         else this.mapManager.setBasemapOverlayOpacity(iid, layer.visible ? opacity : 0);
@@ -424,8 +454,8 @@ export class BasemapManager {
         const opacity = parseInt(slider.value) / 100;
         const layer = this.pdfLayers.find(l => l.id === id);
         if (layer) layer.opacity = opacity;
-        slider.closest('.bm-item-main')?.querySelector('.bm-opacity-val')!
-          && (slider.closest('.bm-item-main')!.querySelector('.bm-opacity-val')!.textContent = `${Math.round(opacity * 100)}%`);
+        const valEl = slider.closest('.bm-stack-item')?.querySelector('.bm-opacity-val');
+        if (valEl) valEl.textContent = `${Math.round(opacity * 100)}%`;
         this.mapManager.setLayerOpacity(id, opacity);
       });
     });
@@ -484,8 +514,10 @@ export class BasemapManager {
       slider.addEventListener('input', () => {
         const ulid = slider.dataset.ulid!;
         const opacity = parseInt(slider.value) / 100;
-        slider.closest('.bm-item-main')?.querySelector('.bm-opacity-val') &&
-          (slider.closest('.bm-item-main')!.querySelector('.bm-opacity-val')!.textContent = `${Math.round(opacity * 100)}%`);
+        const ul = this.userLayers.find(l => l.mapLayerId === ulid);
+        if (ul) ul.opacity = opacity;
+        const valEl = slider.closest('.bm-stack-item')?.querySelector('.bm-opacity-val');
+        if (valEl) valEl.textContent = `${Math.round(opacity * 100)}%`;
         this.mapManager.setLayerOpacity(ulid, opacity);
       });
     });

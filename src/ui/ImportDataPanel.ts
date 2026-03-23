@@ -42,7 +42,7 @@ export class ImportDataPanel {
     this.onlineLayers = await this.storage.getAllOnlineLayers();
     // Reload persistent online layers onto map
     for (const layer of this.onlineLayers) {
-      const tileUrl = (layer as OnlineLayer & { tileUrl?: string }).tileUrl;
+      const tileUrl = layer.tileUrl;
       if (layer.visible && tileUrl) {
         this.mapManager.addRasterLayer(layer.map_layer_id, tileUrl, layer.opacity);
       }
@@ -126,26 +126,30 @@ export class ImportDataPanel {
 
   private renderFileTab(): string {
     return `
-      <div class="import-section">
-        <h4>Vector Data</h4>
+      <div class="settings-section">
+        <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>Vector Data</h4>
         <p class="settings-hint">GeoJSON, KML, GPX, Shapefile (.shp or .zip)</p>
         <button class="btn-primary" id="import-vector-btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:6px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           Choose Vector File(s)
         </button>
+      </div>
 
-        <h4 style="margin-top:20px">Raster Tiles</h4>
+      <div class="settings-section">
+        <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>Raster Tiles</h4>
         <p class="settings-hint">MBTiles (.mbtiles) — offline tile packages, cached locally.</p>
         <button class="btn-outline" id="import-mbtiles-btn">Choose MBTiles File</button>
+      </div>
 
-        <h4 style="margin-top:20px">GeoPDF Map</h4>
+      <div class="settings-section">
+        <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>GeoPDF Map</h4>
         <p class="settings-hint">Georeferenced PDF maps overlaid directly on the map.</p>
         <button class="btn-outline" id="import-geopdf-btn">Import GeoPDF</button>
+      </div>
 
-        <div class="import-drag-area" id="import-drag-area">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:40px;height:40px;opacity:0.4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <p>Or drag &amp; drop files here</p>
-        </div>
+      <div class="import-drag-area" id="import-drag-area">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:40px;height:40px;opacity:0.4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <p>Or drag &amp; drop files here</p>
       </div>
     `;
   }
@@ -153,8 +157,8 @@ export class ImportDataPanel {
   private renderServiceTab(): string {
     const savedConns = this.connections.filter(c => c.type !== 'cog' && c.type !== 'xyz');
     return `
-      <div class="online-add-form">
-        <h4>Add Web Service Layer</h4>
+      <div class="online-add-form settings-section">
+        <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9"/></svg>Add Web Service Layer</h4>
         <p class="settings-hint">Enter any WMS, WMTS, WFS, WCS, or ESRI REST URL — type is auto-detected.</p>
         <label>Service URL
           <input type="url" id="service-url" placeholder="https://example.com/wms?service=WMS&request=GetCapabilities" />
@@ -164,7 +168,7 @@ export class ImportDataPanel {
       </div>
       ${savedConns.length > 0 ? `
       <div class="settings-section">
-        <h4>Saved Connections</h4>
+        <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>Saved Connections</h4>
         ${this.renderGroupedConnections(savedConns)}
       </div>` : ''}
     `;
@@ -216,8 +220,8 @@ export class ImportDataPanel {
   private renderCOGTab(): string {
     const cogConns = this.connections.filter(c => c.type === 'cog');
     return `
-      <div class="online-add-form">
-        <h4>Cloud-Optimized GeoTIFF (COG)</h4>
+      <div class="online-add-form settings-section">
+        <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>Cloud-Optimized GeoTIFF (COG)</h4>
         <p class="settings-hint">Direct URL to a .tif COG file. Reads via HTTP range requests.</p>
         <label>COG URL
           <input type="url" id="cog-url" placeholder="https://example.com/data.tif" />
@@ -233,7 +237,7 @@ export class ImportDataPanel {
       </div>
       ${cogConns.length > 0 ? `
       <div class="settings-section">
-        <h4>Saved COG Connections</h4>
+        <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>Saved COG Connections</h4>
         ${cogConns.map(c => `
           <div class="connection-row" data-id="${c.id}">
             <span class="conn-name">${c.name}</span>
@@ -249,8 +253,8 @@ export class ImportDataPanel {
   private renderXYZTab(): string {
     const xyzConns = this.connections.filter(c => c.type === 'xyz');
     return `
-      <div class="online-add-form">
-        <h4>XYZ Tile Layer</h4>
+      <div class="online-add-form settings-section">
+        <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></svg>XYZ Tile Layer</h4>
         <p class="settings-hint">Tile URL template with {z}, {x}, {y} placeholders.</p>
         <label>Tile URL Template
           <input type="url" id="xyz-url" placeholder="https://tiles.example.com/{z}/{x}/{y}.png" />
@@ -265,7 +269,7 @@ export class ImportDataPanel {
       </div>
       ${xyzConns.length > 0 ? `
       <div class="settings-section">
-        <h4>Saved XYZ Connections</h4>
+        <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>Saved XYZ Connections</h4>
         ${xyzConns.map(c => `
           <div class="connection-row" data-id="${c.id}">
             <span class="conn-name">${c.name}</span>
@@ -656,7 +660,7 @@ export class ImportDataPanel {
   // ================================================================
   private addTileLayer(name: string, tileUrl: string): void {
     const layerId = `online-${uuidv4()}`;
-    const layer: OnlineLayer & { tileUrl?: string } = {
+    const layer: OnlineLayer = {
       id: layerId, connection_id: '', name, type: 'wms',
       visible: true, opacity: 0.9, blend_mode: 'normal', map_layer_id: layerId, tileUrl,
     };
@@ -669,7 +673,7 @@ export class ImportDataPanel {
   private addCOGLayer(name: string, cogUrl: string): void {
     const layerId = `online-${uuidv4()}`;
     const tileUrl = `cog://${encodeURIComponent(cogUrl)}/{z}/{x}/{y}`;
-    const layer: OnlineLayer & { tileUrl?: string } = {
+    const layer: OnlineLayer = {
       id: layerId, connection_id: '', name, type: 'cog',
       visible: true, opacity: 1, blend_mode: 'normal', map_layer_id: layerId, tileUrl,
     };
@@ -681,7 +685,7 @@ export class ImportDataPanel {
 
   private addXYZLayer(name: string, tileUrl: string): void {
     const layerId = `online-${uuidv4()}`;
-    const layer: OnlineLayer & { tileUrl?: string } = {
+    const layer: OnlineLayer = {
       id: layerId, connection_id: '', name, type: 'xyz',
       visible: true, opacity: 0.9, blend_mode: 'normal', map_layer_id: layerId, tileUrl,
     };

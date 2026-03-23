@@ -262,6 +262,7 @@ export class App {
               mapLayerId: l.file_type === 'mbtiles' ? l.id : `${l.id}-fill`,
               bounds: l.bounds,
               fileType: l.file_type,
+              tileUrl: l.file_type === 'mbtiles' ? `mbtiles://${l.id}/{z}/{x}/{y}` : undefined,
             })),
           ...online.map(l => ({
             id: l.id,
@@ -271,6 +272,7 @@ export class App {
             opacity: l.opacity,
             mapLayerId: l.map_layer_id,
             fileType: l.type,
+            tileUrl: l.tileUrl,
           })),
         ];
 
