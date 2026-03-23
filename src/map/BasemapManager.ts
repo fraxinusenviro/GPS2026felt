@@ -50,8 +50,14 @@ export class BasemapManager {
   private pdfLayers: PDFLayerInfo[] = [];
   private onDeletePDF: ((id: string) => void) | null = null;
   private onDeleteUserLayer: ((id: string) => void) | null = null;
-  // Sections collapsed by default (except 'basemaps' which starts open)
-  private collapsedSections = new Set<string>(['pdfs', 'lidar', 'userlayers']);
+  // Sections collapsed by default; 'basemaps' starts open
+  private collapsedSections = new Set<string>([
+    'pdfs', 'lidar', 'userlayers',
+    ...[...new Set(
+      BASEMAP_OVERLAYS.filter(o => o.group)
+        .map(o => `group-${o.group!.replace(/\s+/g, '-').toLowerCase()}`)
+    )],
+  ]);
 
   constructor(private mapManager: MapManager) {}
 
@@ -159,28 +165,27 @@ export class BasemapManager {
     const groupNames = [...new Set(BASEMAP_OVERLAYS.filter(o => o.group).map(o => o.group!))]
       .sort((a, b) => a.localeCompare(b));
 
-    const rows = (items: BasemapDef[]) => items.map(ov => `
-      <div class="bm-palette-row">
-        <span class="bm-palette-label">${ov.label}</span>
-        <button class="bm-add-btn" data-def-id="${ov.id}" title="Add to stack">+</button>
-      </div>`).join('');
+    const paletteRows = (items: BasemapDef[]) =>
+      `<div class="bm-palette">${items.map(ov => `
+        <div class="bm-palette-row">
+          <span class="bm-palette-label">${ov.label}</span>
+          <button class="bm-add-btn" data-def-id="${ov.id}" title="Add to stack">+</button>
+        </div>`).join('')}</div>`;
 
-    let bodyHtml = '';
-    if (ungrouped.length) bodyHtml += `<div class="bm-palette">${rows(ungrouped)}</div>`;
-    for (const g of groupNames) {
-      const gKey = `group-${g.replace(/\s+/g, '-').toLowerCase()}`;
-      const items = BASEMAP_OVERLAYS.filter(o => o.group === g);
-      const groupOpen = !this.collapsedSections.has(gKey);
-      bodyHtml += `
-        <button class="bm-section-toggle" data-section="${gKey}" data-open="${groupOpen}" style="font-size:10px;padding:4px 2px;margin-top:4px">
-          ${g} <span class="bm-section-hint">${items.length} layers</span>
-          <span class="bm-toggle-chevron">▾</span>
-        </button>
-        <div class="bm-section-body bm-palette bm-palette-group" data-section-body="${gKey}" data-open="${groupOpen}">${rows(items)}</div>`;
+    let result = '';
+    // LiDAR (ungrouped overlays) — own top-level section
+    if (ungrouped.length) {
+      result += this.sectionToggle('lidar', 'LiDAR Hillshades', 'click + to add') +
+        this.sectionBody('lidar', paletteRows(ungrouped));
     }
-
-    return this.sectionToggle('lidar', 'LiDAR Hillshades', 'click + to add') +
-      this.sectionBody('lidar', bodyHtml);
+    // Each named group gets its own top-level collapsible section
+    for (const g of groupNames) {
+      const key = `group-${g.replace(/\s+/g, '-').toLowerCase()}`;
+      const items = BASEMAP_OVERLAYS.filter(o => o.group === g);
+      result += this.sectionToggle(key, g, 'click + to add') +
+        this.sectionBody(key, paletteRows(items));
+    }
+    return result;
   }
 
   private renderUserLayersSection(): string {
