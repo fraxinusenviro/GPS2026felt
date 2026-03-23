@@ -154,6 +154,7 @@ export interface OnlineLayer {
   opacity: number;
   blend_mode: string;
   map_layer_id: string; // MapLibre layer ID
+  tileUrl?: string;     // tile URL template for raster layers
 }
 
 // ---- Imported layers ----
