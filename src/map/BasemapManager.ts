@@ -2,6 +2,8 @@ import { BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import type { BasemapDef, ImportedLayer, OnlineLayer } from '../types';
 import type { MapManager } from './MapManager';
 
+const BM_STACK_KEY = 'fm2026_bm_stack';
+
 interface StackLayer {
   instanceId: string;
   defId: string;
@@ -50,6 +52,7 @@ export class BasemapManager {
   private pdfLayers: PDFLayerInfo[] = [];
   private onDeletePDF: ((id: string) => void) | null = null;
   private onDeleteUserLayer: ((id: string) => void) | null = null;
+  private onLayerStateChange: ((id: string, updates: { visible?: boolean; opacity?: number }) => void) | null = null;
   // Sections collapsed by default; 'basemaps' starts open
   private collapsedSections = new Set<string>([
     'pdfs', 'lidar', 'userlayers',
@@ -61,7 +64,37 @@ export class BasemapManager {
 
   constructor(private mapManager: MapManager) {}
 
+  // ---- State persistence ----
+
+  private saveStack(): void {
+    try {
+      // Only persist layers whose defId matches a known definition (not promoted user layers)
+      const knownIds = new Set(ALL_DEFS().map(d => d.id));
+      localStorage.setItem(BM_STACK_KEY, JSON.stringify({
+        stack: this.stack.filter(l => knownIds.has(l.defId)),
+        collapsed: [...this.collapsedSections],
+      }));
+    } catch { /* ignore QuotaExceededError */ }
+  }
+
+  private restoreStack(): boolean {
+    try {
+      const raw = localStorage.getItem(BM_STACK_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw) as { stack?: StackLayer[]; collapsed?: string[] };
+      if (!Array.isArray(parsed.stack) || parsed.stack.length === 0) return false;
+      this.stack = parsed.stack;
+      if (Array.isArray(parsed.collapsed)) this.collapsedSections = new Set(parsed.collapsed);
+      return true;
+    } catch { return false; }
+  }
+
   init(basemapId: string): void {
+    if (this.restoreStack()) {
+      // Apply restored stack to the map (map is ready at this point)
+      this.rebuildMap();
+      return;
+    }
     const def = ALL_DEFS().find(b => b.id === basemapId) ?? BASEMAPS[0];
     this.stack = [{
       instanceId: 'base-0',
@@ -85,12 +118,14 @@ export class BasemapManager {
       hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
     });
     this.rebuildMap();
+    this.saveStack();
   }
 
   private removeFromStack(instanceId: string): void {
     if (this.stack.length <= 1) return;
     this.stack = this.stack.filter(l => l.instanceId !== instanceId);
     this.rebuildMap();
+    this.saveStack();
   }
 
   private addUserLayerToStack(ul: UserLayerInfo, container: HTMLElement, onClose: () => void): void {
@@ -107,6 +142,7 @@ export class BasemapManager {
     try { this.mapManager.getMap().removeSource(`src-${ul.mapLayerId}`); } catch { /* ignore */ }
     this.userLayers = this.userLayers.filter(l => l.id !== ul.id);
     this.rebuildMap();
+    this.saveStack();
     this.renderContent(container, onClose);
   }
 
@@ -136,11 +172,13 @@ export class BasemapManager {
     pdfLayers: PDFLayerInfo[] = [],
     onDeletePDF?: (id: string) => void,
     onDeleteUserLayer?: (id: string) => void,
+    onLayerStateChange?: (id: string, updates: { visible?: boolean; opacity?: number }) => void,
   ): void {
     this.userLayers = userLayers;
     this.pdfLayers = pdfLayers;
     this.onDeletePDF = onDeletePDF ?? null;
     this.onDeleteUserLayer = onDeleteUserLayer ?? null;
+    this.onLayerStateChange = onLayerStateChange ?? null;
     if (this.stack.length === 0) this.init('esri-imagery');
     this.renderContent(container, onClose);
   }
@@ -349,6 +387,7 @@ export class BasemapManager {
         const id = btn.dataset.section!;
         if (this.collapsedSections.has(id)) this.collapsedSections.delete(id);
         else this.collapsedSections.add(id);
+        this.saveStack();
         this.renderContent(container, onClose);
       });
     });
@@ -383,6 +422,7 @@ export class BasemapManager {
         const isBase = iid === this.stack[this.stack.length - 1]?.instanceId;
         if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? opacity : 0);
         else this.mapManager.setBasemapOverlayOpacity(iid, layer.visible ? opacity : 0);
+        this.saveStack();
       });
     });
 
@@ -397,6 +437,7 @@ export class BasemapManager {
         const isBase = iid === this.stack[this.stack.length - 1]?.instanceId;
         if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? layer.opacity : 0);
         else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
+        this.saveStack();
       });
     });
 
@@ -449,6 +490,7 @@ export class BasemapManager {
           if (isBase) this.mapManager.setBasemapPaint('raster-brightness-max', val / 100);
           else this.mapManager.setBasemapOverlayPaint(iid, 'raster-brightness-max', val / 100);
         }
+        this.saveStack();
       });
     });
 
@@ -462,6 +504,7 @@ export class BasemapManager {
         const valEl = slider.closest('.bm-stack-item')?.querySelector('.bm-opacity-val');
         if (valEl) valEl.textContent = `${Math.round(opacity * 100)}%`;
         this.mapManager.setLayerOpacity(id, opacity);
+        this.onLayerStateChange?.(id, { opacity });
       });
     });
 
@@ -474,6 +517,7 @@ export class BasemapManager {
         layer.visible = !layer.visible;
         btn.classList.toggle('active', layer.visible);
         this.mapManager.setLayerVisibility(id, layer.visible);
+        this.onLayerStateChange?.(id, { visible: layer.visible });
       });
     });
 
@@ -512,6 +556,7 @@ export class BasemapManager {
         ul.visible = !ul.visible;
         btn.classList.toggle('active', ul.visible);
         this.mapManager.setLayerVisibility(ulid, ul.visible);
+        this.onLayerStateChange?.(ul.id, { visible: ul.visible });
       });
     });
 
@@ -524,6 +569,7 @@ export class BasemapManager {
         const valEl = slider.closest('.bm-stack-item')?.querySelector('.bm-opacity-val');
         if (valEl) valEl.textContent = `${Math.round(opacity * 100)}%`;
         this.mapManager.setLayerOpacity(ulid, opacity);
+        if (ul) this.onLayerStateChange?.(ul.id, { opacity });
       });
     });
 

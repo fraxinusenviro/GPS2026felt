@@ -300,9 +300,26 @@ export class App {
           }
         };
 
+        // Persist visibility/opacity changes for user layers and PDF layers
+        const onLayerStateChange = (id: string, updates: { visible?: boolean; opacity?: number }) => {
+          const il = imported.find(l => l.id === id);
+          if (il) {
+            if (updates.visible !== undefined) il.visible = updates.visible;
+            if (updates.opacity !== undefined) il.opacity = updates.opacity;
+            void this.storage.saveImportedLayer(il);
+            return;
+          }
+          const ol = online.find(l => l.id === id);
+          if (ol) {
+            if (updates.visible !== undefined) ol.visible = updates.visible;
+            if (updates.opacity !== undefined) ol.opacity = updates.opacity;
+            void this.storage.saveOnlineLayer(ol);
+          }
+        };
+
         this.basemapManager.renderPanel(basemapPanel, () => {
           basemapPanel.style.display = 'none';
-        }, userLayers, pdfLayers, onDeletePDF, onDeleteUserLayer);
+        }, userLayers, pdfLayers, onDeletePDF, onDeleteUserLayer, onLayerStateChange);
       }
     });
 
