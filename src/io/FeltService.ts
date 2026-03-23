@@ -99,7 +99,11 @@ export class FeltService {
    * Step 1: POST /maps/{id}/upload → { url, presigned_attributes }
    * Step 2: multipart POST to S3 (file field must be last per AWS requirements)
    */
-  async uploadGeoJSON(mapId: string, geojsonStr: string, layerName: string): Promise<void> {
+  /**
+   * Uploads a GeoJSON string to a Felt map as a new layer.
+   * Returns the layer_group_id so callers can apply style after processing.
+   */
+  async uploadGeoJSON(mapId: string, geojsonStr: string, layerName: string): Promise<string | null> {
     const fileName = 'data.geojson'; // fixed name matches server.js behaviour
 
     // Step 1: Request presigned S3 URL from Felt
@@ -119,7 +123,7 @@ export class FeltService {
     const payload = await feltRes.json();
     console.log('[FeltService] Upload init response keys:', Object.keys(payload));
 
-    const { url, presigned_attributes } = payload;
+    const { url, presigned_attributes, layer_group_id } = payload;
 
     if (!url || !presigned_attributes) {
       console.error('[FeltService] Missing presigned details. Full response:', payload);
@@ -148,6 +152,91 @@ export class FeltService {
       throw new Error(`S3 upload failed (${s3Res.status}): ${s3Body}`);
     }
 
-    console.log('[FeltService] Upload complete ✓');
+    console.log('[FeltService] Upload complete ✓', layer_group_id ? `layer_group_id: ${layer_group_id}` : '(no layer_group_id)');
+    return (layer_group_id as string) ?? null;
+  }
+
+  /**
+   * Lists all layers for a map.
+   */
+  async listLayers(mapId: string): Promise<Array<{ id: string; name: string; geometry_type?: string; layer_group_id?: string }>> {
+    const res = await fetch(`${FELT_API}/maps/${mapId}/layers`, { headers: this.headers });
+    if (!res.ok) throw new Error(`Failed to list layers (${res.status})`);
+    const data = await res.json();
+    const raw: Array<{ id: string; name?: string; geometry_type?: string; layer_group_id?: string }> =
+      Array.isArray(data) ? data : (data.layers ?? data.data ?? []);
+    return raw.map(l => ({ id: l.id, name: l.name ?? l.id, geometry_type: l.geometry_type, layer_group_id: l.layer_group_id }));
+  }
+
+  /**
+   * Updates the FSL style for a single layer.
+   */
+  async updateLayerStyle(mapId: string, layerId: string, fsl: object): Promise<void> {
+    const res = await fetch(`${FELT_API}/maps/${mapId}/layers/${layerId}/update_style`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ style: fsl }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`update_style failed (${res.status}): ${text}`);
+    }
+  }
+
+  /**
+   * Polls for layers belonging to layerGroupId (up to 6 × 2s), then applies
+   * categorical FSL colouring by the `type` attribute using typeColors.
+   * Errors are silently swallowed — upload success is never blocked.
+   */
+  async applyStyleToUploadedLayers(
+    mapId: string,
+    layerGroupId: string,
+    typeColors: Record<string, string>,
+  ): Promise<void> {
+    let layers: Array<{ id: string; name: string; geometry_type?: string; layer_group_id?: string }> = [];
+    for (let i = 0; i < 6; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        const all = await this.listLayers(mapId);
+        layers = all.filter(l => l.layer_group_id === layerGroupId);
+        console.log(`[FeltService] Poll ${i + 1}/6 — found ${layers.length} layer(s) in group ${layerGroupId}`);
+        if (layers.length > 0) break;
+      } catch {
+        // ignore transient errors during polling
+      }
+    }
+
+    for (const layer of layers) {
+      const fsl = this.buildCategoricalFSL(typeColors, layer.geometry_type ?? 'Point');
+      console.log('[FeltService] Applying style to layer:', layer.id, layer.name);
+      await this.updateLayerStyle(mapId, layer.id, fsl).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Builds a Felt Style Language object for categorical colouring by `type`.
+   */
+  private buildCategoricalFSL(typeColors: Record<string, string>, geometryType: string): object {
+    const matchExpr: unknown[] = ['match', ['get', 'type']];
+    for (const [label, hex] of Object.entries(typeColors)) {
+      matchExpr.push(label, hex);
+    }
+    matchExpr.push('#4ade80'); // fallback colour
+
+    const isPolygon = geometryType === 'Polygon';
+    const isLine    = geometryType === 'LineString';
+
+    return {
+      type: 'categorical',
+      version: '2.1',
+      config: { categoricalAttribute: 'type' },
+      legend: {},
+      paint: {
+        color: matchExpr,
+        opacity: isPolygon ? 0.5 : 0.9,
+        ...(isLine  ? { strokeWidth: 2 } : {}),
+        ...(!isLine ? { size: isPolygon ? 1 : 8, strokeColor: 'auto', strokeWidth: 1 } : {}),
+      },
+    };
   }
 }

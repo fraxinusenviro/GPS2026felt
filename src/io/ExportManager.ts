@@ -15,6 +15,41 @@ export class ExportManager {
     return JSON.stringify(this.featuresToGeoJSON(data), null, 2);
   }
 
+  /**
+   * Build GeoJSON for Felt upload — same as buildGeoJSON but adds a `color`
+   * property to each feature derived from the TypePreset colour map so that
+   * the FSL categorical style can reference it as a fallback.
+   */
+  buildGeoJSONWithColors(features: FieldFeature[], typeColors: Record<string, string>): string {
+    const fc: GeoJSONFeatureCollection = {
+      type: 'FeatureCollection',
+      features: features.map(f => ({
+        type: 'Feature',
+        id: f.id,
+        geometry: f.geometry,
+        properties: {
+          id: f.id,
+          point_id: f.point_id,
+          type: f.type,
+          desc: f.desc,
+          notes: f.notes,
+          geometry_type: f.geometry_type,
+          capture_method: f.capture_method,
+          created_at: f.created_at,
+          updated_at: f.updated_at,
+          created_by: f.created_by,
+          lat: f.lat,
+          lon: f.lon,
+          elevation: f.elevation,
+          accuracy: f.accuracy,
+          layer_id: f.layer_id,
+          color: typeColors[f.type] ?? '#4ade80',
+        }
+      }))
+    };
+    return JSON.stringify(fc, null, 2);
+  }
+
   /** Trigger a browser download for a GeoJSON string that was already built. */
   downloadGeoJSONString(json: string): void {
     this.download(json, `fieldmap_${this.timestamp()}.geojson`, 'application/json');

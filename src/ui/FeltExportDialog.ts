@@ -21,6 +21,7 @@ export class FeltExportDialog {
   private selectedProjectId = '';
   private createNew = false;
   private geojsonStr = '';
+  private typeColors: Record<string, string> = {};
 
   constructor() {
     this.overlay = document.createElement('div');
@@ -33,8 +34,9 @@ export class FeltExportDialog {
     });
   }
 
-  show(geojsonStr: string): void {
+  show(geojsonStr: string, typeColors: Record<string, string> = {}): void {
     this.geojsonStr = geojsonStr;
+    this.typeColors = typeColors;
     this.projects = [];
     this.maps = [];
     this.selectedProjectId = '';
@@ -263,7 +265,7 @@ export class FeltExportDialog {
         }
 
         uploadBtn.textContent = 'Uploading data…';
-        await this.felt!.uploadGeoJSON(mapId, this.geojsonStr, layerName);
+        const layerGroupId = await this.felt!.uploadGeoJSON(mapId, this.geojsonStr, layerName);
 
         this.hide();
 
@@ -274,6 +276,12 @@ export class FeltExportDialog {
           type: 'success',
           duration: 8000,
         });
+
+        // Apply categorical symbology in background — never blocks upload success
+        if (layerGroupId) {
+          this.felt!.applyStyleToUploadedLayers(mapId, layerGroupId, this.typeColors)
+            .catch(() => undefined);
+        }
       } catch (err) {
         console.error('[FeltExportDialog] Upload error:', err);
         EventBus.emit('toast', { message: `Upload failed: ${(err as Error).message}`, type: 'error', duration: 6000 });

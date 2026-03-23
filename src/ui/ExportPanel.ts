@@ -247,8 +247,12 @@ export class ExportPanel {
         } else if (fmt === 'csv') {
           await this.exportManager.exportCSV(features);
         } else if (fmt === 'felt') {
-          const json = await this.exportManager.buildGeoJSON(features);
-          this.feltDialog.show(json);
+          const presets = await this.storage.getAllTypePresets();
+          const typeColors: Record<string, string> = Object.fromEntries(
+            presets.map(p => [p.label, p.color])
+          );
+          const json = this.exportManager.buildGeoJSONWithColors(features, typeColors);
+          this.feltDialog.show(json, typeColors);
         }
       });
     });
