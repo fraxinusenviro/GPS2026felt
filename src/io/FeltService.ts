@@ -157,15 +157,27 @@ export class FeltService {
   }
 
   /**
-   * Lists all layers for a map.
+   * Lists all layers for a map by fetching the map object and traversing layer_groups.
+   * Felt v2: layers are nested as map.layer_groups[].layers[]; layer_group_id = group.id.
    */
   async listLayers(mapId: string): Promise<Array<{ id: string; name: string; geometry_type?: string; layer_group_id?: string }>> {
-    const res = await fetch(`${FELT_API}/maps/${mapId}/layers`, { headers: this.headers });
-    if (!res.ok) throw new Error(`Failed to list layers (${res.status})`);
+    const res = await fetch(`${FELT_API}/maps/${mapId}`, { headers: this.headers });
+    if (!res.ok) throw new Error(`Failed to get map for layer listing (${res.status})`);
     const data = await res.json();
-    const raw: Array<{ id: string; name?: string; geometry_type?: string; layer_group_id?: string }> =
-      Array.isArray(data) ? data : (data.layers ?? data.data ?? []);
-    return raw.map(l => ({ id: l.id, name: l.name ?? l.id, geometry_type: l.geometry_type, layer_group_id: l.layer_group_id }));
+    const groups: Array<{ id: string; caption?: string; layers?: Array<{ id: string; caption?: string; geometry_type?: string }> }> =
+      data.layer_groups ?? [];
+    const result: Array<{ id: string; name: string; geometry_type?: string; layer_group_id?: string }> = [];
+    for (const group of groups) {
+      for (const layer of group.layers ?? []) {
+        result.push({
+          id: layer.id,
+          name: layer.caption ?? layer.id,
+          geometry_type: layer.geometry_type,
+          layer_group_id: group.id,
+        });
+      }
+    }
+    return result;
   }
 
   /**
@@ -214,28 +226,33 @@ export class FeltService {
   }
 
   /**
-   * Builds a Felt Style Language object for categorical colouring by `type`.
+   * Builds a Felt Style Language (FSL v2.3) object for categorical colouring by `type`.
+   * paint.color must be an array of hex values (one per category), not a match expression.
+   * Felt geometry_type values: "Point", "Line", "Polygon" (singular, capitalised).
    */
   private buildCategoricalFSL(typeColors: Record<string, string>, geometryType: string): object {
-    const matchExpr: unknown[] = ['match', ['get', 'type']];
-    for (const [label, hex] of Object.entries(typeColors)) {
-      matchExpr.push(label, hex);
-    }
-    matchExpr.push('#4ade80'); // fallback colour
+    const entries = Object.entries(typeColors);
+    const categories = entries.map(([label]) => label);
+    const colors     = entries.map(([, hex]) => hex);
 
-    const isPolygon = geometryType === 'Polygon';
-    const isLine    = geometryType === 'LineString';
+    const geo = geometryType.toLowerCase();
+    const isPolygon = geo.includes('polygon');
+    const isLine    = geo.includes('line');
 
     return {
+      version: '2.3',
       type: 'categorical',
-      version: '2.1',
-      config: { categoricalAttribute: 'type' },
+      config: {
+        categoricalAttribute: 'type',
+        categories,
+        showOther: true,
+      },
       legend: {},
       paint: {
-        color: matchExpr,
+        color: colors,
         opacity: isPolygon ? 0.5 : 0.9,
         ...(isLine  ? { strokeWidth: 2 } : {}),
-        ...(!isLine ? { size: isPolygon ? 1 : 8, strokeColor: 'auto', strokeWidth: 1 } : {}),
+        ...(!isLine ? { size: 8, strokeColor: 'auto', strokeWidth: 1 } : {}),
       },
     };
   }
