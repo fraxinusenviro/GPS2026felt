@@ -106,7 +106,7 @@ export const DEFAULT_CONNECTIONS: SavedConnection[] = [
 export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
   {
     id: 'hrdem-dtm-hillshade',
-    label: 'HRDEM DTM Hillshade',
+    label: 'Digital Terrain Model',
     type: 'raster',
     url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=dtm-hillshade&STYLES=&FORMAT=image/png&TRANSPARENT=TRUE&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}',
     attribution: '© Natural Resources Canada',
@@ -115,7 +115,7 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
   },
   {
     id: 'hrdem-dsm-hillshade',
-    label: 'HRDEM DSM Hillshade',
+    label: 'Digital Surface Model',
     type: 'raster',
     url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=dsm-hillshade&STYLES=&FORMAT=image/png&TRANSPARENT=TRUE&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}',
     attribution: '© Natural Resources Canada',

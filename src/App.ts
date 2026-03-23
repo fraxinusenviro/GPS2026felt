@@ -11,8 +11,8 @@ import { PresetManager } from './ui/PresetManager';
 import { SettingsPanel } from './ui/SettingsPanel';
 import { FeatureEditor } from './ui/FeatureEditor';
 import { GeometryEditor } from './ui/GeometryEditor';
-import { OnlineDataPanel } from './ui/OnlineDataPanel';
-import { LayersPanel } from './ui/LayersPanel';
+import { ImportDataPanel } from './ui/ImportDataPanel';
+import { ExportPanel } from './ui/ExportPanel';
 import { Toast } from './ui/Toast';
 import { Modal } from './ui/Modal';
 import { LogConsole } from './ui/LogConsole';
@@ -32,8 +32,8 @@ export class App {
   private settingsPanel!: SettingsPanel;
   private featureEditor!: FeatureEditor;
   private geometryEditor!: GeometryEditor;
-  private onlineDataPanel!: OnlineDataPanel;
-  private layersPanel!: LayersPanel;
+  private importDataPanel!: ImportDataPanel;
+  private exportPanel!: ExportPanel;
   private toast!: Toast;
   private modal!: Modal;
   private logConsole!: LogConsole;
@@ -66,8 +66,8 @@ export class App {
     this.presetManager = new PresetManager();
     this.featureEditor = new FeatureEditor(this.presetManager);
     this.geometryEditor = new GeometryEditor(this.mapManager);
-    this.onlineDataPanel = new OnlineDataPanel(this.mapManager);
-    this.layersPanel = new LayersPanel(this.importManager, this.exportManager, () => {
+    this.importDataPanel = new ImportDataPanel(this.importManager, this.mapManager);
+    this.exportPanel = new ExportPanel(this.exportManager, () => {
       const b = this.mapManager.getBounds();
       if (!b) return null;
       return { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() };
@@ -80,8 +80,7 @@ export class App {
     await this.settingsPanel.init(this.settings);
 
     await this.presetManager.init(this.settings);
-    await this.onlineDataPanel.init();
-    await this.layersPanel.init();
+    await this.importDataPanel.init();
 
     this.features = await this.storage.getAllFeatures();
     this.mapManager.updateCollectedFeatures(this.features);
@@ -250,7 +249,7 @@ export class App {
             bounds: l.bounds,
           }));
 
-        // All other imported layers go into the "Your Layers" section
+        // All other imported layers + online layers go into "Your Layers"
         const userLayers = [
           ...imported
             .filter(l => l.file_type !== 'geopdf')
@@ -260,7 +259,9 @@ export class App {
               kind: (l.file_type === 'mbtiles' ? 'raster' : 'vector') as 'vector' | 'raster',
               visible: l.visible,
               opacity: l.opacity,
-              mapLayerId: l.file_type === 'mbtiles' ? `src-${l.id}` : `${l.id}-fill`,
+              mapLayerId: l.file_type === 'mbtiles' ? l.id : `${l.id}-fill`,
+              bounds: l.bounds,
+              fileType: l.file_type,
             })),
           ...online.map(l => ({
             id: l.id,
@@ -269,6 +270,7 @@ export class App {
             visible: l.visible,
             opacity: l.opacity,
             mapLayerId: l.map_layer_id,
+            fileType: l.type,
           })),
         ];
 
@@ -279,9 +281,26 @@ export class App {
           EventBus.emit('layer-deleted', { id });
         };
 
+        const onDeleteUserLayer = async (id: string) => {
+          // Check if it's an imported file layer
+          const importedLayer = imported.find(l => l.id === id);
+          if (importedLayer) {
+            this.importManager.removeImportedLayer(importedLayer);
+            await this.storage.deleteImportedLayer(id);
+            EventBus.emit('layer-deleted', { id });
+            return;
+          }
+          // Otherwise it's an online layer
+          const onlineLayer = online.find(l => l.id === id);
+          if (onlineLayer) {
+            this.mapManager.removeLayer(onlineLayer.map_layer_id);
+            await this.storage.deleteOnlineLayer(id);
+          }
+        };
+
         this.basemapManager.renderPanel(basemapPanel, () => {
           basemapPanel.style.display = 'none';
-        }, userLayers, pdfLayers, onDeletePDF);
+        }, userLayers, pdfLayers, onDeletePDF, onDeleteUserLayer);
       }
     });
 
@@ -296,24 +315,14 @@ export class App {
       this.toggleWakeLock();
     });
 
-    document.getElementById('btn-layers')?.addEventListener('click', () => {
-      this.closeAllPanels();
-      this.layersPanel.toggleLayers();
-    });
-
-    document.getElementById('btn-online-data')?.addEventListener('click', () => {
-      this.closeAllPanels();
-      this.onlineDataPanel.toggle();
-    });
-
     document.getElementById('btn-import')?.addEventListener('click', () => {
       this.closeAllPanels();
-      this.layersPanel.toggleImport();
+      this.importDataPanel.toggle();
     });
 
     document.getElementById('btn-export')?.addEventListener('click', () => {
       this.closeAllPanels();
-      this.layersPanel.toggleExport();
+      this.exportPanel.toggle();
     });
 
     document.getElementById('btn-console')?.addEventListener('click', () => {

@@ -24,6 +24,8 @@ interface UserLayerInfo {
   visible: boolean;
   opacity: number;
   mapLayerId: string;
+  bounds?: [number, number, number, number];
+  fileType?: string;
 }
 
 interface PDFLayerInfo {
@@ -46,6 +48,7 @@ export class BasemapManager {
   private userLayers: UserLayerInfo[] = [];
   private pdfLayers: PDFLayerInfo[] = [];
   private onDeletePDF: ((id: string) => void) | null = null;
+  private onDeleteUserLayer: ((id: string) => void) | null = null;
 
   constructor(private mapManager: MapManager) {}
 
@@ -106,10 +109,12 @@ export class BasemapManager {
     userLayers: UserLayerInfo[] = [],
     pdfLayers: PDFLayerInfo[] = [],
     onDeletePDF?: (id: string) => void,
+    onDeleteUserLayer?: (id: string) => void,
   ): void {
     this.userLayers = userLayers;
     this.pdfLayers = pdfLayers;
     this.onDeletePDF = onDeletePDF ?? null;
+    this.onDeleteUserLayer = onDeleteUserLayer ?? null;
     if (this.stack.length === 0) this.init('esri-imagery');
     this.renderContent(container, onClose);
   }
@@ -127,7 +132,7 @@ export class BasemapManager {
         <button class="bm-add-btn" data-def-id="${ov.id}" title="Add to stack">+</button>
       </div>`).join('');
 
-    let html = `<div class="bm-section-title">HRDEM &amp; Overlays <span class="bm-section-hint">click + to add</span></div>`;
+    let html = `<div class="bm-section-title">LiDAR Hillshades <span class="bm-section-hint">click + to add</span></div>`;
     if (ungrouped.length) html += `<div class="bm-palette">${rows(ungrouped)}</div>`;
     for (const g of groupNames) {
       const items = BASEMAP_OVERLAYS.filter(o => o.group === g);
@@ -140,26 +145,31 @@ export class BasemapManager {
 
   private renderUserLayersSection(): string {
     if (this.userLayers.length === 0) return '';
+    const eyeSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    const zoomSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`;
+    const dragDots = `<svg viewBox="0 0 10 16" fill="currentColor" width="10" height="16"><circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/><circle cx="3" cy="6" r="1.5"/><circle cx="7" cy="6" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/></svg>`;
     return `
       <div class="bm-section-title">Your Layers <span class="bm-section-hint">imported &amp; online</span></div>
-      <div class="bm-user-layers">
-        ${this.userLayers.map(l => `
-          <div class="bm-user-layer-row" data-ulid="${l.mapLayerId}">
-            <span class="bm-ul-kind-badge ${l.kind}">${l.kind === 'vector' ? 'V' : 'R'}</span>
-            <span class="bm-ul-name" title="${l.name}">${l.name}</span>
-            <div class="bm-ul-controls">
-              ${l.kind === 'raster' ? `
-                <input type="range" class="bm-ul-opacity" min="0" max="100" value="${Math.round(l.opacity * 100)}" title="Opacity" data-ulid="${l.mapLayerId}" />
-              ` : ''}
-              <button class="bm-vis-btn ${l.visible ? 'active' : ''} bm-ul-vis" data-ulid="${l.mapLayerId}" title="${l.visible ? 'Hide' : 'Show'}">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                  <circle cx="12" cy="12" r="3"/>
-                </svg>
-              </button>
+      <div class="bm-pdf-layers">
+        ${this.userLayers.map(l => {
+          const badge = (l.fileType ?? l.kind).toUpperCase();
+          return `
+          <div class="bm-stack-item" data-ulid="${l.id}">
+            <div class="bm-item-main">
+              <div class="bm-drag-handle" style="pointer-events:none;opacity:0.3">${dragDots}</div>
+              <span class="bm-layer-label" title="${l.name}">${l.name}</span>
+              <span class="bm-base-badge" style="background:var(--color-accent-dim,#1a3a2a);color:var(--color-accent,#4ade80);border:1px solid var(--color-accent,#4ade80)">${badge}</span>
+              <div class="bm-layer-controls">
+                <input type="range" class="bm-opacity-slider bm-ul-opacity" data-ulid="${l.mapLayerId}"
+                  min="0" max="100" value="${Math.round(l.opacity * 100)}" title="Opacity" />
+                <span class="bm-opacity-val">${Math.round(l.opacity * 100)}%</span>
+                <button class="bm-vis-btn ${l.visible ? 'active' : ''} bm-ul-vis" data-ulid="${l.mapLayerId}" title="${l.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
+                ${l.bounds ? `<button class="bm-adj-toggle bm-ul-zoom" data-ulid="${l.id}" title="Zoom to layer">${zoomSvg}</button>` : ''}
+                <button class="bm-del-btn bm-ul-del" data-ulid="${l.id}" title="Remove layer">✕</button>
+              </div>
             </div>
-          </div>
-        `).join('')}
+          </div>`;
+        }).join('')}
       </div>`;
   }
 
@@ -458,7 +468,7 @@ export class BasemapManager {
       });
     });
 
-    // User layer visibility/opacity
+    // User layer visibility/opacity/zoom/delete
     container.querySelectorAll<HTMLButtonElement>('.bm-ul-vis').forEach(btn => {
       btn.addEventListener('click', () => {
         const ulid = btn.dataset.ulid!;
@@ -474,7 +484,37 @@ export class BasemapManager {
       slider.addEventListener('input', () => {
         const ulid = slider.dataset.ulid!;
         const opacity = parseInt(slider.value) / 100;
+        slider.closest('.bm-item-main')?.querySelector('.bm-opacity-val') &&
+          (slider.closest('.bm-item-main')!.querySelector('.bm-opacity-val')!.textContent = `${Math.round(opacity * 100)}%`);
         this.mapManager.setLayerOpacity(ulid, opacity);
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('.bm-ul-zoom').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ul = this.userLayers.find(l => l.id === btn.dataset.ulid);
+        if (ul?.bounds) {
+          const [w, s, e, n] = ul.bounds;
+          this.mapManager.fitBounds([[w, s], [e, n]], 50);
+        }
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('.bm-ul-del').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.ulid!;
+        const ul = this.userLayers.find(l => l.id === id);
+        if (!ul) return;
+        // Remove map layers
+        this.mapManager.removeLayer(ul.mapLayerId);
+        try { this.mapManager.getMap().removeSource(`src-${ul.mapLayerId}`); } catch { /* already gone */ }
+        // Remove sub-layers for vector data
+        ['fill', 'line', 'point', 'labels'].forEach(suffix => {
+          try { this.mapManager.removeLayer(`${ul.mapLayerId}-${suffix}`); } catch { /* ignore */ }
+        });
+        this.userLayers = this.userLayers.filter(l => l.id !== id);
+        this.onDeleteUserLayer?.(id);
+        this.renderContent(container, onClose);
       });
     });
 
