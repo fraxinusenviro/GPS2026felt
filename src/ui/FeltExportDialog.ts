@@ -265,7 +265,7 @@ export class FeltExportDialog {
         }
 
         uploadBtn.textContent = 'Uploading data…';
-        const layerGroupId = await this.felt!.uploadGeoJSON(mapId, this.geojsonStr, layerName);
+        const layerId = await this.felt!.uploadGeoJSON(mapId, this.geojsonStr, layerName);
 
         this.hide();
 
@@ -278,8 +278,8 @@ export class FeltExportDialog {
         });
 
         // Apply categorical symbology in background — never blocks upload success
-        if (layerGroupId) {
-          this.felt!.applyStyleToUploadedLayers(mapId, layerGroupId, this.typeColors)
+        if (layerId) {
+          this.felt!.applyStyleToUploadedLayers(mapId, layerId, this.typeColors)
             .catch(() => undefined);
         }
       } catch (err) {
