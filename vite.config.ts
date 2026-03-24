@@ -4,6 +4,9 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig({
   // Use './' so all asset URLs are relative — works on any subpath (GitHub Pages, etc.)
   base: './',
+  define: {
+    __APP_BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',

@@ -142,6 +142,7 @@ export class SettingsPanel {
             <p>Fraxinus Field Mapper v1.0</p>
             <p>Offline-first GPS data collector PWA</p>
             <p>Storage: IndexedDB (persistent across sessions)</p>
+            <p class="settings-hint" style="margin-top:4px;font-size:0.8em">Build: ${new Date(__APP_BUILD_DATE__).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</p>
           </div>
 
           <div class="settings-actions">
