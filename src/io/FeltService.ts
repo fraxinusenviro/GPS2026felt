@@ -153,37 +153,8 @@ export class FeltService {
       throw new Error(`S3 upload failed (${s3Res.status}): ${s3Body}`);
     }
 
-    console.log('[FeltService] Upload complete ✓', layer_group_id ? `layer_group_id: ${layer_group_id}` : '(no layer_group_id)');
-    return (layer_group_id as string) ?? null;
-  }
-
-  /**
-   * Lists all layers for a map by fetching the map object and traversing layer_groups.
-   * Felt v2: layers are nested as map.layer_groups[].layers[]; layer_group_id = group.id.
-   */
-  async listLayers(mapId: string): Promise<Array<{ id: string; name: string; geometry_type?: string; layer_group_id?: string }>> {
-    const res = await fetch(`${FELT_API}/maps/${mapId}`, { headers: this.headers });
-    if (!res.ok) throw new Error(`Failed to get map for layer listing (${res.status})`);
-    const data = await res.json();
-    console.log('[FeltService] listLayers raw layer_groups:',
-      JSON.stringify((data.layer_groups ?? []).map((g: { id: string; layers?: unknown[] }) =>
-        ({ id: g.id, layerCount: (g.layers ?? []).length })
-      ))
-    );
-    const groups: Array<{ id: string; caption?: string; layers?: Array<{ id: string; caption?: string; geometry_type?: string }> }> =
-      data.layer_groups ?? [];
-    const result: Array<{ id: string; name: string; geometry_type?: string; layer_group_id?: string }> = [];
-    for (const group of groups) {
-      for (const layer of group.layers ?? []) {
-        result.push({
-          id: layer.id,
-          name: layer.caption ?? layer.id,
-          geometry_type: layer.geometry_type,
-          layer_group_id: group.id,
-        });
-      }
-    }
-    return result;
+    console.log('[FeltService] Upload complete ✓ layer_id:', payload.layer_id ?? '(none)');
+    return (payload.layer_id as string) ?? null;
   }
 
   /**
@@ -204,45 +175,47 @@ export class FeltService {
   }
 
   /**
-   * Polls for layers belonging to layerGroupId (up to 6 × 2s), then applies
-   * categorical FSL colouring by the `type` attribute using typeColors.
-   * Errors are silently swallowed — upload success is never blocked.
+   * Polls GET /maps/{mapId}/layers/{layerId} (up to 10 × 3s = 30s) until Felt
+   * finishes processing the uploaded layer, then applies categorical FSL by `type`.
+   * Errors are swallowed — upload success is never blocked by style failure.
    */
   async applyStyleToUploadedLayers(
     mapId: string,
-    layerGroupId: string,
+    layerId: string,
     typeColors: Record<string, string>,
   ): Promise<void> {
-    console.log('[FeltService] applyStyle start — layerGroupId:', layerGroupId);
+    console.log('[FeltService] applyStyle start — layerId:', layerId);
     console.log('[FeltService] typeColors:', JSON.stringify(typeColors));
-    let layers: Array<{ id: string; name: string; geometry_type?: string; layer_group_id?: string }> = [];
-    for (let i = 0; i < 6; i++) {
-      await new Promise(r => setTimeout(r, 2000));
+
+    let geometryType = 'Point';
+    let found = false;
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 3000));
       try {
-        const all = await this.listLayers(mapId);
-        console.log(`[FeltService] Poll ${i + 1}/6 — all layers:`,
-          JSON.stringify(all.map(l => ({ id: l.id, name: l.name, layer_group_id: l.layer_group_id })))
-        );
-        layers = all.filter(l => l.layer_group_id === layerGroupId);
-        console.log(`[FeltService] Poll ${i + 1}/6 — found ${layers.length} layer(s) in group ${layerGroupId}`);
-        if (layers.length > 0) break;
+        const res = await fetch(`${FELT_API}/maps/${mapId}/layers/${layerId}`, { headers: this.headers });
+        console.log(`[FeltService] Poll ${i + 1}/10 — layer status: ${res.status}`);
+        if (res.ok) {
+          const layer = await res.json();
+          geometryType = layer.geometry_type ?? 'Point';
+          console.log('[FeltService] Layer ready — geometry_type:', geometryType);
+          found = true;
+          break;
+        }
       } catch (err) {
-        console.error(`[FeltService] Poll ${i + 1}/6 error:`, err);
+        console.error(`[FeltService] Poll ${i + 1}/10 error:`, err);
       }
     }
 
-    if (layers.length === 0) {
-      console.warn('[FeltService] No layers found in group after 6 polls — style not applied');
+    if (!found) {
+      console.warn('[FeltService] Layer not ready after 10 polls (30s) — style not applied');
       return;
     }
 
-    for (const layer of layers) {
-      const fsl = this.buildCategoricalFSL(typeColors, layer.geometry_type ?? 'Point');
-      console.log('[FeltService] Applying style to layer:', layer.id, layer.name, '— FSL:', JSON.stringify(fsl));
-      await this.updateLayerStyle(mapId, layer.id, fsl).catch((err) => {
-        console.error('[FeltService] updateLayerStyle failed for layer', layer.id, ':', err);
-      });
-    }
+    const fsl = this.buildCategoricalFSL(typeColors, geometryType);
+    console.log('[FeltService] Applying FSL — layerId:', layerId, 'FSL:', JSON.stringify(fsl));
+    await this.updateLayerStyle(mapId, layerId, fsl).catch((err) => {
+      console.error('[FeltService] updateLayerStyle failed:', err);
+    });
   }
 
   /**
