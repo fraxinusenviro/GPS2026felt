@@ -255,7 +255,6 @@ export class PresetManager {
           </select>
         </label>
         <label>Color <input type="color" id="edit-preset-color" value="${preset.color}" /></label>
-        ${preset.geometry_type === 'Point' ? `<label><input type="checkbox" id="edit-preset-qe" ${preset.is_quick_entry ? 'checked' : ''} /> Set as Quick Entry</label>` : ''}
       `,
       onConfirm: async () => {
         const label = (document.getElementById('edit-preset-label') as HTMLInputElement).value.trim();
@@ -263,8 +262,7 @@ export class PresetManager {
         preset.label = label;
         preset.geometry_type = (document.getElementById('edit-preset-geom') as HTMLSelectElement).value as GeometryType | 'all';
         preset.color = (document.getElementById('edit-preset-color') as HTMLInputElement).value;
-        const qeEl = document.getElementById('edit-preset-qe') as HTMLInputElement | null;
-        preset.is_quick_entry = preset.geometry_type === 'Point' && (qeEl?.checked ?? false);
+        // is_quick_entry is managed from the Quick Entry section, not here
         await this.storage.saveTypePreset(preset);
         this.renderPresetList(listContainer);
         this.populateTypeSelector();
@@ -286,21 +284,19 @@ export class PresetManager {
           </select>
         </label>
         <label>Color <input type="color" id="new-preset-color" value="#4ade80" /></label>
-        <label><input type="checkbox" id="new-preset-qe" /> Set as Quick Entry <small>(Point only)</small></label>
       `,
       onConfirm: async () => {
         const label = (document.getElementById('new-preset-label') as HTMLInputElement).value.trim();
         if (!label) return;
         const geom = (document.getElementById('new-preset-geom') as HTMLSelectElement).value as GeometryType | 'all';
         const color = (document.getElementById('new-preset-color') as HTMLInputElement).value;
-        const isQE = geom === 'Point' && (document.getElementById('new-preset-qe') as HTMLInputElement).checked;
 
         const preset: TypePreset = {
           id: uuidv4(),
           label,
           geometry_type: geom,
           color,
-          is_quick_entry: isQE
+          is_quick_entry: false, // managed from the Quick Entry section
         };
         await this.storage.saveTypePreset(preset);
         this.presets.push(preset);
