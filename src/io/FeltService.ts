@@ -229,11 +229,16 @@ export class FeltService {
    * Builds a Felt Style Language (FSL v2.3) object for categorical colouring by `type`.
    * paint.color must be an array of hex values (one per category), not a match expression.
    * Felt geometry_type values: "Point", "Line", "Polygon" (singular, capitalised).
+   * TypePreset.color defaults to '#4ade80'; any type still using that default gets a
+   * deterministic hash-based colour so all types appear distinct on the map.
    */
   private buildCategoricalFSL(typeColors: Record<string, string>, geometryType: string): object {
+    const DEFAULT_COLOR = '#4ade80';
     const entries = Object.entries(typeColors);
     const categories = entries.map(([label]) => label);
-    const colors     = entries.map(([, hex]) => hex);
+    const colors     = entries.map(([label, hex]) =>
+      hex === DEFAULT_COLOR ? this.hashHex(label) : hex
+    );
 
     const geo = geometryType.toLowerCase();
     const isPolygon = geo.includes('polygon');
@@ -255,5 +260,23 @@ export class FeltService {
         ...(!isLine ? { size: 8, strokeColor: 'auto', strokeWidth: 1 } : {}),
       },
     };
+  }
+
+  /** Converts a type label to a deterministic hex colour using HSL hashing. */
+  private hashHex(label: string): string {
+    let hash = 0;
+    for (let i = 0; i < label.length; i++) {
+      hash = ((hash << 5) - hash) + label.charCodeAt(i);
+      hash |= 0;
+    }
+    const h = Math.abs(hash) % 360;
+    // hsl(h, 70%, 55%) → hex
+    const s = 0.7, l = 0.55;
+    const k = (n: number) => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return '#' + [f(0), f(8), f(4)]
+      .map(x => Math.round(x * 255).toString(16).padStart(2, '0'))
+      .join('');
   }
 }
