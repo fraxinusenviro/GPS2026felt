@@ -1,21 +1,44 @@
-// Script to generate PNG icons from SVG
-// Run: node scripts/gen-icons.js
-// Requires: npm install -g @resvg/resvg-js or use sharp
+// Generate all PWA PNG icons from public/icon.svg
+// Usage: node scripts/gen-icons.js
+// Requires: pip install cairosvg  (or npm install sharp)
 
-import { readFileSync, writeFileSync } from 'fs';
+import { execSync } from 'child_process';
+import { existsSync } from 'fs';
+import path from 'path';
 
-const svgContent = readFileSync('public/icon.svg', 'utf-8');
+const svgSrc = 'public/icon.svg';
+const maskableSvgSrc = 'public/icon-maskable.svg';
 
-// If sharp is available
+const icons = [
+  { src: svgSrc, out: 'public/favicon-16.png', size: 16 },
+  { src: svgSrc, out: 'public/favicon-32.png', size: 32 },
+  { src: svgSrc, out: 'public/apple-touch-icon.png', size: 180 },
+  { src: svgSrc, out: 'public/icon-192.png', size: 192 },
+  { src: svgSrc, out: 'public/icon-512.png', size: 512 },
+  { src: maskableSvgSrc, out: 'public/icon-maskable-192.png', size: 192 },
+  { src: maskableSvgSrc, out: 'public/icon-maskable-512.png', size: 512 },
+];
+
+// Try cairosvg (Python)
+try {
+  const py = icons.map(({ src, out, size }) =>
+    `cairosvg.svg2png(url="${src}", write_to="${out}", output_width=${size}, output_height=${size})`
+  ).join('\n');
+  execSync(`python3 -c "import cairosvg\n${py}"`, { stdio: 'inherit' });
+  console.log('All icons generated via cairosvg.');
+  process.exit(0);
+} catch { /* fall through */ }
+
+// Try sharp (Node)
 try {
   const { default: sharp } = await import('sharp');
-  const buffer = Buffer.from(svgContent);
-  await sharp(buffer).resize(192, 192).png().toFile('public/icon-192.png');
-  await sharp(buffer).resize(512, 512).png().toFile('public/icon-512.png');
-  console.log('PNG icons generated successfully');
-} catch {
-  console.log('sharp not available - using SVG icons (will work for PWA in most browsers)');
-  // Copy SVG as fallback
-  writeFileSync('public/icon-192.png', readFileSync('public/icon.svg'));
-  writeFileSync('public/icon-512.png', readFileSync('public/icon.svg'));
-}
+  for (const { src, out, size } of icons) {
+    await sharp(src).resize(size, size).png().toFile(out);
+    console.log(`Generated ${out}`);
+  }
+  console.log('All icons generated via sharp.');
+  process.exit(0);
+} catch { /* fall through */ }
+
+console.error('Neither cairosvg nor sharp is available.\n  pip install cairosvg  OR  npm install sharp');
+process.exit(1);
