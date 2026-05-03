@@ -1,6 +1,7 @@
 import { BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import type { BasemapDef, ImportedLayer, OnlineLayer } from '../types';
 import type { MapManager } from './MapManager';
+import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 
 const BM_STACK_KEY = 'fm2026_bm_stack';
 
@@ -9,6 +10,7 @@ interface StackLayer {
   defId: string;
   label: string;
   url: string;
+  type?: string;
   tileSize: number;
   maxZoom: number;
   opacity: number;
@@ -62,6 +64,8 @@ export class BasemapManager {
     )],
   ]);
 
+  private nsprdLayer: NSPRDVectorLayer | null = null;
+
   constructor(private mapManager: MapManager) {}
 
   // ---- State persistence ----
@@ -113,6 +117,7 @@ export class BasemapManager {
     const instanceId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
     this.stack.unshift({
       instanceId, defId: def.id, label: def.label, url: def.url,
+      type: def.type,
       tileSize: def.tile_size ?? 256, maxZoom: def.max_zoom ?? 19,
       opacity: 0.8, visible: true,
       hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
@@ -146,6 +151,11 @@ export class BasemapManager {
     this.renderContent(container, onClose);
   }
 
+  private getLayerType(l: StackLayer): string {
+    const allDefs = ALL_DEFS();
+    return allDefs.find(d => d.id === l.defId)?.type ?? l.type ?? 'raster';
+  }
+
   private rebuildMap(): void {
     if (this.stack.length === 0) return;
     const allDefs = ALL_DEFS();
@@ -159,10 +169,20 @@ export class BasemapManager {
     this.mapManager.setBasemapPaint('raster-brightness-max', baseLayer.brightness);
 
     const overlays = this.stack.slice(0, this.stack.length - 1).reverse();
-    this.mapManager.rebuildBasemapOverlays(overlays.map(l => ({
+    const rasterOverlays = overlays.filter(l => this.getLayerType(l) === 'raster');
+    const nsprdEntry = overlays.find(l => this.getLayerType(l) === 'nsprd-vector');
+
+    this.mapManager.rebuildBasemapOverlays(rasterOverlays.map(l => ({
       instanceId: l.instanceId, url: l.url, opacity: l.opacity, visible: l.visible,
       hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
     })));
+
+    if (nsprdEntry) {
+      if (!this.nsprdLayer) this.nsprdLayer = new NSPRDVectorLayer(this.mapManager);
+      this.nsprdLayer.activate(nsprdEntry.instanceId, nsprdEntry.opacity, nsprdEntry.visible);
+    } else {
+      this.nsprdLayer?.deactivate();
+    }
   }
 
   renderPanel(
@@ -290,6 +310,7 @@ export class BasemapManager {
 
   private renderStackItem(layer: StackLayer, idx: number): string {
     const isBase = idx === this.stack.length - 1;
+    const isNsprd = this.getLayerType(layer) === 'nsprd-vector';
     const eyeSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
     const adjSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="currentColor" stroke="none"/></svg>`;
     const dragSvg = `<svg viewBox="0 0 10 16" fill="currentColor" width="10" height="16"><circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/><circle cx="3" cy="6" r="1.5"/><circle cx="7" cy="6" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/></svg>`;
@@ -306,10 +327,10 @@ export class BasemapManager {
             min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity" />
           <span class="bm-opacity-val">${Math.round(layer.opacity * 100)}%</span>
           <button class="bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
-          <button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="Image adjustments">${adjSvg}</button>
+          ${!isNsprd ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="Image adjustments">${adjSvg}</button>` : ''}
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
-        <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
+        ${!isNsprd ? `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
           <div class="bm-adj-row">
             <label class="bm-adj-label">Hue</label>
             <input type="range" class="bm-adj-slider bm-hue" data-iid="${layer.instanceId}" min="-180" max="180" step="1" value="${layer.hueRotate}" />
@@ -330,7 +351,7 @@ export class BasemapManager {
             <input type="range" class="bm-adj-slider bm-bri" data-iid="${layer.instanceId}" min="0" max="200" step="5" value="${Math.round(layer.brightness * 100)}" />
             <span class="bm-adj-val">${Math.round(layer.brightness * 100)}%</span>
           </div>
-        </div>
+        </div>` : ''}
       </div>`;
   }
 
@@ -420,7 +441,9 @@ export class BasemapManager {
         const valEl = slider.closest('.bm-stack-item')?.querySelector('.bm-opacity-val');
         if (valEl) valEl.textContent = `${Math.round(opacity * 100)}%`;
         const isBase = iid === this.stack[this.stack.length - 1]?.instanceId;
+        const isNsprd = this.getLayerType(layer) === 'nsprd-vector';
         if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? opacity : 0);
+        else if (isNsprd) this.nsprdLayer?.setOpacity(layer.visible ? opacity : 0);
         else this.mapManager.setBasemapOverlayOpacity(iid, layer.visible ? opacity : 0);
         this.saveStack();
       });
@@ -435,7 +458,9 @@ export class BasemapManager {
         layer.visible = !layer.visible;
         btn.classList.toggle('active', layer.visible);
         const isBase = iid === this.stack[this.stack.length - 1]?.instanceId;
+        const isNsprd = this.getLayerType(layer) === 'nsprd-vector';
         if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? layer.opacity : 0);
+        else if (isNsprd) this.nsprdLayer?.setVisible(layer.visible);
         else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
         this.saveStack();
       });

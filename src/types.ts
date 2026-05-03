@@ -123,7 +123,7 @@ export interface CaptureSession {
 export interface BasemapDef {
   id: string;
   label: string;
-  type: 'raster' | 'vector';
+  type: 'raster' | 'vector' | 'nsprd-vector';
   url: string;          // tile URL template or style URL
   attribution: string;
   min_zoom?: number;

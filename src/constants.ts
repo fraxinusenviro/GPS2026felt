@@ -127,11 +127,10 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
   {
     id: 'ns-plan-nsprd',
     label: 'NS Property Registry (NSPRD)',
-    type: 'raster',
+    type: 'nsprd-vector',
     group: 'Nova Scotia',
-    url: 'https://nsgiwa2.novascotia.ca/arcgis/services/PLAN/PLAN_NSPRD_NoLabels_UT83/MapServer/WMSServer?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=0&STYLES=&FORMAT=image/png&TRANSPARENT=TRUE&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}',
+    url: 'https://nsgiwa2.novascotia.ca/arcgis/rest/services/PLAN/PLAN_NSPRD_UT83/MapServer/0/query',
     attribution: '© Province of Nova Scotia',
-    tile_size: 256,
     max_zoom: 20
   },
   {

@@ -28,6 +28,11 @@ export default defineConfig({
             urlPattern: /^https:\/\/.*\.stadiamaps\.com\/.*/i,
             handler: 'NetworkFirst',
             options: { cacheName: 'stadia-tiles', expiration: { maxEntries: 500, maxAgeSeconds: 7 * 24 * 3600 } }
+          },
+          {
+            urlPattern: /^https:\/\/nsgiwa2\.novascotia\.ca\/.*/i,
+            handler: 'NetworkFirst',
+            options: { cacheName: 'ns-arcgis', expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 3600 } }
           }
         ]
       },
