@@ -30,9 +30,9 @@ export default defineConfig({
             options: { cacheName: 'stadia-tiles', expiration: { maxEntries: 500, maxAgeSeconds: 7 * 24 * 3600 } }
           },
           {
-            urlPattern: /^https:\/\/nsgiwa2\.novascotia\.ca\/.*/i,
+            urlPattern: /^https:\/\/nsgiwa\d*\.novascotia\.ca\/.*/i,
             handler: 'NetworkFirst',
-            options: { cacheName: 'ns-arcgis', expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 3600 } }
+            options: { cacheName: 'ns-arcgis', expiration: { maxEntries: 500, maxAgeSeconds: 7 * 24 * 3600 } }
           }
         ]
       },

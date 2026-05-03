@@ -119,17 +119,30 @@ export interface CaptureSession {
   active: boolean;
 }
 
+// ---- Vector overlay config (for nshn-vector and nsprd-vector types) ----
+export interface VectorLayerConfig {
+  endpoint: string;
+  geomType: 'line' | 'polygon';
+  where?: string;
+  outFields?: string;
+  lineColor: string;
+  lineWidth: number;
+  fillColor?: string;
+  fillOpacity?: number;
+}
+
 // ---- Basemap definition ----
 export interface BasemapDef {
   id: string;
   label: string;
-  type: 'raster' | 'vector' | 'nsprd-vector';
+  type: 'raster' | 'vector' | 'nsprd-vector' | 'nshn-vector';
   url: string;          // tile URL template or style URL
   attribution: string;
   min_zoom?: number;
   max_zoom?: number;
   tile_size?: number;
   group?: string;   // palette group heading, e.g. "NS DNRR Forestry"
+  vector_config?: VectorLayerConfig;
 }
 
 // ---- Online Data Connections ----
