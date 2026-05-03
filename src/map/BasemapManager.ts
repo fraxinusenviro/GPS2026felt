@@ -1,7 +1,8 @@
 import { BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
-import type { BasemapDef, ImportedLayer, OnlineLayer } from '../types';
+import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig } from '../types';
 import type { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
+import { NSHNVectorLayer } from './NSHNVectorLayer';
 
 const BM_STACK_KEY = 'fm2026_bm_stack';
 
@@ -11,6 +12,7 @@ interface StackLayer {
   label: string;
   url: string;
   type?: string;
+  vector_config?: VectorLayerConfig;
   tileSize: number;
   maxZoom: number;
   opacity: number;
@@ -65,6 +67,7 @@ export class BasemapManager {
   ]);
 
   private nsprdLayer: NSPRDVectorLayer | null = null;
+  private nshnLayers = new Map<string, NSHNVectorLayer>();
 
   constructor(private mapManager: MapManager) {}
 
@@ -117,7 +120,7 @@ export class BasemapManager {
     const instanceId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
     this.stack.unshift({
       instanceId, defId: def.id, label: def.label, url: def.url,
-      type: def.type,
+      type: def.type, vector_config: def.vector_config,
       tileSize: def.tile_size ?? 256, maxZoom: def.max_zoom ?? 19,
       opacity: 0.8, visible: true,
       hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
@@ -156,6 +159,11 @@ export class BasemapManager {
     return allDefs.find(d => d.id === l.defId)?.type ?? l.type ?? 'raster';
   }
 
+  private getVectorConfig(l: StackLayer): VectorLayerConfig | undefined {
+    const allDefs = ALL_DEFS();
+    return allDefs.find(d => d.id === l.defId)?.vector_config ?? l.vector_config;
+  }
+
   private rebuildMap(): void {
     if (this.stack.length === 0) return;
     const allDefs = ALL_DEFS();
@@ -171,6 +179,7 @@ export class BasemapManager {
     const overlays = this.stack.slice(0, this.stack.length - 1).reverse();
     const rasterOverlays = overlays.filter(l => this.getLayerType(l) === 'raster');
     const nsprdEntry = overlays.find(l => this.getLayerType(l) === 'nsprd-vector');
+    const nshnEntries = overlays.filter(l => this.getLayerType(l) === 'nshn-vector');
 
     this.mapManager.rebuildBasemapOverlays(rasterOverlays.map(l => ({
       instanceId: l.instanceId, url: l.url, opacity: l.opacity, visible: l.visible,
@@ -182,6 +191,24 @@ export class BasemapManager {
       this.nsprdLayer.activate(nsprdEntry.instanceId, nsprdEntry.opacity, nsprdEntry.visible);
     } else {
       this.nsprdLayer?.deactivate();
+    }
+
+    // Deactivate NSHN layers no longer in the stack
+    const activeNshnIds = new Set(nshnEntries.map(e => e.instanceId));
+    for (const [iid, layer] of this.nshnLayers) {
+      if (!activeNshnIds.has(iid)) {
+        layer.deactivate();
+        this.nshnLayers.delete(iid);
+      }
+    }
+    // Activate new or unchanged NSHN layers
+    for (const entry of nshnEntries) {
+      const cfg = this.getVectorConfig(entry);
+      if (!cfg) continue;
+      if (!this.nshnLayers.has(entry.instanceId)) {
+        this.nshnLayers.set(entry.instanceId, new NSHNVectorLayer(this.mapManager, cfg));
+      }
+      this.nshnLayers.get(entry.instanceId)!.activate(entry.instanceId, entry.opacity, entry.visible);
     }
   }
 
@@ -310,7 +337,7 @@ export class BasemapManager {
 
   private renderStackItem(layer: StackLayer, idx: number): string {
     const isBase = idx === this.stack.length - 1;
-    const isNsprd = this.getLayerType(layer) === 'nsprd-vector';
+    const isVectorLayer = ['nsprd-vector', 'nshn-vector'].includes(this.getLayerType(layer));
     const eyeSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
     const adjSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="currentColor" stroke="none"/></svg>`;
     const dragSvg = `<svg viewBox="0 0 10 16" fill="currentColor" width="10" height="16"><circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/><circle cx="3" cy="6" r="1.5"/><circle cx="7" cy="6" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/></svg>`;
@@ -327,10 +354,10 @@ export class BasemapManager {
             min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity" />
           <span class="bm-opacity-val">${Math.round(layer.opacity * 100)}%</span>
           <button class="bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
-          ${!isNsprd ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="Image adjustments">${adjSvg}</button>` : ''}
+          ${!isVectorLayer ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="Image adjustments">${adjSvg}</button>` : ''}
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
-        ${!isNsprd ? `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
+        ${!isVectorLayer ? `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
           <div class="bm-adj-row">
             <label class="bm-adj-label">Hue</label>
             <input type="range" class="bm-adj-slider bm-hue" data-iid="${layer.instanceId}" min="-180" max="180" step="1" value="${layer.hueRotate}" />
@@ -441,9 +468,10 @@ export class BasemapManager {
         const valEl = slider.closest('.bm-stack-item')?.querySelector('.bm-opacity-val');
         if (valEl) valEl.textContent = `${Math.round(opacity * 100)}%`;
         const isBase = iid === this.stack[this.stack.length - 1]?.instanceId;
-        const isNsprd = this.getLayerType(layer) === 'nsprd-vector';
+        const ltype = this.getLayerType(layer);
         if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? opacity : 0);
-        else if (isNsprd) this.nsprdLayer?.setOpacity(layer.visible ? opacity : 0);
+        else if (ltype === 'nsprd-vector') this.nsprdLayer?.setOpacity(layer.visible ? opacity : 0);
+        else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else this.mapManager.setBasemapOverlayOpacity(iid, layer.visible ? opacity : 0);
         this.saveStack();
       });
@@ -458,9 +486,10 @@ export class BasemapManager {
         layer.visible = !layer.visible;
         btn.classList.toggle('active', layer.visible);
         const isBase = iid === this.stack[this.stack.length - 1]?.instanceId;
-        const isNsprd = this.getLayerType(layer) === 'nsprd-vector';
+        const ltype2 = this.getLayerType(layer);
         if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? layer.opacity : 0);
-        else if (isNsprd) this.nsprdLayer?.setVisible(layer.visible);
+        else if (ltype2 === 'nsprd-vector') this.nsprdLayer?.setVisible(layer.visible);
+        else if (ltype2 === 'nshn-vector') this.nshnLayers.get(iid)?.setVisible(layer.visible);
         else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
         this.saveStack();
       });

@@ -134,6 +134,61 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
     max_zoom: 20
   },
   {
+    id: 'ns-nshn-watercourses',
+    label: 'NS Watercourses (NSHN)',
+    type: 'nshn-vector',
+    group: 'Nova Scotia',
+    url: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/WTR/WTR_NSHN_UT83/MapServer/7/query',
+    attribution: '© Province of Nova Scotia',
+    max_zoom: 20,
+    vector_config: {
+      endpoint: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/WTR/WTR_NSHN_UT83/MapServer/7/query',
+      geomType: 'line',
+      where: "FEAT_CODE LIKE 'WARV%' OR FEAT_CODE LIKE 'WARS%' OR FEAT_CODE LIKE 'WACA%' OR FEAT_CODE LIKE 'WACORV%' OR FEAT_CODE LIKE 'WADI%' OR FEAT_CODE LIKE 'WAFU%' OR FEAT_CODE LIKE 'WAFI%' OR FEAT_CODE LIKE 'WASU%'",
+      outFields: 'OBJECTID,FEAT_CODE,FEAT_DESC,RIVNAME_1,SHAPE_Length',
+      lineColor: '#4a90f0',
+      lineWidth: 1.2,
+    }
+  },
+  {
+    id: 'ns-nshn-waterbodies',
+    label: 'NS Waterbodies (NSHN)',
+    type: 'nshn-vector',
+    group: 'Nova Scotia',
+    url: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/WTR/WTR_NSHN_UT83/MapServer/16/query',
+    attribution: '© Province of Nova Scotia',
+    max_zoom: 20,
+    vector_config: {
+      endpoint: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/WTR/WTR_NSHN_UT83/MapServer/16/query',
+      geomType: 'polygon',
+      where: "FEAT_CODE NOT LIKE '%SW%' AND FEAT_CODE NOT LIKE '%MARSH%' AND FEAT_CODE NOT LIKE '%BOG%'",
+      outFields: 'OBJECTID,FEAT_CODE,FEAT_DESC,NAME_1,HID,SHAPE_Area,POLY_CLASS',
+      lineColor: '#4a90f0',
+      lineWidth: 1,
+      fillColor: '#1a4a90',
+      fillOpacity: 0.55,
+    }
+  },
+  {
+    id: 'ns-nshn-wetlands',
+    label: 'NS Wetlands (NSHN)',
+    type: 'nshn-vector',
+    group: 'Nova Scotia',
+    url: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/WTR/WTR_NSHN_UT83/MapServer/16/query',
+    attribution: '© Province of Nova Scotia',
+    max_zoom: 20,
+    vector_config: {
+      endpoint: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/WTR/WTR_NSHN_UT83/MapServer/16/query',
+      geomType: 'polygon',
+      where: "FEAT_CODE LIKE '%SW%' OR FEAT_CODE LIKE '%MARSH%' OR FEAT_CODE LIKE '%BOG%'",
+      outFields: 'OBJECTID,FEAT_CODE,FEAT_DESC,NAME_1,HID,SHAPE_Area,POLY_CLASS',
+      lineColor: '#5aae6a',
+      lineWidth: 1,
+      fillColor: '#3a7a4a',
+      fillOpacity: 0.45,
+    }
+  },
+  {
     id: 'ns-crown-parcels',
     label: 'NS Crown Parcels',
     type: 'raster',
