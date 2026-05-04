@@ -134,9 +134,10 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
     max_zoom: 20,
     vector_config: {
       endpoint: 'https://nsgiwa2.novascotia.ca/arcgis/rest/services/PLAN/PLAN_NSPRD_UT83/MapServer/0/query',
-      geomType: 'line',
-      lineColor: '#000000',
+      geomType: 'polygon',
+      lineColor: '#333333',
       lineWidth: 0.8,
+      fillColor: '#e8e0d0',
       outFields: 'OBJECTID,PID',
       fieldLabels: { OBJECTID: 'OID', PID: 'PID' },
     }
@@ -174,7 +175,6 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
       lineColor: '#4a90f0',
       lineWidth: 1,
       fillColor: '#1a4a90',
-      fillOpacity: 0.55,
     }
   },
   {
@@ -193,7 +193,6 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
       lineColor: '#5aae6a',
       lineWidth: 1,
       fillColor: '#3a7a4a',
-      fillOpacity: 0.45,
     }
   },
   // ---- NS Bio / Habitat ----
@@ -219,7 +218,6 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
         'species at risk', '#ff0000', 'of concern', '#ffa77f',
         'deer wintering', '#9ed7c2', 'moose wintering', '#e39e9e',
         'migratory bird', '#9ebbd7', 'other habitat', '#b191b5', '#888888'],
-      fillOpacity: 0.4,
       fieldLabels: { OBJECTID: 'OID', FEATURE: 'Habitat Type', SITE: 'Site ID', HECTARES: 'Area (ha)' },
     }
   },
@@ -243,7 +241,6 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
       fillColor: ['match', ['get', 'Wetland'],
         'Bog', '#4c0073', 'Bog or Fen', '#8400a8', 'Fen', '#a882b3',
         'Marsh', '#aaaa40', 'Salt Marsh', '#896044', 'Swamp', '#5aaa88', 'Water', '#5aaada', '#888888'],
-      fillOpacity: 0.4,
       fieldLabels: { OBJECTID: 'OID', Wetland: 'Wetland Class', Hectares: 'Area (ha)', Surveyed: 'Surveyed' },
     }
   },
@@ -264,7 +261,6 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
       lineColor: ['match', ['to-number', ['get', 'Old_Growth']], 1, '#1a4010', 2, '#5a8830', '#444444'],
       lineWidth: 0.8,
       fillColor: ['match', ['to-number', ['get', 'Old_Growth']], 1, '#2d6a1e', 2, '#a0c878', '#666666'],
-      fillOpacity: 0.5,
       fieldLabels: { OBJECTID: 'OID', Old_Growth: 'Status Code', OLDGROWTXT: 'Status', SELMETHOD: 'Method Code', SELMETHTXT: 'Method', HECTARES: 'Area (ha)' },
     }
   },
@@ -287,7 +283,6 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
       lineColor: '#8a6030',
       lineWidth: 0.6,
       fillColor: '#c8a46e',
-      fillOpacity: 0.35,
       fieldLabels: { OBJECTID: 'OID', SoilType: 'Soil Type', STGroup: 'Soil Group', HECTARES: 'Area (ha)' },
     }
   },

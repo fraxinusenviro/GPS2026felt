@@ -149,6 +149,7 @@ export class BasemapManager {
         }
         this.identifyPopup?.remove();
         this.identifyPopup = null;
+        this.nsprdLayer?.clearHighlight();
       }
     });
   }
@@ -166,7 +167,6 @@ export class BasemapManager {
     const layerIds = this.getActiveVectorLayerIds();
     if (layerIds.length === 0) return;
 
-    // Use a small bounding box for better hit tolerance on thin lines
     const pt = e.point;
     const bbox: [maplibregl.PointLike, maplibregl.PointLike] = [
       [pt.x - 6, pt.y - 6],
@@ -175,21 +175,31 @@ export class BasemapManager {
     const features = map.queryRenderedFeatures(bbox, { layers: layerIds });
     if (features.length === 0) return;
 
-    // Group by layer instance, deduplicate by feature ID within each layer
+    // Group by layer instance, deduplicate by OBJECTID within each instance
     const allDefs = ALL_DEFS();
     const groupMap = new Map<string, { label: string; fieldLabels?: Record<string, string>; features: Record<string, unknown>[] }>();
+    const nsprdOids: number[] = [];
 
     for (const feat of features) {
       const rawLayerId = feat.layer.id;
       const iid = rawLayerId.replace(/^bm-ov-/, '').replace(/-stroke$/, '');
+      const stackLayer = this.stack.find(l => l.instanceId === iid);
+
+      // Collect NSPRD OIDs for polygon highlight
+      if (stackLayer && this.getLayerType(stackLayer) === 'nsprd-vector') {
+        const oid = feat.properties?.OBJECTID;
+        if (oid !== undefined && oid !== null) {
+          const numOid = Number(oid);
+          if (!isNaN(numOid) && !nsprdOids.includes(numOid)) nsprdOids.push(numOid);
+        }
+      }
+
       if (groupMap.has(iid)) {
-        // Deduplicate by OBJECTID or index
         const existing = groupMap.get(iid)!;
         const oid = feat.properties?.OBJECTID;
         if (oid && existing.features.some(f => f.OBJECTID === oid)) continue;
         existing.features.push((feat.properties ?? {}) as Record<string, unknown>);
       } else {
-        const stackLayer = this.stack.find(l => l.instanceId === iid);
         const def = stackLayer ? allDefs.find(d => d.id === stackLayer.defId) : undefined;
         groupMap.set(iid, {
           label: def?.label ?? 'Layer',
@@ -198,6 +208,10 @@ export class BasemapManager {
         });
       }
     }
+
+    // Apply NSPRD polygon highlight
+    this.nsprdLayer?.clearHighlight();
+    if (nsprdOids.length > 0) this.nsprdLayer?.highlightFeatures(nsprdOids);
 
     const html = this.buildIdentifyHtml([...groupMap.values()]);
 
@@ -212,6 +226,7 @@ export class BasemapManager {
     closeBtn?.addEventListener('click', () => {
       this.identifyPopup?.remove();
       this.identifyPopup = null;
+      this.nsprdLayer?.clearHighlight();
     });
   }
 
@@ -246,7 +261,7 @@ export class BasemapManager {
       instanceId, defId: def.id, label: def.label, url: def.url,
       type: def.type, vector_config: def.vector_config,
       tileSize: def.tile_size ?? 256, maxZoom: def.max_zoom ?? 19,
-      opacity: 0.8, visible: true,
+      opacity: 1.0, visible: true,
       hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
     });
     this.rebuildMap();
@@ -283,6 +298,11 @@ export class BasemapManager {
     if (ltype === 'nsprd-vector') {
       if (entry.vecLineWidth !== undefined) this.nsprdLayer?.setLineWidth(entry.vecLineWidth);
       if (entry.vecLineColor !== undefined) this.nsprdLayer?.setLineColor(entry.vecLineColor);
+      if (entry.vecFillColor !== undefined) this.nsprdLayer?.setFillColor(entry.vecFillColor);
+      if (entry.vecFillOpacityOverride !== undefined) {
+        this.nsprdLayer?.setFillOpacity(entry.vecFillOpacityOverride);
+        this.nsprdLayer?.setOpacity(entry.visible ? entry.opacity : 0);
+      }
     } else if (ltype === 'nshn-vector') {
       const nshn = this.nshnLayers.get(entry.instanceId);
       if (nshn) {
@@ -491,8 +511,7 @@ export class BasemapManager {
 
     const defaultLineWidth = typeof cfg?.lineWidth === 'number' ? cfg.lineWidth : 1;
     const currentLineWidth = layer.vecLineWidth ?? defaultLineWidth;
-    const defaultFillOpacity = cfg?.fillOpacity ?? 0.5;
-    const currentFillOpacity = layer.vecFillOpacityOverride ?? defaultFillOpacity;
+    const currentFillOpacity = layer.vecFillOpacityOverride ?? 1.0;
     const defaultLineHex = typeof cfg?.lineColor === 'string' ? cfg.lineColor : '#888888';
     const defaultFillHex = cfg?.fillColor
       ? (typeof cfg.fillColor === 'string' ? cfg.fillColor : '#4488cc')
@@ -759,7 +778,10 @@ export class BasemapManager {
         const valEl = slider.nextElementSibling as HTMLElement;
         if (valEl) valEl.textContent = `${Math.round(fo * 100)}%`;
         const ltype = this.getLayerType(layer);
-        if (ltype === 'nshn-vector') {
+        if (ltype === 'nsprd-vector' && this.nsprdLayer) {
+          this.nsprdLayer.setFillOpacity(fo);
+          this.nsprdLayer.setOpacity(layer.visible ? layer.opacity : 0);
+        } else if (ltype === 'nshn-vector') {
           const nshn = this.nshnLayers.get(iid);
           if (nshn) {
             nshn.setFillOpacityOverride(fo);
@@ -794,7 +816,8 @@ export class BasemapManager {
         if (!layer) return;
         layer.vecFillColor = color;
         const ltype = this.getLayerType(layer);
-        if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setFillColor(color);
+        if (ltype === 'nsprd-vector') this.nsprdLayer?.setFillColor(color);
+        else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setFillColor(color);
         this.saveStack();
       });
     });

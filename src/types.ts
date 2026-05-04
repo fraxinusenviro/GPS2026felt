@@ -135,7 +135,6 @@ export interface VectorLayerConfig {
   lineColor: string | unknown[];
   lineWidth: number | unknown[];
   fillColor?: string | unknown[];
-  fillOpacity?: number;
   // Human-readable field labels for the identify popup
   fieldLabels?: Record<string, string>;
 }
