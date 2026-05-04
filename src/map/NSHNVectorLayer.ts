@@ -9,7 +9,7 @@ export class NSHNVectorLayer {
   private instanceId: string | null = null;
   private fetchId = 0;
   private moveHandler: (() => void) | null = null;
-  private fillOpacityOverride: number | null = null;
+  private fillOpacityOverride: number | null = null; // null = 1.0 (full opacity)
 
   constructor(
     private mapManager: MapManager,
@@ -56,7 +56,7 @@ export class NSHNVectorLayer {
             source: srcId,
             paint: {
               'fill-color': (this.config.fillColor ?? this.config.lineColor) as any,
-              'fill-opacity': visible ? opacity * (this.config.fillOpacity ?? 0.5) : 0,
+              'fill-opacity': visible ? opacity * (this.fillOpacityOverride ?? 1.0) : 0,
             },
             layout: { visibility: visible ? 'visible' : 'none' },
           },
@@ -111,7 +111,7 @@ export class NSHNVectorLayer {
     const map = this.mapManager.getMap();
     const layerId = `bm-ov-${this.instanceId}`;
     const strokeId = `${layerId}-stroke`;
-    const effectiveFillOpacity = this.fillOpacityOverride ?? this.config.fillOpacity ?? 0.5;
+    const effectiveFillOpacity = this.fillOpacityOverride ?? 1.0;
     if (this.config.geomType === 'line') {
       if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'line-opacity', opacity);
     } else {
@@ -154,12 +154,15 @@ export class NSHNVectorLayer {
   }
 
   setLineWidth(w: number): void {
-    if (!this.instanceId || typeof this.config.lineWidth !== 'number') return;
+    if (!this.instanceId) return;
     const map = this.mapManager.getMap();
     const layerId = `bm-ov-${this.instanceId}`;
     const strokeId = `${layerId}-stroke`;
-    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'line-width', w);
-    if (map.getLayer(strokeId)) map.setPaintProperty(strokeId, 'line-width', w);
+    if (this.config.geomType === 'line') {
+      if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'line-width', w);
+    } else {
+      if (map.getLayer(strokeId)) map.setPaintProperty(strokeId, 'line-width', w);
+    }
   }
 
   getLayerIds(): string[] {

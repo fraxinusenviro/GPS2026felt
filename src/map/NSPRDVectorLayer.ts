@@ -9,6 +9,7 @@ export class NSPRDVectorLayer {
   private instanceId: string | null = null;
   private fetchId = 0;
   private moveHandler: (() => void) | null = null;
+  private fillOpacity = 1.0;
 
   constructor(private mapManager: MapManager) {}
 
@@ -20,6 +21,9 @@ export class NSPRDVectorLayer {
     const map = this.mapManager.getMap();
     const srcId = `bmsrc-${instanceId}`;
     const layerId = `bm-ov-${instanceId}`;
+    const strokeId = `${layerId}-stroke`;
+    const hlLayerId = `${layerId}-hl`;
+    const hlStrokeId = `${layerId}-hl-stroke`;
 
     if (!map.getSource(srcId)) {
       map.addSource(srcId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -29,12 +33,63 @@ export class NSPRDVectorLayer {
       map.addLayer(
         {
           id: layerId,
+          type: 'fill',
+          source: srcId,
+          paint: {
+            'fill-color': '#e8e0d0',
+            'fill-opacity': visible ? opacity * this.fillOpacity : 0,
+          },
+          layout: { visibility: visible ? 'visible' : 'none' },
+        },
+        LAYER_IDS.USER_ACCURACY,
+      );
+    }
+
+    if (!map.getLayer(strokeId)) {
+      map.addLayer(
+        {
+          id: strokeId,
           type: 'line',
           source: srcId,
           paint: {
-            'line-color': '#000000',
+            'line-color': '#333333',
             'line-width': 0.8,
             'line-opacity': visible ? opacity : 0,
+          },
+          layout: { visibility: visible ? 'visible' : 'none' },
+        },
+        LAYER_IDS.USER_ACCURACY,
+      );
+    }
+
+    if (!map.getLayer(hlLayerId)) {
+      map.addLayer(
+        {
+          id: hlLayerId,
+          type: 'fill',
+          source: srcId,
+          filter: ['in', ['get', 'OBJECTID'], ['literal', []]],
+          paint: {
+            'fill-color': '#00ccff',
+            'fill-opacity': 0.4,
+          },
+          layout: { visibility: visible ? 'visible' : 'none' },
+        },
+        LAYER_IDS.USER_ACCURACY,
+      );
+    }
+
+    if (!map.getLayer(hlStrokeId)) {
+      map.addLayer(
+        {
+          id: hlStrokeId,
+          type: 'line',
+          source: srcId,
+          filter: ['in', ['get', 'OBJECTID'], ['literal', []]],
+          paint: {
+            'line-color': '#00aaff',
+            'line-width': 2.5,
+            'line-opacity': visible ? 1 : 0,
           },
           layout: { visibility: visible ? 'visible' : 'none' },
         },
@@ -51,6 +106,9 @@ export class NSPRDVectorLayer {
     if (!this.instanceId) return;
     const map = this.mapManager.getMap();
     const layerId = `bm-ov-${this.instanceId}`;
+    const strokeId = `${layerId}-stroke`;
+    const hlLayerId = `${layerId}-hl`;
+    const hlStrokeId = `${layerId}-hl-stroke`;
     const srcId = `bmsrc-${this.instanceId}`;
 
     if (this.moveHandler) {
@@ -58,6 +116,9 @@ export class NSPRDVectorLayer {
       this.moveHandler = null;
     }
 
+    if (map.getLayer(hlStrokeId)) map.removeLayer(hlStrokeId);
+    if (map.getLayer(hlLayerId)) map.removeLayer(hlLayerId);
+    if (map.getLayer(strokeId)) map.removeLayer(strokeId);
     if (map.getLayer(layerId)) map.removeLayer(layerId);
     if (map.getSource(srcId)) map.removeSource(srcId);
 
@@ -65,37 +126,74 @@ export class NSPRDVectorLayer {
     this.fetchId++;
   }
 
+  highlightFeatures(objectIds: number[]): void {
+    if (!this.instanceId) return;
+    const map = this.mapManager.getMap();
+    const layerId = `bm-ov-${this.instanceId}`;
+    const hlLayerId = `${layerId}-hl`;
+    const hlStrokeId = `${layerId}-hl-stroke`;
+    const filter = ['in', ['get', 'OBJECTID'], ['literal', objectIds]] as unknown[];
+    if (map.getLayer(hlLayerId)) map.setFilter(hlLayerId, filter as any);
+    if (map.getLayer(hlStrokeId)) map.setFilter(hlStrokeId, filter as any);
+  }
+
+  clearHighlight(): void {
+    this.highlightFeatures([]);
+  }
+
   setOpacity(opacity: number): void {
     if (!this.instanceId) return;
     const map = this.mapManager.getMap();
     const layerId = `bm-ov-${this.instanceId}`;
-    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'line-opacity', opacity);
+    const strokeId = `${layerId}-stroke`;
+    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'fill-opacity', opacity * this.fillOpacity);
+    if (map.getLayer(strokeId)) map.setPaintProperty(strokeId, 'line-opacity', opacity);
   }
 
   setVisible(visible: boolean): void {
     if (!this.instanceId) return;
     const map = this.mapManager.getMap();
     const layerId = `bm-ov-${this.instanceId}`;
-    if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
+    const strokeId = `${layerId}-stroke`;
+    const hlLayerId = `${layerId}-hl`;
+    const hlStrokeId = `${layerId}-hl-stroke`;
+    const vis = visible ? 'visible' : 'none';
+    if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', vis);
+    if (map.getLayer(strokeId)) map.setLayoutProperty(strokeId, 'visibility', vis);
+    if (map.getLayer(hlLayerId)) map.setLayoutProperty(hlLayerId, 'visibility', vis);
+    if (map.getLayer(hlStrokeId)) map.setLayoutProperty(hlStrokeId, 'visibility', vis);
   }
 
   setLineWidth(w: number): void {
     if (!this.instanceId) return;
     const map = this.mapManager.getMap();
-    const layerId = `bm-ov-${this.instanceId}`;
-    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'line-width', w);
+    const strokeId = `bm-ov-${this.instanceId}-stroke`;
+    if (map.getLayer(strokeId)) map.setPaintProperty(strokeId, 'line-width', w);
   }
 
   setLineColor(color: string): void {
     if (!this.instanceId) return;
     const map = this.mapManager.getMap();
+    const strokeId = `bm-ov-${this.instanceId}-stroke`;
+    if (map.getLayer(strokeId)) map.setPaintProperty(strokeId, 'line-color', color);
+  }
+
+  setFillColor(color: string): void {
+    if (!this.instanceId) return;
+    const map = this.mapManager.getMap();
     const layerId = `bm-ov-${this.instanceId}`;
-    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'line-color', color);
+    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'fill-color', color);
+  }
+
+  setFillOpacity(fo: number): void {
+    this.fillOpacity = fo;
+    // caller must follow up with setOpacity() to apply the combined value
   }
 
   getLayerIds(): string[] {
     if (!this.instanceId) return [];
-    return [`bm-ov-${this.instanceId}`];
+    const layerId = `bm-ov-${this.instanceId}`;
+    return [layerId, `${layerId}-stroke`];
   }
 
   private fetchData(): void {
@@ -113,11 +211,12 @@ export class NSPRDVectorLayer {
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
     const params = new URLSearchParams({
       where: '1=1',
-      outFields: 'OBJECTID,PID,SHAPE.AREA',
+      outFields: 'OBJECTID,PID',
       f: 'geojson',
       geometry: bbox,
       geometryType: 'esriGeometryEnvelope',
       inSR: '4326',
+      outSR: '4326',
       spatialRel: 'esriSpatialRelIntersects',
       resultRecordCount: '2000',
     });
