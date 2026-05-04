@@ -1,7 +1,7 @@
 import maplibregl from 'maplibre-gl';
 import type { Map as MLMap, LngLat, StyleSpecification } from 'maplibre-gl';
 import type { FieldFeature, AppSettings } from '../types';
-import { LAYER_IDS, BASEMAPS } from '../constants';
+import { LAYER_IDS, BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
 import proj4 from 'proj4';
@@ -19,6 +19,39 @@ export class MapManager {
     // Register cog:// protocol — reads Cloud-Optimized GeoTIFFs via range requests
     if (!(maplibregl as unknown as { _cogProtocolRegistered?: boolean })._cogProtocolRegistered) {
       (maplibregl as unknown as { _cogProtocolRegistered?: boolean })._cogProtocolRegistered = true;
+
+      // Build colormap registry from BASEMAP_OVERLAYS definitions
+      type ColorStop = [number, number, number, number, number]; // [value, R, G, B, A]
+      const cogColormapRegistry = new Map<string, ColorStop[]>();
+      for (const def of BASEMAP_OVERLAYS) {
+        if (def.cog_colormap && def.url.startsWith('cog://')) {
+          const withoutProto = def.url.slice('cog://'.length);
+          const parts = withoutProto.split('/');
+          parts.pop(); parts.pop(); parts.pop(); // strip {y}, {x}, {z}
+          const cogUrl = decodeURIComponent(parts.join('/'));
+          cogColormapRegistry.set(cogUrl, def.cog_colormap as ColorStop[]);
+        }
+      }
+
+      // Linear interpolation between QGIS color stops
+      const interpolateColormap = (stops: ColorStop[], v: number): [number, number, number, number] => {
+        if (v <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3], stops[0][4]];
+        const last = stops[stops.length - 1];
+        if (v >= last[0]) return [last[1], last[2], last[3], last[4]];
+        for (let i = 0; i < stops.length - 1; i++) {
+          if (v >= stops[i][0] && v <= stops[i + 1][0]) {
+            const t = (v - stops[i][0]) / (stops[i + 1][0] - stops[i][0]);
+            return [
+              Math.round(stops[i][1] + t * (stops[i + 1][1] - stops[i][1])),
+              Math.round(stops[i][2] + t * (stops[i + 1][2] - stops[i][2])),
+              Math.round(stops[i][3] + t * (stops[i + 1][3] - stops[i][3])),
+              Math.round(stops[i][4] + t * (stops[i + 1][4] - stops[i][4])),
+            ];
+          }
+        }
+        return [0, 0, 0, 0];
+      };
+
       const cogCache = new Map<string, import('geotiff').GeoTIFF>();
       maplibregl.addProtocol('cog', async (params) => {
         try {
@@ -39,10 +72,6 @@ export class MapManager {
           const north3857 = 20037508.342789244 - y * tileW;
           const south3857 = north3857 - tileW;
 
-          // Convert to EPSG:4326 for GeoTIFF read
-          const sw4326 = proj4('EPSG:3857', 'EPSG:4326', [west3857, south3857]);
-          const ne4326 = proj4('EPSG:3857', 'EPSG:4326', [east3857, north3857]);
-
           let tiff = cogCache.get(cogUrl);
           if (!tiff) {
             const { fromUrl } = await import('geotiff');
@@ -52,6 +81,31 @@ export class MapManager {
           const image = await tiff.getImage();
           const bands = image.getSamplesPerPixel();
 
+          // Detect the COG's native CRS from GeoKeys
+          const geoKeys = image.getGeoKeys() as Record<string, number> | undefined;
+          const epsgCode = geoKeys?.ProjectedCSTypeGeoKey ?? geoKeys?.GeographicTypeGeoKey ?? 4326;
+          const cogCrs = `EPSG:${epsgCode}`;
+
+          // Register common projected CRS definitions if not already available
+          if (epsgCode !== 4326 && epsgCode !== 3857) {
+            try { proj4(cogCrs, 'EPSG:4326', [0, 0]); } catch {
+              if (epsgCode >= 32601 && epsgCode <= 32660)
+                proj4.defs(cogCrs, `+proj=utm +zone=${epsgCode - 32600} +datum=WGS84 +units=m +no_defs`);
+              else if (epsgCode >= 32701 && epsgCode <= 32760)
+                proj4.defs(cogCrs, `+proj=utm +zone=${epsgCode - 32700} +south +datum=WGS84 +units=m +no_defs`);
+              else if (epsgCode >= 26901 && epsgCode <= 26960)
+                proj4.defs(cogCrs, `+proj=utm +zone=${epsgCode - 26900} +datum=NAD83 +units=m +no_defs`);
+            }
+          }
+
+          // Convert tile bbox to the COG's native CRS
+          let [swX, swY] = cogCrs === 'EPSG:4326'
+            ? proj4('EPSG:3857', 'EPSG:4326', [west3857, south3857])
+            : proj4('EPSG:3857', cogCrs, [west3857, south3857]);
+          let [neX, neY] = cogCrs === 'EPSG:4326'
+            ? proj4('EPSG:3857', 'EPSG:4326', [east3857, north3857])
+            : proj4('EPSG:3857', cogCrs, [east3857, north3857]);
+
           // Convert geographic bbox to pixel window
           const origin = image.getOrigin();     // [topLeftX, topLeftY]
           const res = image.getResolution();    // [xRes, yRes] — yRes may be negative
@@ -59,10 +113,10 @@ export class MapManager {
           const imgH = image.getHeight();
           const [ox, oy] = origin;
           const rx = res[0], ry = res[1];
-          const pxL = Math.round((sw4326[0] - ox) / rx);
-          const pxR = Math.round((ne4326[0] - ox) / rx);
-          const pxT = Math.round((ne4326[1] - oy) / ry);
-          const pxB = Math.round((sw4326[1] - oy) / ry);
+          const pxL = Math.round((swX - ox) / rx);
+          const pxR = Math.round((neX - ox) / rx);
+          const pxT = Math.round((neY - oy) / ry);
+          const pxB = Math.round((swY - oy) / ry);
           const winL = Math.max(0, Math.min(pxL, pxR));
           const winR = Math.min(imgW, Math.max(pxL, pxR));
           const winT = Math.max(0, Math.min(pxT, pxB));
@@ -75,29 +129,44 @@ export class MapManager {
             width: tileSize, height: tileSize, interleave: false
           }) as unknown as number[][];
 
-          // Find min/max for auto-scaling (first band)
-          const r0 = rasters[0];
-          let min = Infinity, max = -Infinity;
-          for (let i = 0; i < r0.length; i++) {
-            if (isFinite(r0[i]) && r0[i] !== 0) { min = Math.min(min, r0[i]); max = Math.max(max, r0[i]); }
-          }
-          const range = max - min || 1;
-
           const canvas = new OffscreenCanvas(tileSize, tileSize);
           const ctx = canvas.getContext('2d')!;
           const imgData = ctx.createImageData(tileSize, tileSize);
+          const r0 = rasters[0];
 
-          for (let i = 0; i < tileSize * tileSize; i++) {
-            if (bands >= 3) {
-              imgData.data[i * 4]     = Math.round(((rasters[0][i] - min) / range) * 255);
-              imgData.data[i * 4 + 1] = Math.round(((rasters[1][i] - min) / range) * 255);
-              imgData.data[i * 4 + 2] = Math.round(((rasters[2][i] - min) / range) * 255);
-            } else {
-              const v = Math.round(((r0[i] - min) / range) * 255);
-              imgData.data[i * 4] = imgData.data[i * 4 + 1] = imgData.data[i * 4 + 2] = v;
+          const colormap = cogColormapRegistry.get(cogUrl);
+          if (colormap && colormap.length >= 2) {
+            // Apply QGIS-style colormap with linear interpolation
+            const nodata = (image as unknown as { getGDALNoData?: () => number | null }).getGDALNoData?.() ?? null;
+            for (let i = 0; i < tileSize * tileSize; i++) {
+              const v = r0[i];
+              if (!isFinite(v) || v === nodata) { imgData.data[i * 4 + 3] = 0; continue; }
+              const [rv, gv, bv, av] = interpolateColormap(colormap, v);
+              imgData.data[i * 4]     = rv;
+              imgData.data[i * 4 + 1] = gv;
+              imgData.data[i * 4 + 2] = bv;
+              imgData.data[i * 4 + 3] = av;
             }
-            imgData.data[i * 4 + 3] = 255;
+          } else {
+            // Auto-scale grayscale/RGB fallback for COGs without a colormap
+            let min = Infinity, max = -Infinity;
+            for (let i = 0; i < r0.length; i++) {
+              if (isFinite(r0[i]) && r0[i] !== 0) { min = Math.min(min, r0[i]); max = Math.max(max, r0[i]); }
+            }
+            const range = max - min || 1;
+            for (let i = 0; i < tileSize * tileSize; i++) {
+              if (bands >= 3) {
+                imgData.data[i * 4]     = Math.round(((rasters[0][i] - min) / range) * 255);
+                imgData.data[i * 4 + 1] = Math.round(((rasters[1][i] - min) / range) * 255);
+                imgData.data[i * 4 + 2] = Math.round(((rasters[2][i] - min) / range) * 255);
+              } else {
+                const v = Math.round(((r0[i] - min) / range) * 255);
+                imgData.data[i * 4] = imgData.data[i * 4 + 1] = imgData.data[i * 4 + 2] = v;
+              }
+              imgData.data[i * 4 + 3] = 255;
+            }
           }
+
           ctx.putImageData(imgData, 0, 0);
           const blob = await canvas.convertToBlob({ type: 'image/png' });
           return { data: await blob.arrayBuffer() };

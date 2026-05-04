@@ -151,6 +151,8 @@ export interface BasemapDef {
   tile_size?: number;
   group?: string;   // palette group heading, e.g. "NS DNRR Forestry"
   vector_config?: VectorLayerConfig;
+  // For COG raster layers: QGIS-style color stops [value, R, G, B, alpha 0-255]
+  cog_colormap?: Array<[number, number, number, number, number]>;
 }
 
 // ---- Online Data Connections ----

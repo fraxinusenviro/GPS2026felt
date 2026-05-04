@@ -318,7 +318,71 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
     attribution: '© Province of Nova Scotia',
     tile_size: 256,
     max_zoom: 20
-  }
+  },
+
+  // ---- Wetland Indices (COG rasters) ----
+  {
+    id: 'wi-dtw',
+    label: 'Depth to Water (DTW)',
+    type: 'raster',
+    group: 'Wetland Indices',
+    url: `cog://${encodeURIComponent('https://nswetlands-mapping.s3.us-east-2.amazonaws.com/COG/DTW_cog.tif')}/{z}/{x}/{y}`,
+    attribution: '© NS Wetlands Mapping',
+    tile_size: 256,
+    max_zoom: 22,
+    cog_colormap: [
+      [0,   8,   48,  107, 255],
+      [10,  74,  137, 175, 255],
+      [25,  89,  165, 210, 255],
+      [50,  200, 220, 240, 255],
+      [100, 247, 251, 255, 0  ],
+    ],
+  },
+  {
+    id: 'wi-gei',
+    label: 'Groundwater Expression Index (GEI)',
+    type: 'raster',
+    group: 'Wetland Indices',
+    url: `cog://${encodeURIComponent('https://nswetlands-mapping.s3.us-east-2.amazonaws.com/COG/GEI_cog.tif')}/{z}/{x}/{y}`,
+    attribution: '© NS Wetlands Mapping',
+    tile_size: 256,
+    max_zoom: 22,
+    cog_colormap: [
+      [-15.878, 255, 255, 178, 255],
+      [-11.892, 254, 201,  90, 255],
+      [-11.702, 254, 198,  89, 255],
+      [-11.564, 254, 195,  88, 255],
+      [-11.434, 254, 193,  87, 255],
+      [-11.276, 254, 191,  85, 255],
+      [-11.035, 254, 187,  83, 255],
+      [-10.445, 254, 177,  78, 255],
+      [ -7.623, 251, 127,  55, 255],
+      [ -0.694, 189,   0,  38, 255],
+    ],
+  },
+  {
+    id: 'wi-pdep',
+    label: 'Probability of Depression (PDEP)',
+    type: 'raster',
+    group: 'Wetland Indices',
+    url: `cog://${encodeURIComponent('https://nswetlands-mapping.s3.us-east-2.amazonaws.com/COG/PDEP_cog.tif')}/{z}/{x}/{y}`,
+    attribution: '© NS Wetlands Mapping',
+    tile_size: 256,
+    max_zoom: 22,
+    cog_colormap: [
+      [0.000, 222, 245, 229,   0],
+      [0.100, 170, 225, 189, 255],
+      [0.200,  97, 207, 172, 255],
+      [0.300,  62, 180, 173, 255],
+      [0.400,  52, 151, 169, 255],
+      [0.500,  53, 123, 163, 255],
+      [0.600,  57,  93, 156, 255],
+      [0.700,  65,  63, 129, 255],
+      [0.800,  56,  42,  84, 255],
+      [0.900,  37,  23,  41, 255],
+      [0.997,  11,   4,   5, 255],
+    ],
+  },
 ];
 
 // ---- UTM Grid Intervals (metres) ----
