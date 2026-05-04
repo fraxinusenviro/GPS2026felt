@@ -125,10 +125,19 @@ export interface VectorLayerConfig {
   geomType: 'line' | 'polygon';
   where?: string;
   outFields?: string;
-  lineColor: string;
-  lineWidth: number;
-  fillColor?: string;
+  resultRecordCount?: number;
+  // Additional endpoints fetched in parallel and merged (e.g. roads HW + LO)
+  additionalEndpoints?: string[];
+  // Zoom-dependent endpoint: use highZoomEndpoint when zoom >= highZoomThreshold
+  highZoomEndpoint?: string;
+  highZoomThreshold?: number;
+  // Styling: plain CSS color string OR a MapLibre expression array
+  lineColor: string | unknown[];
+  lineWidth: number | unknown[];
+  fillColor?: string | unknown[];
   fillOpacity?: number;
+  // Human-readable field labels for the identify popup
+  fieldLabels?: Record<string, string>;
 }
 
 // ---- Basemap definition ----

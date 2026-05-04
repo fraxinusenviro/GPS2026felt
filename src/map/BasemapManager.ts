@@ -1,3 +1,4 @@
+import maplibregl from 'maplibre-gl';
 import { BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig } from '../types';
 import type { MapManager } from './MapManager';
@@ -21,6 +22,8 @@ interface StackLayer {
   saturation: number;
   contrast: number;
   brightness: number;
+  vecLineWidth?: number;
+  vecFillOpacityOverride?: number;
 }
 
 interface UserLayerInfo {
@@ -69,6 +72,11 @@ export class BasemapManager {
   private nsprdLayer: NSPRDVectorLayer | null = null;
   private nshnLayers = new Map<string, NSHNVectorLayer>();
 
+  private identifyActive = false;
+  private identifyClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
+  private identifyPopup: maplibregl.Popup | null = null;
+  private identifyButton: HTMLButtonElement | null = null;
+
   constructor(private mapManager: MapManager) {}
 
   // ---- State persistence ----
@@ -97,6 +105,7 @@ export class BasemapManager {
   }
 
   init(basemapId: string): void {
+    if (!this.identifyButton) this.initIdentifyButton();
     if (this.restoreStack()) {
       // Apply restored stack to the map (map is ready at this point)
       this.rebuildMap();
@@ -114,6 +123,85 @@ export class BasemapManager {
       visible: true,
       hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
     }];
+  }
+
+  private initIdentifyButton(): void {
+    const map = this.mapManager.getMap();
+    const container = map.getContainer();
+
+    const btn = document.createElement('button');
+    btn.className = 'fm-identify-btn';
+    btn.title = 'Identify features (click to toggle)';
+    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" width="16" height="16"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><circle cx="12" cy="16.5" r="0.5" fill="currentColor" stroke="none"/></svg>`;
+    container.appendChild(btn);
+    this.identifyButton = btn;
+
+    btn.addEventListener('click', () => {
+      this.identifyActive = !this.identifyActive;
+      btn.classList.toggle('active', this.identifyActive);
+      map.getCanvas().style.cursor = this.identifyActive ? 'crosshair' : '';
+
+      if (this.identifyActive) {
+        this.identifyClickHandler = (e) => this.handleIdentifyClick(e);
+        map.on('click', this.identifyClickHandler);
+      } else {
+        if (this.identifyClickHandler) {
+          map.off('click', this.identifyClickHandler);
+          this.identifyClickHandler = null;
+        }
+        this.identifyPopup?.remove();
+        this.identifyPopup = null;
+      }
+    });
+  }
+
+  private getActiveVectorLayerIds(): string[] {
+    const map = this.mapManager.getMap();
+    const ids: string[] = [];
+    if (this.nsprdLayer) ids.push(...this.nsprdLayer.getLayerIds());
+    for (const layer of this.nshnLayers.values()) ids.push(...layer.getLayerIds());
+    return ids.filter(id => map.getLayer(id));
+  }
+
+  private handleIdentifyClick(e: maplibregl.MapMouseEvent): void {
+    const map = this.mapManager.getMap();
+    const layerIds = this.getActiveVectorLayerIds();
+    if (layerIds.length === 0) return;
+
+    const features = map.queryRenderedFeatures(e.point, { layers: layerIds });
+    if (features.length === 0) return;
+
+    const feature = features[0];
+    const layerId = feature.layer.id;
+    const iid = layerId.replace(/^bm-ov-/, '').replace(/-stroke$/, '');
+    const stackLayer = this.stack.find(l => l.instanceId === iid);
+    const def = stackLayer ? ALL_DEFS().find(d => d.id === stackLayer.defId) : undefined;
+
+    this.identifyPopup?.remove();
+    this.identifyPopup = new maplibregl.Popup({ className: 'fm-identify-popup', maxWidth: '280px' })
+      .setLngLat(e.lngLat)
+      .setHTML(this.buildIdentifyHtml(
+        (feature.properties ?? {}) as Record<string, unknown>,
+        def?.vector_config?.fieldLabels,
+        def?.label,
+      ))
+      .addTo(map);
+  }
+
+  private buildIdentifyHtml(
+    props: Record<string, unknown>,
+    fieldLabels?: Record<string, string>,
+    layerName?: string,
+  ): string {
+    const entries = Object.entries(props).filter(([k]) => k !== 'Shape' && !k.startsWith('SHAPE'));
+    const rows = entries.map(([k, v]) => {
+      const label = fieldLabels?.[k] ?? k;
+      return `<div class="fm-popup-row"><span class="fm-popup-key">${label}</span><span class="fm-popup-val">${v ?? ''}</span></div>`;
+    }).join('');
+    return `<div class="fm-popup-body">
+      ${layerName ? `<div class="fm-popup-title">${layerName}</div>` : ''}
+      ${rows || '<div class="fm-popup-row fm-popup-empty">No attributes</div>'}
+    </div>`;
   }
 
   private addToStack(def: BasemapDef): void {
@@ -337,10 +425,40 @@ export class BasemapManager {
 
   private renderStackItem(layer: StackLayer, idx: number): string {
     const isBase = idx === this.stack.length - 1;
-    const isVectorLayer = ['nsprd-vector', 'nshn-vector'].includes(this.getLayerType(layer));
+    const ltype = this.getLayerType(layer);
+    const isVectorLayer = ['nsprd-vector', 'nshn-vector'].includes(ltype);
+    const cfg = isVectorLayer ? this.getVectorConfig(layer) : undefined;
     const eyeSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
     const adjSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="8" cy="6" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="16" cy="12" r="2" fill="currentColor" stroke="none"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="10" cy="18" r="2" fill="currentColor" stroke="none"/></svg>`;
     const dragSvg = `<svg viewBox="0 0 10 16" fill="currentColor" width="10" height="16"><circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/><circle cx="3" cy="6" r="1.5"/><circle cx="7" cy="6" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/></svg>`;
+
+    const defaultLineWidth = typeof cfg?.lineWidth === 'number' ? cfg.lineWidth : 1;
+    const currentLineWidth = layer.vecLineWidth ?? defaultLineWidth;
+    const defaultFillOpacity = cfg?.fillOpacity ?? 0.5;
+    const currentFillOpacity = layer.vecFillOpacityOverride ?? defaultFillOpacity;
+
+    const vecStylePanel = isVectorLayer ? `
+      <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
+        ${typeof cfg?.lineWidth === 'number' ? `
+        <div class="bm-adj-row">
+          <label class="bm-adj-label">Line</label>
+          <input type="range" class="bm-adj-slider bm-vec-lw" data-iid="${layer.instanceId}"
+            min="0.5" max="8" step="0.5" value="${currentLineWidth}" />
+          <span class="bm-adj-val">${currentLineWidth}px</span>
+        </div>` : ''}
+        ${cfg?.geomType === 'polygon' ? `
+        <div class="bm-adj-row">
+          <label class="bm-adj-label">Fill</label>
+          <input type="range" class="bm-adj-slider bm-vec-fo" data-iid="${layer.instanceId}"
+            min="0" max="100" step="5" value="${Math.round(currentFillOpacity * 100)}" />
+          <span class="bm-adj-val">${Math.round(currentFillOpacity * 100)}%</span>
+        </div>` : ''}
+      </div>` : '';
+
+    const hasStylePanel = isVectorLayer
+      ? (typeof cfg?.lineWidth === 'number' || cfg?.geomType === 'polygon')
+      : true;
+
     return `
       <div class="bm-stack-item ${isBase ? 'bm-base-item' : ''}"
            draggable="true" data-idx="${idx}" data-iid="${layer.instanceId}">
@@ -354,10 +472,10 @@ export class BasemapManager {
             min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity" />
           <span class="bm-opacity-val">${Math.round(layer.opacity * 100)}%</span>
           <button class="bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
-          ${!isVectorLayer ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="Image adjustments">${adjSvg}</button>` : ''}
+          ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${isVectorLayer ? 'Style options' : 'Image adjustments'}">${adjSvg}</button>` : ''}
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
-        ${!isVectorLayer ? `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
+        ${isVectorLayer ? vecStylePanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
           <div class="bm-adj-row">
             <label class="bm-adj-label">Hue</label>
             <input type="range" class="bm-adj-slider bm-hue" data-iid="${layer.instanceId}" min="-180" max="180" step="1" value="${layer.hueRotate}" />
@@ -378,7 +496,7 @@ export class BasemapManager {
             <input type="range" class="bm-adj-slider bm-bri" data-iid="${layer.instanceId}" min="0" max="200" step="5" value="${Math.round(layer.brightness * 100)}" />
             <span class="bm-adj-val">${Math.round(layer.brightness * 100)}%</span>
           </div>
-        </div>` : ''}
+        </div>`}
       </div>`;
   }
 
@@ -543,6 +661,51 @@ export class BasemapManager {
           if (valEl) valEl.textContent = `${val}%`;
           if (isBase) this.mapManager.setBasemapPaint('raster-brightness-max', val / 100);
           else this.mapManager.setBasemapOverlayPaint(iid, 'raster-brightness-max', val / 100);
+        }
+        this.saveStack();
+      });
+    });
+
+    // Vector style sliders — line width
+    container.querySelectorAll<HTMLInputElement>('.bm-vec-lw').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const iid = slider.dataset.iid!;
+        const w = parseFloat(slider.value);
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.vecLineWidth = w;
+        const valEl = slider.nextElementSibling as HTMLElement;
+        if (valEl) valEl.textContent = `${w}px`;
+        const ltype = this.getLayerType(layer);
+        if (ltype === 'nsprd-vector') {
+          // NSPRD uses fixed width; no scalar override needed
+        } else if (ltype === 'nshn-vector') {
+          this.nshnLayers.get(iid)?.setLineWidth(w);
+        }
+        this.saveStack();
+      });
+    });
+
+    // Vector style sliders — fill opacity
+    container.querySelectorAll<HTMLInputElement>('.bm-vec-fo').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const iid = slider.dataset.iid!;
+        const fo = parseInt(slider.value) / 100;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.vecFillOpacityOverride = fo;
+        const valEl = slider.nextElementSibling as HTMLElement;
+        if (valEl) valEl.textContent = `${Math.round(fo * 100)}%`;
+        const ltype = this.getLayerType(layer);
+        if (ltype === 'nshn-vector') {
+          const nshn = this.nshnLayers.get(iid);
+          if (nshn) {
+            // Re-apply opacity with new fill override baked in via setOpacity
+            // setOpacity multiplies by config.fillOpacity; override by temporarily patching config
+            const cfg = this.getVectorConfig(layer);
+            if (cfg) (cfg as any).fillOpacity = fo;
+            nshn.setOpacity(layer.visible ? layer.opacity : 0);
+          }
         }
         this.saveStack();
       });

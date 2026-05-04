@@ -37,8 +37,8 @@ export class NSHNVectorLayer {
             type: 'line',
             source: srcId,
             paint: {
-              'line-color': this.config.lineColor,
-              'line-width': this.config.lineWidth,
+              'line-color': this.config.lineColor as any,
+              'line-width': this.config.lineWidth as any,
               'line-opacity': visible ? opacity : 0,
             },
             layout: { visibility: visible ? 'visible' : 'none' },
@@ -54,7 +54,7 @@ export class NSHNVectorLayer {
             type: 'fill',
             source: srcId,
             paint: {
-              'fill-color': this.config.fillColor ?? this.config.lineColor,
+              'fill-color': (this.config.fillColor ?? this.config.lineColor) as any,
               'fill-opacity': visible ? opacity * (this.config.fillOpacity ?? 0.5) : 0,
             },
             layout: { visibility: visible ? 'visible' : 'none' },
@@ -69,8 +69,8 @@ export class NSHNVectorLayer {
             type: 'line',
             source: srcId,
             paint: {
-              'line-color': this.config.lineColor,
-              'line-width': this.config.lineWidth,
+              'line-color': this.config.lineColor as any,
+              'line-width': this.config.lineWidth as any,
               'line-opacity': visible ? opacity : 0,
             },
             layout: { visibility: visible ? 'visible' : 'none' },
@@ -128,6 +128,21 @@ export class NSHNVectorLayer {
     if (map.getLayer(strokeId)) map.setLayoutProperty(strokeId, 'visibility', vis);
   }
 
+  setLineWidth(w: number): void {
+    if (!this.instanceId || typeof this.config.lineWidth !== 'number') return;
+    const map = this.mapManager.getMap();
+    const layerId = `bm-ov-${this.instanceId}`;
+    const strokeId = `${layerId}-stroke`;
+    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'line-width', w);
+    if (map.getLayer(strokeId)) map.setPaintProperty(strokeId, 'line-width', w);
+  }
+
+  getLayerIds(): string[] {
+    if (!this.instanceId) return [];
+    const layerId = `bm-ov-${this.instanceId}`;
+    return this.config.geomType === 'line' ? [layerId] : [layerId, `${layerId}-stroke`];
+  }
+
   private fetchData(): void {
     if (!this.instanceId) return;
     const map = this.mapManager.getMap();
@@ -141,6 +156,17 @@ export class NSHNVectorLayer {
 
     const bounds = map.getBounds();
     const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+    const zoom = map.getZoom();
+
+    let endpoint = this.config.endpoint;
+    if (
+      this.config.highZoomEndpoint &&
+      this.config.highZoomThreshold !== undefined &&
+      zoom >= this.config.highZoomThreshold
+    ) {
+      endpoint = this.config.highZoomEndpoint;
+    }
+
     const params = new URLSearchParams({
       where: this.config.where ?? '1=1',
       outFields: this.config.outFields ?? 'OBJECTID',
@@ -150,18 +176,25 @@ export class NSHNVectorLayer {
       inSR: '4326',
       outSR: '4326',
       spatialRel: 'esriSpatialRelIntersects',
-      resultRecordCount: '2000',
+      resultRecordCount: String(this.config.resultRecordCount ?? 2000),
     });
 
     const fid = ++this.fetchId;
+    const endpoints = [endpoint, ...(this.config.additionalEndpoints ?? [])];
 
-    fetch(`${this.config.endpoint}?${params.toString()}`)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(data => {
-        if (fid !== this.fetchId || !this.instanceId) return;
-        const src = map.getSource(srcId) as GeoJSONSource | undefined;
-        src?.setData(data);
-      })
-      .catch(err => console.warn('[NSHN]', err));
+    Promise.all(
+      endpoints.map(ep =>
+        fetch(`${ep}?${params.toString()}`)
+          .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      )
+    ).then((results: any[]) => {
+      if (fid !== this.fetchId || !this.instanceId) return;
+      const merged = {
+        type: 'FeatureCollection' as const,
+        features: results.flatMap(r => r.features ?? []),
+      };
+      const src = map.getSource(srcId) as GeoJSONSource | undefined;
+      src?.setData(merged);
+    }).catch(err => console.warn('[NSHN]', err));
   }
 }

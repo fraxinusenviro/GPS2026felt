@@ -79,6 +79,11 @@ export class NSPRDVectorLayer {
     if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
   }
 
+  getLayerIds(): string[] {
+    if (!this.instanceId) return [];
+    return [`bm-ov-${this.instanceId}`];
+  }
+
   private fetchData(): void {
     if (!this.instanceId) return;
     const map = this.mapManager.getMap();
