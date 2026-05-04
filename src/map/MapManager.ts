@@ -140,12 +140,19 @@ export class MapManager {
     // Scale control
     this.map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left');
 
-    await new Promise<void>(resolve => {
+    await new Promise<void>((resolve, reject) => {
       this.map.on('load', () => {
-        this.setupDataLayers();
-        this.setupUserLocation();
-        this.initialized = true;
-        resolve();
+        try {
+          this.setupDataLayers();
+          this.setupUserLocation();
+          this.initialized = true;
+          resolve();
+        } catch (e) {
+          reject(e);
+        }
+      });
+      this.map.on('error', (e: { error?: Error }) => {
+        if (!this.initialized) reject(e.error ?? new Error('Map failed to load'));
       });
     });
 
