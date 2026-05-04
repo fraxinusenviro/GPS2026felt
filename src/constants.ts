@@ -131,7 +131,15 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
     group: 'Nova Scotia',
     url: 'https://nsgiwa2.novascotia.ca/arcgis/rest/services/PLAN/PLAN_NSPRD_UT83/MapServer/0/query',
     attribution: '© Province of Nova Scotia',
-    max_zoom: 20
+    max_zoom: 20,
+    vector_config: {
+      endpoint: 'https://nsgiwa2.novascotia.ca/arcgis/rest/services/PLAN/PLAN_NSPRD_UT83/MapServer/0/query',
+      geomType: 'line',
+      lineColor: '#000000',
+      lineWidth: 0.8,
+      outFields: 'OBJECTID,PID',
+      fieldLabels: { OBJECTID: 'OID', PID: 'PID' },
+    }
   },
   {
     id: 'ns-nshn-watercourses',
