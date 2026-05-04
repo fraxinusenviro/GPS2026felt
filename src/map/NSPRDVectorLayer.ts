@@ -68,7 +68,7 @@ export class NSPRDVectorLayer {
           id: hlLayerId,
           type: 'fill',
           source: srcId,
-          filter: ['in', ['get', 'OBJECTID'], ['literal', []]],
+          filter: ['==', ['get', 'OBJECTID'], -1],
           paint: {
             'fill-color': '#00ccff',
             'fill-opacity': 0.4,
@@ -85,7 +85,7 @@ export class NSPRDVectorLayer {
           id: hlStrokeId,
           type: 'line',
           source: srcId,
-          filter: ['in', ['get', 'OBJECTID'], ['literal', []]],
+          filter: ['==', ['get', 'OBJECTID'], -1],
           paint: {
             'line-color': '#00aaff',
             'line-width': 2.5,
@@ -132,7 +132,9 @@ export class NSPRDVectorLayer {
     const layerId = `bm-ov-${this.instanceId}`;
     const hlLayerId = `${layerId}-hl`;
     const hlStrokeId = `${layerId}-hl-stroke`;
-    const filter = ['in', ['get', 'OBJECTID'], ['literal', objectIds]] as unknown[];
+    const filter = objectIds.length > 0
+      ? ['match', ['get', 'OBJECTID'], objectIds, true, false]
+      : ['==', ['get', 'OBJECTID'], -1];
     if (map.getLayer(hlLayerId)) map.setFilter(hlLayerId, filter as any);
     if (map.getLayer(hlStrokeId)) map.setFilter(hlStrokeId, filter as any);
   }
