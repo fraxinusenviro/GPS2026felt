@@ -108,8 +108,13 @@ export class BasemapManager {
 
   init(basemapId: string): void {
     if (this.restoreStack()) {
-      this.rebuildMap();
-      return;
+      try {
+        this.rebuildMap();
+        return;
+      } catch (e) {
+        console.error('[BasemapManager] Saved stack failed to restore, resetting to default:', e);
+        try { localStorage.removeItem(BM_STACK_KEY); } catch { /* ignore */ }
+      }
     }
     const def = ALL_DEFS().find(b => b.id === basemapId) ?? BASEMAPS[0];
     this.stack = [{
@@ -308,11 +313,11 @@ export class BasemapManager {
     const baseLayer = this.stack[this.stack.length - 1];
     const baseDef = allDefs.find(d => d.id === baseLayer.defId) ?? BASEMAPS[0];
     this.mapManager.setBasemap(baseDef);
-    this.mapManager.setBasemapOpacity(baseLayer.visible ? baseLayer.opacity : 0);
-    this.mapManager.setBasemapPaint('raster-hue-rotate', baseLayer.hueRotate);
-    this.mapManager.setBasemapPaint('raster-saturation', baseLayer.saturation);
-    this.mapManager.setBasemapPaint('raster-contrast', baseLayer.contrast);
-    this.mapManager.setBasemapPaint('raster-brightness-max', baseLayer.brightness);
+    this.mapManager.setBasemapOpacity(baseLayer.visible ? (baseLayer.opacity ?? 1) : 0);
+    this.mapManager.setBasemapPaint('raster-hue-rotate', baseLayer.hueRotate ?? 0);
+    this.mapManager.setBasemapPaint('raster-saturation', baseLayer.saturation ?? 0);
+    this.mapManager.setBasemapPaint('raster-contrast', baseLayer.contrast ?? 0);
+    this.mapManager.setBasemapPaint('raster-brightness-max', baseLayer.brightness ?? 1);
 
     const overlays = this.stack.slice(0, this.stack.length - 1).reverse();
     const rasterOverlays = overlays.filter(l => this.getLayerType(l) === 'raster');
