@@ -79,6 +79,20 @@ export class NSPRDVectorLayer {
     if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
   }
 
+  setLineWidth(w: number): void {
+    if (!this.instanceId) return;
+    const map = this.mapManager.getMap();
+    const layerId = `bm-ov-${this.instanceId}`;
+    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'line-width', w);
+  }
+
+  setLineColor(color: string): void {
+    if (!this.instanceId) return;
+    const map = this.mapManager.getMap();
+    const layerId = `bm-ov-${this.instanceId}`;
+    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'line-color', color);
+  }
+
   getLayerIds(): string[] {
     if (!this.instanceId) return [];
     return [`bm-ov-${this.instanceId}`];

@@ -2815,35 +2815,9 @@ input[type=color] {
 }
 
 /* ============================================================
-   Identify button (overlaid on map canvas, bottom-right)
+   Identify button — lives in the left toolbar, inherits .tool-btn
+   The .active state is handled by the standard .tool-btn.active rule
    ============================================================ */
-.fm-identify-btn {
-  position: absolute;
-  bottom: 80px;
-  right: 10px;
-  z-index: 10;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.18);
-  background: rgba(26,40,30,0.88);
-  color: #d4e8d0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.fm-identify-btn:hover {
-  background: rgba(40,65,45,0.95);
-  border-color: rgba(255,255,255,0.35);
-}
-.fm-identify-btn.active {
-  background: var(--color-accent, #4ade80);
-  color: #0a1a0f;
-  border-color: transparent;
-}
 
 /* ============================================================
    Identify popup (MapLibre Popup override)
@@ -2855,6 +2829,8 @@ input[type=color] {
   padding: 0;
   box-shadow: 0 4px 20px rgba(0,0,0,0.55);
   overflow: hidden;
+  max-height: 60vh;
+  overflow-y: auto;
 }
 .fm-identify-popup .maplibregl-popup-tip {
   border-top-color: #131f16;
@@ -2862,7 +2838,26 @@ input[type=color] {
 .fm-popup-body {
   font-size: 12px;
   color: #c8dcc4;
-  min-width: 160px;
+  min-width: 180px;
+  position: relative;
+}
+.fm-popup-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: none;
+  border: none;
+  color: #7aaa80;
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  z-index: 1;
+}
+.fm-popup-close:hover { color: #ddeedd; background: rgba(255,255,255,0.06); }
+.fm-popup-group + .fm-popup-group {
+  border-top: 1px solid rgba(255,255,255,0.1);
 }
 .fm-popup-title {
   font-size: 11px;
@@ -2870,8 +2865,13 @@ input[type=color] {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--color-accent, #4ade80);
-  padding: 8px 10px 6px;
+  padding: 8px 28px 6px 10px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.fm-popup-feature-sep {
+  height: 1px;
+  background: rgba(255,255,255,0.06);
+  margin: 2px 10px;
 }
 .fm-popup-row {
   display: flex;
@@ -2893,10 +2893,23 @@ input[type=color] {
   color: #ddeedd;
   word-break: break-word;
 }
-.fm-popup-empty {
-  font-style: italic;
-  color: #556655;
+.fm-popup-empty { font-style: italic; color: #556655; }
+
+/* ============================================================
+   Vector style panel — colour picker
+   ============================================================ */
+.bm-vec-color {
+  width: 28px;
+  height: 22px;
+  padding: 1px 2px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.18);
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
 }
+.bm-vec-color::-webkit-color-swatch-wrapper { padding: 0; }
+.bm-vec-color::-webkit-color-swatch { border: none; border-radius: 3px; }
 
 /* ============================================================
    Panel section headings matching Settings style

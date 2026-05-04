@@ -192,6 +192,10 @@ export class App {
       });
     });
 
+    // Identify button
+    const identifyBtn = document.getElementById('btn-identify') as HTMLButtonElement | null;
+    if (identifyBtn) this.basemapManager.setupIdentify(identifyBtn);
+
     // Zoom controls
     document.getElementById('btn-zoom-in')?.addEventListener('click', () => this.mapManager.zoomIn());
     document.getElementById('btn-zoom-out')?.addEventListener('click', () => this.mapManager.zoomOut());

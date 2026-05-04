@@ -9,6 +9,7 @@ export class NSHNVectorLayer {
   private instanceId: string | null = null;
   private fetchId = 0;
   private moveHandler: (() => void) | null = null;
+  private fillOpacityOverride: number | null = null;
 
   constructor(
     private mapManager: MapManager,
@@ -110,12 +111,36 @@ export class NSHNVectorLayer {
     const map = this.mapManager.getMap();
     const layerId = `bm-ov-${this.instanceId}`;
     const strokeId = `${layerId}-stroke`;
+    const effectiveFillOpacity = this.fillOpacityOverride ?? this.config.fillOpacity ?? 0.5;
     if (this.config.geomType === 'line') {
       if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'line-opacity', opacity);
     } else {
-      if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'fill-opacity', opacity * (this.config.fillOpacity ?? 0.5));
+      if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'fill-opacity', opacity * effectiveFillOpacity);
       if (map.getLayer(strokeId)) map.setPaintProperty(strokeId, 'line-opacity', opacity);
     }
+  }
+
+  setFillOpacityOverride(fo: number): void {
+    this.fillOpacityOverride = fo;
+  }
+
+  setLineColor(color: string): void {
+    if (!this.instanceId) return;
+    const map = this.mapManager.getMap();
+    const layerId = `bm-ov-${this.instanceId}`;
+    const strokeId = `${layerId}-stroke`;
+    if (this.config.geomType === 'line') {
+      if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'line-color', color);
+    } else {
+      if (map.getLayer(strokeId)) map.setPaintProperty(strokeId, 'line-color', color);
+    }
+  }
+
+  setFillColor(color: string): void {
+    if (!this.instanceId || this.config.geomType !== 'polygon') return;
+    const map = this.mapManager.getMap();
+    const layerId = `bm-ov-${this.instanceId}`;
+    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'fill-color', color);
   }
 
   setVisible(visible: boolean): void {
