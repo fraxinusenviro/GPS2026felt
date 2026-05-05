@@ -385,6 +385,21 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
   },
 ];
 
+// ---- Named COG color ramps (normalized 0→1 RGB stops, no alpha — always fully opaque) ----
+export const COG_RAMPS: Record<string, { label: string; stops: [number, number, number][] }> = {
+  viridis:  { label: 'Viridis',  stops: [[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]] },
+  plasma:   { label: 'Plasma',   stops: [[13,8,135],[156,23,158],[237,121,83],[246,207,32],[240,249,33]] },
+  inferno:  { label: 'Inferno',  stops: [[0,0,4],[87,16,110],[188,55,84],[249,142,9],[252,255,164]] },
+  blues:    { label: 'Blues',    stops: [[247,251,255],[198,219,239],[107,174,214],[33,113,181],[8,48,107]] },
+  greens:   { label: 'Greens',   stops: [[247,252,245],[186,228,179],[116,196,118],[35,139,69],[0,68,27]] },
+  reds:     { label: 'Reds',     stops: [[255,245,240],[252,187,161],[252,141,89],[222,45,38],[165,15,21]] },
+  ylgnbu:   { label: 'YlGnBu',   stops: [[255,255,217],[161,218,180],[65,182,196],[34,94,168],[8,29,88]] },
+  rdylbu:   { label: 'RdYlBu',   stops: [[165,0,38],[244,109,67],[255,255,191],[116,173,209],[49,54,149]] },
+  spectral: { label: 'Spectral', stops: [[158,1,66],[213,62,79],[253,174,97],[255,255,191],[171,221,164],[72,153,119],[94,79,162]] },
+  grays:    { label: 'Grays',    stops: [[255,255,255],[0,0,0]] },
+  grays_r:  { label: 'Grays (R)',stops: [[0,0,0],[255,255,255]] },
+};
+
 // ---- UTM Grid Intervals (metres) ----
 export const GRID_INTERVALS = [25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000];
 

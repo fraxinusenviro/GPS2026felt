@@ -6,6 +6,38 @@ import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
 import proj4 from 'proj4';
 
+// ---- Module-level COG colormap registry (mutable so ramp can be changed at runtime) ----
+type CogColorStop = [number, number, number, number, number]; // [value, R, G, B, alpha 0-255]
+
+const cogColormapRegistry = new Map<string, CogColorStop[]>();
+
+// Initialize from BASEMAP_OVERLAYS at module load time
+for (const def of BASEMAP_OVERLAYS) {
+  if (def.cog_colormap && def.url.startsWith('cog://')) {
+    const parts = def.url.slice('cog://'.length).split('/');
+    parts.pop(); parts.pop(); parts.pop(); // strip {y}, {x}, {z}
+    cogColormapRegistry.set(decodeURIComponent(parts.join('/')), def.cog_colormap as CogColorStop[]);
+  }
+}
+
+const interpolateCogColormap = (stops: CogColorStop[], v: number): [number, number, number, number] => {
+  if (v <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3], stops[0][4]];
+  const last = stops[stops.length - 1];
+  if (v >= last[0]) return [last[1], last[2], last[3], last[4]];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (v >= stops[i][0] && v <= stops[i + 1][0]) {
+      const t = (v - stops[i][0]) / (stops[i + 1][0] - stops[i][0]);
+      return [
+        Math.round(stops[i][1] + t * (stops[i + 1][1] - stops[i][1])),
+        Math.round(stops[i][2] + t * (stops[i + 1][2] - stops[i][2])),
+        Math.round(stops[i][3] + t * (stops[i + 1][3] - stops[i][3])),
+        Math.round(stops[i][4] + t * (stops[i + 1][4] - stops[i][4])),
+      ];
+    }
+  }
+  return [0, 0, 0, 0];
+};
+
 export class MapManager {
   private map!: MLMap;
   private userMarker: maplibregl.Marker | null = null;
@@ -19,44 +51,13 @@ export class MapManager {
     // Register cog:// protocol — reads Cloud-Optimized GeoTIFFs via range requests
     if (!(maplibregl as unknown as { _cogProtocolRegistered?: boolean })._cogProtocolRegistered) {
       (maplibregl as unknown as { _cogProtocolRegistered?: boolean })._cogProtocolRegistered = true;
-
-      // Build colormap registry from BASEMAP_OVERLAYS definitions
-      type ColorStop = [number, number, number, number, number]; // [value, R, G, B, A]
-      const cogColormapRegistry = new Map<string, ColorStop[]>();
-      for (const def of BASEMAP_OVERLAYS) {
-        if (def.cog_colormap && def.url.startsWith('cog://')) {
-          const withoutProto = def.url.slice('cog://'.length);
-          const parts = withoutProto.split('/');
-          parts.pop(); parts.pop(); parts.pop(); // strip {y}, {x}, {z}
-          const cogUrl = decodeURIComponent(parts.join('/'));
-          cogColormapRegistry.set(cogUrl, def.cog_colormap as ColorStop[]);
-        }
-      }
-
-      // Linear interpolation between QGIS color stops
-      const interpolateColormap = (stops: ColorStop[], v: number): [number, number, number, number] => {
-        if (v <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3], stops[0][4]];
-        const last = stops[stops.length - 1];
-        if (v >= last[0]) return [last[1], last[2], last[3], last[4]];
-        for (let i = 0; i < stops.length - 1; i++) {
-          if (v >= stops[i][0] && v <= stops[i + 1][0]) {
-            const t = (v - stops[i][0]) / (stops[i + 1][0] - stops[i][0]);
-            return [
-              Math.round(stops[i][1] + t * (stops[i + 1][1] - stops[i][1])),
-              Math.round(stops[i][2] + t * (stops[i + 1][2] - stops[i][2])),
-              Math.round(stops[i][3] + t * (stops[i + 1][3] - stops[i][3])),
-              Math.round(stops[i][4] + t * (stops[i + 1][4] - stops[i][4])),
-            ];
-          }
-        }
-        return [0, 0, 0, 0];
-      };
-
       const cogCache = new Map<string, import('geotiff').GeoTIFF>();
+
       maplibregl.addProtocol('cog', async (params) => {
         try {
-          // URL format: cog://ENCODED_COG_URL/z/x/y
-          const withoutProto = params.url.slice('cog://'.length);
+          // URL format: cog://ENCODED_COG_URL/z/x/y  (query string ignored for cache-busting)
+          const clean = params.url.split('?')[0];
+          const withoutProto = clean.slice('cog://'.length);
           const parts = withoutProto.split('/');
           const y = parseInt(parts.pop()!);
           const x = parseInt(parts.pop()!);
@@ -81,48 +82,46 @@ export class MapManager {
           const image = await tiff.getImage();
           const bands = image.getSamplesPerPixel();
 
-          // Detect the COG's native CRS from GeoKeys
+          // Detect the COG's native CRS from GeoKeys and register proj4 definition if needed
           const geoKeys = image.getGeoKeys() as Record<string, number> | undefined;
           const epsgCode = geoKeys?.ProjectedCSTypeGeoKey ?? geoKeys?.GeographicTypeGeoKey ?? 4326;
           const cogCrs = `EPSG:${epsgCode}`;
 
-          // Register common projected CRS definitions if not already available
           if (epsgCode !== 4326 && epsgCode !== 3857) {
             try { proj4(cogCrs, 'EPSG:4326', [0, 0]); } catch {
-              if (epsgCode >= 32601 && epsgCode <= 32660)
+              if (epsgCode === 22620)
+                // NAD83(CSRS)v6 / UTM Zone 20N  (NS Wetlands Mapping COGs)
+                proj4.defs(cogCrs, '+proj=utm +zone=20 +ellps=GRS80 +units=m +no_defs');
+              else if (epsgCode >= 32601 && epsgCode <= 32660)
                 proj4.defs(cogCrs, `+proj=utm +zone=${epsgCode - 32600} +datum=WGS84 +units=m +no_defs`);
               else if (epsgCode >= 32701 && epsgCode <= 32760)
                 proj4.defs(cogCrs, `+proj=utm +zone=${epsgCode - 32700} +south +datum=WGS84 +units=m +no_defs`);
               else if (epsgCode >= 26901 && epsgCode <= 26960)
                 proj4.defs(cogCrs, `+proj=utm +zone=${epsgCode - 26900} +datum=NAD83 +units=m +no_defs`);
-              else if (epsgCode === 22620)
-                // Clarke 1866 / UTM Zone 20N (old NS provincial CRS)
-                proj4.defs(cogCrs, '+proj=utm +zone=20 +ellps=clrk66 +towgs84=-8,160,176,0,0,0,0 +units=m +no_defs');
               else
-                console.warn(`[COG] Unknown CRS EPSG:${epsgCode} — treating as 4326`);
+                console.warn(`[COG] Unknown CRS EPSG:${epsgCode} — tile may misalign`);
             }
           }
 
-          // Log CRS and tile info once per COG URL for diagnostics
+          // Diagnostic log once per unique COG
           if (!cogCache.has(cogUrl)) {
-            console.info(`[COG] ${cogUrl.split('/').pop()} → CRS EPSG:${epsgCode}, size ${image.getWidth()}×${image.getHeight()}, nodata=${(image as any).getGDALNoData?.() ?? 'none'}`);
+            console.info(`[COG] ${cogUrl.split('/').pop()} → EPSG:${epsgCode}, ${image.getWidth()}×${image.getHeight()}, nodata=${(image as any).getGDALNoData?.() ?? 'none'}`);
           }
 
           // Convert tile bbox to the COG's native CRS
-          let [swX, swY] = cogCrs === 'EPSG:4326'
+          const [swX, swY] = cogCrs === 'EPSG:4326'
             ? proj4('EPSG:3857', 'EPSG:4326', [west3857, south3857])
             : proj4('EPSG:3857', cogCrs, [west3857, south3857]);
-          let [neX, neY] = cogCrs === 'EPSG:4326'
+          const [neX, neY] = cogCrs === 'EPSG:4326'
             ? proj4('EPSG:3857', 'EPSG:4326', [east3857, north3857])
             : proj4('EPSG:3857', cogCrs, [east3857, north3857]);
 
-          // Convert geographic bbox to pixel window
-          const origin = image.getOrigin();     // [topLeftX, topLeftY]
-          const res = image.getResolution();    // [xRes, yRes] — yRes may be negative
-          const imgW = image.getWidth();
-          const imgH = image.getHeight();
+          const origin = image.getOrigin();
+          const res    = image.getResolution();
           const [ox, oy] = origin;
-          const rx = res[0], ry = res[1];
+          const [rx, ry] = res;
+          const imgW = image.getWidth(), imgH = image.getHeight();
+
           const pxL = Math.round((swX - ox) / rx);
           const pxR = Math.round((neX - ox) / rx);
           const pxT = Math.round((neY - oy) / ry);
@@ -136,7 +135,7 @@ export class MapManager {
 
           const rasters = await image.readRasters({
             window: [winL, winT, winR, winB],
-            width: tileSize, height: tileSize, interleave: false
+            width: tileSize, height: tileSize, interleave: false,
           }) as unknown as number[][];
 
           const canvas = new OffscreenCanvas(tileSize, tileSize);
@@ -146,19 +145,17 @@ export class MapManager {
 
           const colormap = cogColormapRegistry.get(cogUrl);
           if (colormap && colormap.length >= 2) {
-            // Apply QGIS-style colormap with linear interpolation
             const nodata = (image as unknown as { getGDALNoData?: () => number | null }).getGDALNoData?.() ?? null;
             for (let i = 0; i < tileSize * tileSize; i++) {
               const v = r0[i];
               if (!isFinite(v) || v === nodata) { imgData.data[i * 4 + 3] = 0; continue; }
-              const [rv, gv, bv, av] = interpolateColormap(colormap, v);
+              const [rv, gv, bv, av] = interpolateCogColormap(colormap, v);
               imgData.data[i * 4]     = rv;
               imgData.data[i * 4 + 1] = gv;
               imgData.data[i * 4 + 2] = bv;
               imgData.data[i * 4 + 3] = av;
             }
           } else {
-            // Auto-scale grayscale/RGB fallback for COGs without a colormap
             let min = Infinity, max = -Infinity;
             for (let i = 0; i < r0.length; i++) {
               if (isFinite(r0[i]) && r0[i] !== 0) { min = Math.min(min, r0[i]); max = Math.max(max, r0[i]); }
@@ -1019,6 +1016,18 @@ export class MapManager {
   setBasemapPaint(prop: string, val: number): void {
     if (!this.initialized) return;
     if (this.map.getLayer('basemap')) this.map.setPaintProperty('basemap', prop as never, val);
+  }
+
+  /** Update the colormap used for a COG layer (takes effect on next tile refresh). */
+  setCogColormap(cogUrl: string, stops: CogColorStop[]): void {
+    cogColormapRegistry.set(cogUrl, stops);
+  }
+
+  /** Extract the raw COG URL from a cog:// tile URL template. */
+  static cogUrlFromTemplate(tileTemplate: string): string {
+    const parts = tileTemplate.split('?')[0].slice('cog://'.length).split('/');
+    parts.pop(); parts.pop(); parts.pop(); // strip {y}, {x}, {z}
+    return decodeURIComponent(parts.join('/'));
   }
 
   destroy(): void {
