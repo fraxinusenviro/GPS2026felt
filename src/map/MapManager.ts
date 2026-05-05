@@ -95,7 +95,17 @@ export class MapManager {
                 proj4.defs(cogCrs, `+proj=utm +zone=${epsgCode - 32700} +south +datum=WGS84 +units=m +no_defs`);
               else if (epsgCode >= 26901 && epsgCode <= 26960)
                 proj4.defs(cogCrs, `+proj=utm +zone=${epsgCode - 26900} +datum=NAD83 +units=m +no_defs`);
+              else if (epsgCode === 22620)
+                // Clarke 1866 / UTM Zone 20N (old NS provincial CRS)
+                proj4.defs(cogCrs, '+proj=utm +zone=20 +ellps=clrk66 +towgs84=-8,160,176,0,0,0,0 +units=m +no_defs');
+              else
+                console.warn(`[COG] Unknown CRS EPSG:${epsgCode} — treating as 4326`);
             }
+          }
+
+          // Log CRS and tile info once per COG URL for diagnostics
+          if (!cogCache.has(cogUrl)) {
+            console.info(`[COG] ${cogUrl.split('/').pop()} → CRS EPSG:${epsgCode}, size ${image.getWidth()}×${image.getHeight()}, nodata=${(image as any).getGDALNoData?.() ?? 'none'}`);
           }
 
           // Convert tile bbox to the COG's native CRS
@@ -170,7 +180,8 @@ export class MapManager {
           ctx.putImageData(imgData, 0, 0);
           const blob = await canvas.convertToBlob({ type: 'image/png' });
           return { data: await blob.arrayBuffer() };
-        } catch {
+        } catch (e) {
+          console.warn('[COG] tile error', params.url, e);
           return { data: new ArrayBuffer(0) };
         }
       });
