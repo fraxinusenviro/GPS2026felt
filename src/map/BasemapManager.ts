@@ -1,7 +1,7 @@
 import maplibregl from 'maplibre-gl';
 import { BASEMAPS, BASEMAP_OVERLAYS, COG_RAMPS } from '../constants';
 import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig } from '../types';
-import type { MapManager } from './MapManager';
+import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
 
