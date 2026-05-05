@@ -1,5 +1,5 @@
 import maplibregl from 'maplibre-gl';
-import { BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
+import { BASEMAPS, BASEMAP_OVERLAYS, COG_RAMPS } from '../constants';
 import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig } from '../types';
 import type { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
@@ -26,6 +26,7 @@ interface StackLayer {
   vecFillOpacityOverride?: number;
   vecLineColor?: string;
   vecFillColor?: string;
+  cogRampId?: string; // 'original' | key of COG_RAMPS
 }
 
 interface UserLayerInfo {
@@ -327,6 +328,43 @@ export class BasemapManager {
     return allDefs.find(d => d.id === l.defId)?.vector_config ?? l.vector_config;
   }
 
+  // ---- COG ramp helpers ----
+
+  private static cogUrlFromLayer(layer: StackLayer): string {
+    return MapManager.cogUrlFromTemplate(layer.url);
+  }
+
+  private applyCogRamp(layer: StackLayer): void {
+    const rampId = layer.cogRampId ?? 'original';
+    const def = ALL_DEFS().find(d => d.id === layer.defId);
+    const origColormap = def?.cog_colormap;
+    if (!origColormap) return;
+
+    const cogUrl = BasemapManager.cogUrlFromLayer(layer);
+    if (rampId === 'original') {
+      this.mapManager.setCogColormap(cogUrl, origColormap as [number,number,number,number,number][]);
+      return;
+    }
+    const ramp = COG_RAMPS[rampId];
+    if (!ramp) return;
+    const minVal = origColormap[0][0];
+    const maxVal = origColormap[origColormap.length - 1][0];
+    const stops = ramp.stops.map((c, i, arr): [number,number,number,number,number] => {
+      const t = arr.length > 1 ? i / (arr.length - 1) : 0;
+      return [minVal + t * (maxVal - minVal), c[0], c[1], c[2], 255];
+    });
+    this.mapManager.setCogColormap(cogUrl, stops);
+  }
+
+  private refreshRasterOverlays(): void {
+    const overlays = this.stack.slice(0, this.stack.length - 1).reverse();
+    const rasterOverlays = overlays.filter(l => this.getLayerType(l) === 'raster');
+    this.mapManager.rebuildBasemapOverlays(rasterOverlays.map(l => ({
+      instanceId: l.instanceId, url: l.url, opacity: l.opacity, visible: l.visible,
+      hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
+    })));
+  }
+
   private rebuildMap(): void {
     if (this.stack.length === 0) return;
     const allDefs = ALL_DEFS();
@@ -348,6 +386,13 @@ export class BasemapManager {
       instanceId: l.instanceId, url: l.url, opacity: l.opacity, visible: l.visible,
       hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
     })));
+
+    // Re-apply any saved COG ramp overrides (needed after page reload)
+    for (const l of rasterOverlays) {
+      if (l.url.startsWith('cog://') && l.cogRampId && l.cogRampId !== 'original') {
+        this.applyCogRamp(l);
+      }
+    }
 
     if (nsprdEntry) {
       if (!this.nsprdLayer) this.nsprdLayer = new NSPRDVectorLayer(this.mapManager);
@@ -539,6 +584,32 @@ export class BasemapManager {
         </div>` : ''}
       </div>` : '';
 
+    const isCog = layer.url.startsWith('cog://');
+    const cogRampId = layer.cogRampId ?? 'original';
+    const cogRampGradient = (() => {
+      if (!isCog) return '';
+      if (cogRampId === 'original') {
+        const def = ALL_DEFS().find(d => d.id === layer.defId);
+        const cm = def?.cog_colormap;
+        if (!cm) return '';
+        return `linear-gradient(to right,${cm.map(s => `rgba(${s[1]},${s[2]},${s[3]},${s[4]/255})`).join(',')})`;
+      }
+      const ramp = COG_RAMPS[cogRampId];
+      return ramp ? `linear-gradient(to right,${ramp.stops.map(c => `rgb(${c[0]},${c[1]},${c[2]})`).join(',')})` : '';
+    })();
+    const cogRampRow = isCog ? `
+      <div class="bm-adj-row">
+        <label class="bm-adj-label">Ramp</label>
+        <select class="bm-cog-ramp" data-iid="${layer.instanceId}" style="flex:1;min-width:0;font-size:11px;background:var(--bg-2,#1a2a1a);color:var(--fg-1,#ccc);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px">
+          <option value="original"${cogRampId==='original'?' selected':''}>Original</option>
+          ${Object.entries(COG_RAMPS).map(([k,r])=>`<option value="${k}"${cogRampId===k?' selected':''}>${r.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="bm-adj-row">
+        <label class="bm-adj-label"></label>
+        <div class="bm-ramp-preview" data-iid="${layer.instanceId}" style="flex:1;height:10px;border-radius:3px;border:1px solid var(--border,#444);background:${cogRampGradient}"></div>
+      </div>` : '';
+
     const hasStylePanel = isVectorLayer
       ? (typeof cfg?.lineWidth === 'number' || cfg?.geomType === 'polygon')
       : true;
@@ -560,6 +631,7 @@ export class BasemapManager {
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
         ${isVectorLayer ? vecStylePanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
+          ${cogRampRow}
           <div class="bm-adj-row">
             <label class="bm-adj-label">Hue</label>
             <input type="range" class="bm-adj-slider bm-hue" data-iid="${layer.instanceId}" min="-180" max="180" step="1" value="${layer.hueRotate}" />
@@ -746,6 +818,33 @@ export class BasemapManager {
           if (isBase) this.mapManager.setBasemapPaint('raster-brightness-max', val / 100);
           else this.mapManager.setBasemapOverlayPaint(iid, 'raster-brightness-max', val / 100);
         }
+        this.saveStack();
+      });
+    });
+
+    // COG ramp picker
+    container.querySelectorAll<HTMLSelectElement>('.bm-cog-ramp').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const iid = sel.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.cogRampId = sel.value;
+        // Update gradient preview
+        const rampId = sel.value;
+        let gradient = '';
+        if (rampId === 'original') {
+          const def = ALL_DEFS().find(d => d.id === layer.defId);
+          const cm = def?.cog_colormap;
+          if (cm) gradient = `linear-gradient(to right,${cm.map(s=>`rgba(${s[1]},${s[2]},${s[3]},${s[4]/255})`).join(',')})`;
+        } else {
+          const ramp = COG_RAMPS[rampId];
+          if (ramp) gradient = `linear-gradient(to right,${ramp.stops.map(c=>`rgb(${c[0]},${c[1]},${c[2]})`).join(',')})`;
+        }
+        const preview = container.querySelector<HTMLElement>(`.bm-ramp-preview[data-iid="${iid}"]`);
+        if (preview && gradient) preview.style.background = gradient;
+        // Apply to registry and force tile refresh
+        this.applyCogRamp(layer);
+        this.refreshRasterOverlays();
         this.saveStack();
       });
     });
