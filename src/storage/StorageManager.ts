@@ -81,10 +81,11 @@ export class StorageManager {
       await this.saveSetting('app_settings', DEFAULT_SETTINGS);
     }
 
-    // Seed layer presets
+    // Seed layer presets — merge new defaults by ID so existing users get new entries
     const existingLayers = await this.getAllLayerPresets();
-    if (existingLayers.length === 0) {
-      for (const lp of DEFAULT_LAYER_PRESETS) {
+    const existingLayerIds = new Set(existingLayers.map(l => l.id));
+    for (const lp of DEFAULT_LAYER_PRESETS) {
+      if (!existingLayerIds.has(lp.id)) {
         await this.db.put(STORE_LAYERS, lp);
         for (const tp of lp.types) {
           await this.db.put(STORE_PRESETS, tp);

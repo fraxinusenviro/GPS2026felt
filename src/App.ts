@@ -116,6 +116,7 @@ export class App {
     this.gridOverlay.setVisible(settings.grid_visible);
     this.updateButtonState('btn-grid', settings.grid_visible);
     this.updateButtonState('btn-follow', settings.follow_user);
+    this.updateActiveLayerIndicator();
   }
 
   // ============================================================
@@ -185,49 +186,84 @@ export class App {
         const geomType = mapGeoJSONTypeToFieldType(geometry.type);
         const compatLayers = layers.filter(l => l.geometry_type === geomType);
         if (!compatLayers.length) {
-          EventBus.emit('toast', { message: `No sketch layers of type ${geomType}`, type: 'warning' });
+          EventBus.emit('toast', { message: `No sketch layers for ${geomType} — create one first`, type: 'warning' });
           return;
         }
 
+        // Prefer the currently active layer if it matches; otherwise pick first compatible
+        const activeLayer = compatLayers.find(l => l.id === this.settings.default_layer_id)
+          ?? compatLayers[0];
+
+        const saveToLayer = async (layerId: string, typeId: string) => {
+          const now = new Date().toISOString();
+          const feature: FieldFeature = {
+            id: crypto.randomUUID(),
+            point_id: generatePointId(this.settings),
+            type: typeId, desc: '',
+            geometry_type: geomType,
+            geometry: normalizeGeometry(geometry),
+            capture_method: 'sketch',
+            created_at: now, updated_at: now,
+            created_by: this.settings.user_id,
+            lat: null, lon: null, elevation: null, accuracy: null,
+            layer_id: layerId, notes: '', photos: [],
+          };
+          await this.storage.saveFeature(feature);
+          EventBus.emit('feature-added', { feature });
+          EventBus.emit('toast', { message: `Added to ${layers.find(l => l.id === layerId)?.name ?? layerId}`, type: 'success' });
+        };
+
+        // If active layer matches geom type, save directly with a single confirmation
+        if (activeLayer.id === this.settings.default_layer_id) {
+          const defaultType = activeLayer.types[0]?.id ?? '';
+          if (activeLayer.types.length <= 1) {
+            // Only one type — save immediately
+            await saveToLayer(activeLayer.id, defaultType);
+            return;
+          }
+          // Multiple types — quick modal to pick type
+          EventBus.emit('show-modal', {
+            title: `Add to ${activeLayer.name}`,
+            html: `
+              <div class="form-group">
+                <label>Type
+                  <select id="sketch-type-sel">
+                    ${activeLayer.types.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
+                  </select>
+                </label>
+              </div>`,
+            confirmLabel: 'Add',
+            onConfirm: async () => {
+              const typeId = (document.getElementById('sketch-type-sel') as HTMLSelectElement)?.value ?? defaultType;
+              await saveToLayer(activeLayer.id, typeId);
+            },
+          });
+          return;
+        }
+
+        // Active layer not compatible — show full layer + type selector
         EventBus.emit('show-modal', {
           title: 'Add to sketch',
           html: `
             <div class="form-group">
               <label>Layer
                 <select id="sketch-layer-sel">
-                  ${compatLayers.map(l => `<option value="${l.id}">${l.name}</option>`).join('')}
+                  ${compatLayers.map(l => `<option value="${l.id}"${l.id === activeLayer.id ? ' selected' : ''}>${l.name}</option>`).join('')}
                 </select>
               </label>
             </div>
             <div class="form-group">
               <label>Type
                 <select id="sketch-type-sel">
-                  ${compatLayers[0].types.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
+                  ${activeLayer.types.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
                 </select>
               </label>
             </div>`,
           confirmLabel: 'Add',
           onConfirm: async () => {
-            const layerSel = document.getElementById('sketch-layer-sel') as HTMLSelectElement;
-            const typeSel  = document.getElementById('sketch-type-sel') as HTMLSelectElement;
-            const layerId  = layerSel?.value ?? compatLayers[0].id;
-            const typeId   = typeSel?.value ?? compatLayers[0].types[0]?.id ?? '';
-            const now = new Date().toISOString();
-            const feature: FieldFeature = {
-              id: crypto.randomUUID(),
-              point_id: generatePointId(this.settings),
-              type: typeId, desc: '',
-              geometry_type: geomType,
-              geometry: normalizeGeometry(geometry),
-              capture_method: 'sketch',
-              created_at: now, updated_at: now,
-              created_by: this.settings.user_id,
-              lat: null, lon: null, elevation: null, accuracy: null,
-              layer_id: layerId, notes: '', photos: [],
-            };
-            await this.storage.saveFeature(feature);
-            EventBus.emit('feature-added', { feature });
-            EventBus.emit('toast', { message: 'Feature added to sketch layer', type: 'success' });
+            const layerId = (document.getElementById('sketch-layer-sel') as HTMLSelectElement)?.value ?? activeLayer.id;
+            const typeId  = (document.getElementById('sketch-type-sel') as HTMLSelectElement)?.value ?? activeLayer.types[0]?.id ?? '';
+            await saveToLayer(layerId, typeId);
           },
         });
 
@@ -470,6 +506,8 @@ export class App {
         void this.captureManager.quickEntry(type);
       });
     }
+
+    this.wireLayerMgr();
   }
 
   private activateTool(tool: ToolMode): void {
@@ -738,6 +776,147 @@ export class App {
     document.querySelectorAll('.side-panel.open').forEach(p => {
       (p as HTMLElement).classList.remove('open');
       setTimeout(() => { (p as HTMLElement).style.display = 'none'; }, 300);
+    });
+  }
+
+  // ============================================================
+  // Active sketch layer indicator + manager popover
+  // ============================================================
+  private updateActiveLayerIndicator(): void {
+    this.storage.getAllLayerPresets().then(layers => {
+      const active = layers.find(l => l.id === this.settings.default_layer_id) ?? layers[0];
+      const dot  = document.getElementById('active-layer-dot');
+      const name = document.getElementById('active-layer-name');
+      if (dot)  dot.style.background = active?.color ?? '#888';
+      if (name) name.textContent = active?.name ?? '—';
+    });
+  }
+
+  wireLayerMgr(): void {
+    const btn = document.getElementById('btn-active-layer');
+    const popover = document.getElementById('layer-mgr-popover') as HTMLElement | null;
+    if (!btn || !popover) return;
+
+    const closePopover = () => { popover.style.display = 'none'; };
+
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (popover.style.display !== 'none') { closePopover(); return; }
+
+      const layers = await this.storage.getAllLayerPresets();
+      const btnRect = btn.getBoundingClientRect();
+      const containerRect = btn.closest('#map-container, .app-container, body')?.getBoundingClientRect()
+        ?? { left: 0, top: 0 };
+
+      popover.style.left = `${btnRect.right - containerRect.left + 4}px`;
+      popover.style.top  = `${btnRect.top  - containerRect.top}px`;
+
+      const geomBadge = (g: string) =>
+        g === 'Point' ? 'Pt' : g === 'LineString' ? 'Ln' : 'Pg';
+
+      popover.innerHTML = `
+        <button class="layer-mgr-close" id="lm-close">✕</button>
+        <h4>Sketch Layers</h4>
+        <div class="layer-mgr-list">
+          ${layers.map(l => `
+            <button class="layer-mgr-item${l.id === this.settings.default_layer_id ? ' active' : ''}"
+                    data-layer-id="${l.id}">
+              <span class="lm-dot" style="background:${l.color}"></span>
+              <span class="lm-name">${l.name}</span>
+              <span class="lm-badge">${geomBadge(l.geometry_type)}</span>
+              ${l.id.startsWith('default') ? '' : `<button class="lm-del" data-del-id="${l.id}" title="Delete">✕</button>`}
+            </button>`).join('')}
+        </div>
+        <div class="layer-mgr-new">
+          <div class="layer-mgr-new-row">
+            <input type="text" id="lm-new-name" placeholder="New layer name…" maxlength="40" />
+            <select id="lm-new-geom">
+              <option value="Point">Points</option>
+              <option value="LineString">Lines</option>
+              <option value="Polygon">Polygons</option>
+            </select>
+          </div>
+          <div class="layer-mgr-new-row">
+            <input type="color" id="lm-new-color" value="#4ade80" style="width:32px;height:28px;padding:0;border:none;background:none;cursor:pointer;" />
+            <button class="btn btn-sm btn-primary" id="lm-new-add" style="flex:1">+ Add Layer</button>
+          </div>
+        </div>`;
+
+      popover.style.display = 'block';
+
+      document.getElementById('lm-close')?.addEventListener('click', closePopover);
+
+      // Activate layer on item click
+      popover.querySelectorAll<HTMLButtonElement>('.layer-mgr-item').forEach(item => {
+        item.addEventListener('click', async (ev) => {
+          const delBtn = (ev.target as HTMLElement).closest('.lm-del');
+          if (delBtn) return; // handled by delete handler below
+          const id = item.dataset.layerId;
+          if (!id) return;
+          this.settings.default_layer_id = id;
+          await this.storage.saveAppSettings(this.settings);
+          this.captureManager.setSettings(this.settings);
+          this.updateActiveLayerIndicator();
+          closePopover();
+          const layer = layers.find(l => l.id === id);
+          EventBus.emit('toast', { message: `Active layer: ${layer?.name ?? id}`, type: 'info', duration: 1500 });
+        });
+      });
+
+      // Delete layer
+      popover.querySelectorAll<HTMLButtonElement>('.lm-del').forEach(delBtn => {
+        delBtn.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          const id = delBtn.dataset.delId;
+          if (!id) return;
+          if (!confirm('Delete this sketch layer? Its recorded features will not be deleted.')) return;
+          await this.storage.deleteLayerPreset(id);
+          if (this.settings.default_layer_id === id) {
+            const remaining = layers.filter(l => l.id !== id);
+            this.settings.default_layer_id = remaining[0]?.id ?? 'default';
+            await this.storage.saveAppSettings(this.settings);
+            this.captureManager.setSettings(this.settings);
+            this.updateActiveLayerIndicator();
+          }
+          closePopover();
+          EventBus.emit('toast', { message: 'Layer deleted', type: 'info', duration: 1500 });
+        });
+      });
+
+      // Add new layer
+      document.getElementById('lm-new-add')?.addEventListener('click', async () => {
+        const nameInput = document.getElementById('lm-new-name') as HTMLInputElement;
+        const geomSel   = document.getElementById('lm-new-geom') as HTMLSelectElement;
+        const colorIn   = document.getElementById('lm-new-color') as HTMLInputElement;
+        const name = nameInput.value.trim();
+        if (!name) { nameInput.focus(); return; }
+        const geomType = geomSel.value as GeometryType;
+        const color = colorIn.value;
+        const newLayer = {
+          id: crypto.randomUUID(),
+          name,
+          geometry_type: geomType,
+          color,
+          stroke_color: color,
+          stroke_width: 2,
+          fill_opacity: geomType === 'Polygon' ? 0.4 : 1.0,
+          types: [],
+        };
+        await this.storage.saveLayerPreset(newLayer);
+        this.settings.default_layer_id = newLayer.id;
+        await this.storage.saveAppSettings(this.settings);
+        this.captureManager.setSettings(this.settings);
+        this.updateActiveLayerIndicator();
+        closePopover();
+        EventBus.emit('toast', { message: `Layer "${name}" created and activated`, type: 'success' });
+      });
+    });
+
+    // Close on outside click
+    document.addEventListener('click', (e) => {
+      if (popover.style.display !== 'none' && !popover.contains(e.target as Node) && e.target !== btn) {
+        closePopover();
+      }
     });
   }
 }
