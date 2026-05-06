@@ -1,4 +1,4 @@
-import type { AppSettings, FieldFeature, ToolMode } from './types';
+import type { AppSettings, FieldFeature, ToolMode, GeometryType, GeoJSONGeometry } from './types';
 import { StorageManager } from './storage/StorageManager';
 import { MapManager } from './map/MapManager';
 import { BasemapManager } from './map/BasemapManager';
@@ -13,6 +13,7 @@ import { FeatureEditor } from './ui/FeatureEditor';
 import { GeometryEditor } from './ui/GeometryEditor';
 import { ImportDataPanel } from './ui/ImportDataPanel';
 import { ExportPanel } from './ui/ExportPanel';
+import { CachePanel } from './ui/CachePanel';
 import { Toast } from './ui/Toast';
 import { Modal } from './ui/Modal';
 import { LogConsole } from './ui/LogConsole';
@@ -34,6 +35,7 @@ export class App {
   private geometryEditor!: GeometryEditor;
   private importDataPanel!: ImportDataPanel;
   private exportPanel!: ExportPanel;
+  private cachePanel!: CachePanel;
   private toast!: Toast;
   private modal!: Modal;
   private logConsole!: LogConsole;
@@ -67,6 +69,7 @@ export class App {
     this.featureEditor = new FeatureEditor(this.presetManager);
     this.geometryEditor = new GeometryEditor(this.mapManager);
     this.importDataPanel = new ImportDataPanel(this.importManager, this.mapManager);
+    this.cachePanel = new CachePanel(this.mapManager, this.basemapManager);
     this.exportPanel = new ExportPanel(this.exportManager, () => {
       const b = this.mapManager.getBounds();
       if (!b) return null;
@@ -169,6 +172,79 @@ export class App {
     EventBus.on('edit-geometry-done', () => {
       this.captureManager.setTool('select');
     });
+
+    // Add identified feature to a sketch layer
+    EventBus.on<{ geometry: GeoJSONGeometry | null; label: string; props: Record<string, unknown> }>(
+      'add-identify-feature',
+      async ({ geometry }) => {
+        if (!geometry) {
+          EventBus.emit('toast', { message: 'No geometry available for this feature', type: 'warning' });
+          return;
+        }
+        const layers = await this.storage.getAllLayerPresets();
+        const geomType = mapGeoJSONTypeToFieldType(geometry.type);
+        const compatLayers = layers.filter(l => l.geometry_type === geomType);
+        if (!compatLayers.length) {
+          EventBus.emit('toast', { message: `No sketch layers of type ${geomType}`, type: 'warning' });
+          return;
+        }
+
+        EventBus.emit('show-modal', {
+          title: 'Add to sketch',
+          html: `
+            <div class="form-group">
+              <label>Layer
+                <select id="sketch-layer-sel">
+                  ${compatLayers.map(l => `<option value="${l.id}">${l.name}</option>`).join('')}
+                </select>
+              </label>
+            </div>
+            <div class="form-group">
+              <label>Type
+                <select id="sketch-type-sel">
+                  ${compatLayers[0].types.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
+                </select>
+              </label>
+            </div>`,
+          confirmLabel: 'Add',
+          onConfirm: async () => {
+            const layerSel = document.getElementById('sketch-layer-sel') as HTMLSelectElement;
+            const typeSel  = document.getElementById('sketch-type-sel') as HTMLSelectElement;
+            const layerId  = layerSel?.value ?? compatLayers[0].id;
+            const typeId   = typeSel?.value ?? compatLayers[0].types[0]?.id ?? '';
+            const now = new Date().toISOString();
+            const feature: FieldFeature = {
+              id: crypto.randomUUID(),
+              point_id: generatePointId(this.settings),
+              type: typeId, desc: '',
+              geometry_type: geomType,
+              geometry: normalizeGeometry(geometry),
+              capture_method: 'sketch',
+              created_at: now, updated_at: now,
+              created_by: this.settings.user_id,
+              lat: null, lon: null, elevation: null, accuracy: null,
+              layer_id: layerId, notes: '', photos: [],
+            };
+            await this.storage.saveFeature(feature);
+            EventBus.emit('feature-added', { feature });
+            EventBus.emit('toast', { message: 'Feature added to sketch layer', type: 'success' });
+          },
+        });
+
+        // Wire layer change → update type select
+        requestAnimationFrame(() => {
+          const layerSel = document.getElementById('sketch-layer-sel') as HTMLSelectElement | null;
+          const typeSel  = document.getElementById('sketch-type-sel') as HTMLSelectElement | null;
+          layerSel?.addEventListener('change', () => {
+            const layer = compatLayers.find(l => l.id === layerSel.value);
+            if (!layer || !typeSel) return;
+            typeSel.innerHTML = layer.types.map(t =>
+              `<option value="${t.id}">${t.label}</option>`,
+            ).join('');
+          });
+        });
+      },
+    );
   }
 
   // ============================================================
@@ -347,6 +423,32 @@ export class App {
       this.closeAllPanels();
       this.exportPanel.toggle();
     });
+
+    document.getElementById('btn-cache')?.addEventListener('click', () => {
+      this.closeAllPanels();
+      this.cachePanel.toggle();
+    });
+
+    // PID search bar
+    const pidBar = document.getElementById('pid-search-bar');
+    const pidInput = document.getElementById('pid-input') as HTMLInputElement | null;
+    document.getElementById('btn-search-pid')?.addEventListener('click', () => {
+      if (!pidBar) return;
+      const isVisible = pidBar.style.display === 'flex';
+      pidBar.style.display = isVisible ? 'none' : 'flex';
+      if (!isVisible) pidInput?.focus();
+    });
+    document.getElementById('pid-close')?.addEventListener('click', () => {
+      if (pidBar) pidBar.style.display = 'none';
+    });
+    const doSearch = () => {
+      const pid = pidInput?.value.trim() ?? '';
+      if (!pid) return;
+      if (pidBar) pidBar.style.display = 'none';
+      void this.basemapManager.searchPID(pid);
+    };
+    document.getElementById('pid-submit')?.addEventListener('click', doSearch);
+    pidInput?.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
 
     document.getElementById('btn-console')?.addEventListener('click', () => {
       this.logConsole.toggle();
@@ -638,6 +740,32 @@ export class App {
       setTimeout(() => { (p as HTMLElement).style.display = 'none'; }, 300);
     });
   }
+}
+
+// ---- Geometry helpers for add-to-sketch ----
+
+function mapGeoJSONTypeToFieldType(type: string): GeometryType {
+  if (type === 'Point' || type === 'MultiPoint') return 'Point';
+  if (type.includes('Line')) return 'LineString';
+  return 'Polygon';
+}
+
+function normalizeGeometry(g: GeoJSONGeometry): GeoJSONGeometry {
+  const t = g.type as string;
+  if (t === 'MultiPoint')      return { type: 'Point',      coordinates: ((g as unknown as { coordinates: unknown[][] }).coordinates[0] as unknown) as [number,number] } as GeoJSONGeometry;
+  if (t === 'MultiLineString') return { type: 'LineString',  coordinates: (g as unknown as { coordinates: [number,number][][] }).coordinates[0] } as GeoJSONGeometry;
+  if (t === 'MultiPolygon')    return { type: 'Polygon',     coordinates: (g as unknown as { coordinates: [number,number][][][] }).coordinates[0] } as GeoJSONGeometry;
+  return g;
+}
+
+function generatePointId(settings: AppSettings): string {
+  const now = new Date();
+  const y  = now.getFullYear();
+  const mo = String(now.getMonth() + 1).padStart(2, '0');
+  const d  = String(now.getDate()).padStart(2, '0');
+  const h  = String(now.getHours()).padStart(2, '0');
+  const mi = String(now.getMinutes()).padStart(2, '0');
+  return `${settings.user_id}_${y}_${mo}_${d}_${h}${mi}`;
 }
 
 // WakeLock types extension

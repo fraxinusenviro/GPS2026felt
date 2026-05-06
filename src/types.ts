@@ -222,6 +222,26 @@ export interface AppEvent<T = unknown> {
   payload?: T;
 }
 
+// ---- Tile Cache ----
+export interface TileCacheLayerDef {
+  defId: string;
+  label: string;
+  urlTemplate: string;
+  type: 'xyz' | 'wms';
+}
+
+export interface TileCacheRecord {
+  id: string;
+  name: string;
+  created_at: string;
+  bbox: [number, number, number, number]; // [west, south, east, north] WGS84
+  layers: TileCacheLayerDef[];
+  zoom_min: number;
+  zoom_max: number;
+  tile_count: number;
+  size_bytes: number;
+}
+
 // ---- Export options ----
 export interface ExportOptions {
   format: 'geojson' | 'shp' | 'kml' | 'csv';

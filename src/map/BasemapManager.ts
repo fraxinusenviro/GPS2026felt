@@ -1,9 +1,10 @@
 import maplibregl from 'maplibre-gl';
 import { BASEMAPS, BASEMAP_OVERLAYS, COG_RAMPS } from '../constants';
-import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig } from '../types';
+import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry } from '../types';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
+import { EventBus } from '../utils/EventBus';
 
 const BM_STACK_KEY = 'fm2026_bm_stack';
 
@@ -79,6 +80,10 @@ export class BasemapManager {
   private identifyClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
   private identifyPopup: maplibregl.Popup | null = null;
   private identifyButton: HTMLButtonElement | null = null;
+
+  // Active tile cache — maps defId → bmcache:// URL template
+  private activeCacheId: string | null = null;
+  private activeCacheLayers: Map<string, string> = new Map();
 
   constructor(private mapManager: MapManager) {}
 
@@ -178,7 +183,11 @@ export class BasemapManager {
 
     // Group by layer instance, deduplicate by OBJECTID within each instance
     const allDefs = ALL_DEFS();
-    const groupMap = new Map<string, { label: string; fieldLabels?: Record<string, string>; features: Record<string, unknown>[] }>();
+    const groupMap = new Map<string, {
+      label: string;
+      fieldLabels?: Record<string, string>;
+      features: Array<{ props: Record<string, unknown>; geometry: GeoJSONGeometry | null }>;
+    }>();
     const nsprdOids: number[] = [];
 
     for (const feat of features) {
@@ -195,17 +204,20 @@ export class BasemapManager {
         }
       }
 
+      const props = (feat.properties ?? {}) as Record<string, unknown>;
+      const geometry = (feat.geometry ?? null) as GeoJSONGeometry | null;
+
       if (groupMap.has(iid)) {
         const existing = groupMap.get(iid)!;
-        const oid = feat.properties?.OBJECTID;
-        if (oid && existing.features.some(f => f.OBJECTID === oid)) continue;
-        existing.features.push((feat.properties ?? {}) as Record<string, unknown>);
+        const oid = props.OBJECTID;
+        if (oid && existing.features.some(f => f.props.OBJECTID === oid)) continue;
+        existing.features.push({ props, geometry });
       } else {
         const def = stackLayer ? allDefs.find(d => d.id === stackLayer.defId) : undefined;
         groupMap.set(iid, {
           label: def?.label ?? 'Layer',
           fieldLabels: def?.vector_config?.fieldLabels,
-          features: [(feat.properties ?? {}) as Record<string, unknown>],
+          features: [{ props, geometry }],
         });
       }
     }
@@ -214,45 +226,103 @@ export class BasemapManager {
     this.nsprdLayer?.clearHighlight();
     if (nsprdOids.length > 0) this.nsprdLayer?.highlightFeatures(nsprdOids);
 
-    const html = this.buildIdentifyHtml([...groupMap.values()]);
+    const groups = [...groupMap.values()];
+    const html = this.buildIdentifyHtml(groups);
 
     this.identifyPopup?.remove();
-    this.identifyPopup = new maplibregl.Popup({ className: 'fm-identify-popup', maxWidth: '300px', closeButton: false })
+    this.identifyPopup = new maplibregl.Popup({ className: 'fm-identify-popup', maxWidth: '320px', closeButton: false })
       .setLngLat(e.lngLat)
       .setHTML(html)
       .addTo(map);
 
+    const el = this.identifyPopup.getElement();
+
     // Wire close button
-    const closeBtn = this.identifyPopup.getElement()?.querySelector<HTMLElement>('.fm-popup-close');
-    closeBtn?.addEventListener('click', () => {
+    el?.querySelector<HTMLElement>('.fm-popup-close')?.addEventListener('click', () => {
       this.identifyPopup?.remove();
       this.identifyPopup = null;
       this.nsprdLayer?.clearHighlight();
     });
+
+    // Wire tab switching
+    el?.querySelectorAll<HTMLButtonElement>('.fm-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        el.querySelectorAll('.fm-tab, .fm-tab-panel').forEach(x => x.classList.remove('active'));
+        tab.classList.add('active');
+        el.querySelector(`.fm-tab-panel[data-tab="${tab.dataset.tab}"]`)?.classList.add('active');
+      });
+    });
+
+    // Wire add-to-sketch buttons
+    el?.querySelectorAll<HTMLButtonElement>('.fm-add-sketch').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tabIdx = Number(btn.dataset.tab);
+        const featIdx = Number(btn.dataset.feat ?? 0);
+        const group = groups[tabIdx];
+        const feat = group?.features[featIdx];
+        if (!feat) return;
+        EventBus.emit('add-identify-feature', {
+          geometry: feat.geometry,
+          label: group.label,
+          props: feat.props,
+        });
+      });
+    });
   }
 
   private buildIdentifyHtml(
-    groups: Array<{ label: string; fieldLabels?: Record<string, string>; features: Record<string, unknown>[] }>,
+    groups: Array<{
+      label: string;
+      fieldLabels?: Record<string, string>;
+      features: Array<{ props: Record<string, unknown>; geometry: GeoJSONGeometry | null }>;
+    }>,
   ): string {
-    const groupHtml = groups.map(g => {
-      const featureBlocks = g.features.map(props => {
-        const entries = Object.entries(props).filter(([k]) => k !== 'Shape' && !k.startsWith('SHAPE'));
-        const rows = entries.map(([k, v]) => {
-          const label = g.fieldLabels?.[k] ?? k;
-          return `<div class="fm-popup-row"><span class="fm-popup-key">${label}</span><span class="fm-popup-val">${v ?? ''}</span></div>`;
-        }).join('');
-        return rows || '<div class="fm-popup-row fm-popup-empty">No attributes</div>';
-      }).join('<div class="fm-popup-feature-sep"></div>');
+    const renderFeatureRows = (feat: { props: Record<string, unknown> }, fieldLabels?: Record<string, string>) => {
+      const entries = Object.entries(feat.props).filter(([k]) => k !== 'Shape' && !k.startsWith('SHAPE'));
+      const rows = entries.map(([k, v]) => {
+        const label = fieldLabels?.[k] ?? k;
+        return `<div class="fm-popup-row"><span class="fm-popup-key">${label}</span><span class="fm-popup-val">${v ?? ''}</span></div>`;
+      }).join('');
+      return rows || '<div class="fm-popup-row fm-popup-empty">No attributes</div>';
+    };
 
-      return `<div class="fm-popup-group">
+    if (groups.length <= 1) {
+      // Single-group: flat layout with add-to-sketch
+      const g = groups[0];
+      if (!g) return '<div class="fm-popup-body"><button class="fm-popup-close" title="Close">✕</button><div class="fm-popup-empty">No features</div></div>';
+      const featureBlocks = g.features.map((feat, fi) => `
+        <div class="fm-popup-feat-block">
+          ${renderFeatureRows(feat, g.fieldLabels)}
+          <button class="fm-add-sketch" data-tab="0" data-feat="${fi}" title="Add to sketch layer">＋ Add to sketch</button>
+        </div>`).join('<div class="fm-popup-feature-sep"></div>');
+      return `<div class="fm-popup-body">
+        <button class="fm-popup-close" title="Close">✕</button>
+        <div class="fm-popup-title">${g.label}</div>
+        ${featureBlocks}
+      </div>`;
+    }
+
+    // Multi-group: tabs
+    const tabs = groups.map((g, i) =>
+      `<button class="fm-tab${i === 0 ? ' active' : ''}" data-tab="${i}">${g.label}</button>`
+    ).join('');
+
+    const panels = groups.map((g, i) => {
+      const featureBlocks = g.features.map((feat, fi) => `
+        <div class="fm-popup-feat-block">
+          ${renderFeatureRows(feat, g.fieldLabels)}
+          <button class="fm-add-sketch" data-tab="${i}" data-feat="${fi}" title="Add to sketch layer">＋ Add to sketch</button>
+        </div>`).join('<div class="fm-popup-feature-sep"></div>');
+      return `<div class="fm-tab-panel${i === 0 ? ' active' : ''}" data-tab="${i}">
         <div class="fm-popup-title">${g.label}</div>
         ${featureBlocks}
       </div>`;
     }).join('');
 
-    return `<div class="fm-popup-body">
+    return `<div class="fm-popup-body fm-popup-tabbed">
       <button class="fm-popup-close" title="Close">✕</button>
-      ${groupHtml}
+      <div class="fm-popup-tabs">${tabs}</div>
+      ${panels}
     </div>`;
   }
 
@@ -360,9 +430,65 @@ export class BasemapManager {
     const overlays = this.stack.slice(0, this.stack.length - 1).reverse();
     const rasterOverlays = overlays.filter(l => this.getLayerType(l) === 'raster');
     this.mapManager.rebuildBasemapOverlays(rasterOverlays.map(l => ({
-      instanceId: l.instanceId, url: l.url, opacity: l.opacity, visible: l.visible,
+      instanceId: l.instanceId,
+      url: this.activeCacheLayers.get(l.defId) ?? l.url,
+      opacity: l.opacity, visible: l.visible,
       hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
     })));
+  }
+
+  // ---- Tile Cache activation ----
+
+  getCacheableLayers(): TileCacheLayerDef[] {
+    return this.stack
+      .filter(l => {
+        const type = this.getLayerType(l);
+        return type === 'raster' && !l.url.startsWith('cog://') && !l.url.startsWith('mbtiles://') && !l.url.startsWith('bmcache://');
+      })
+      .map(l => {
+        const isWms = l.url.includes('{bbox-epsg-3857}');
+        return {
+          defId: l.defId,
+          label: l.label,
+          urlTemplate: l.url,
+          type: isWms ? 'wms' : 'xyz',
+        } satisfies TileCacheLayerDef;
+      });
+  }
+
+  activateCache(cacheId: string, layers: TileCacheLayerDef[]): void {
+    this.activeCacheId = cacheId;
+    this.activeCacheLayers.clear();
+    for (const layer of layers) {
+      // bmcache://cacheId/defId/{z}/{x}/{y}
+      this.activeCacheLayers.set(layer.defId, `bmcache://${cacheId}/${layer.defId}/{z}/{x}/{y}`);
+    }
+    this.refreshRasterOverlays();
+  }
+
+  deactivateCache(): void {
+    this.activeCacheId = null;
+    this.activeCacheLayers.clear();
+    this.refreshRasterOverlays();
+  }
+
+  // ---- PID Search ----
+
+  async searchPID(pid: string): Promise<void> {
+    if (!this.nsprdLayer) {
+      EventBus.emit('toast', { message: 'Add the NS Property Registry (NSPRD) layer first', type: 'warning' });
+      return;
+    }
+    const result = await this.nsprdLayer.searchByPID(pid);
+    if (!result.found || !result.bbox) {
+      EventBus.emit('toast', { message: `PID "${pid}" not found`, type: 'warning' });
+      return;
+    }
+    const [w, s, e, n] = result.bbox;
+    this.mapManager.fitBounds([[w, s], [e, n]], 80);
+    if (result.objectId !== undefined) {
+      this.nsprdLayer.highlightFeatures([result.objectId]);
+    }
   }
 
   private rebuildMap(): void {
@@ -383,7 +509,9 @@ export class BasemapManager {
     const nshnEntries = overlays.filter(l => this.getLayerType(l) === 'nshn-vector');
 
     this.mapManager.rebuildBasemapOverlays(rasterOverlays.map(l => ({
-      instanceId: l.instanceId, url: l.url, opacity: l.opacity, visible: l.visible,
+      instanceId: l.instanceId,
+      url: this.activeCacheLayers.get(l.defId) ?? l.url,
+      opacity: l.opacity, visible: l.visible,
       hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
     })));
 

@@ -426,7 +426,7 @@ export const LAYER_IDS = {
 
 // ---- Storage Keys ----
 export const DB_NAME = 'FieldMapper2026';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const STORE_FEATURES = 'features';
 export const STORE_SETTINGS = 'settings';
 export const STORE_PRESETS = 'presets';
@@ -435,6 +435,7 @@ export const STORE_CONNECTIONS = 'connections';
 export const STORE_IMPORTED = 'imported_layers';
 export const STORE_TILES = 'tiles';
 export const STORE_ONLINE_LAYERS = 'online_layers';
+export const STORE_TILE_CACHES = 'tile_caches';
 
 // ---- Session ----
 export function generateSessionId(): string {
