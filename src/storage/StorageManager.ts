@@ -1,13 +1,13 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import type {
   FieldFeature, AppSettings, TypePreset, LayerPreset,
-  SavedConnection, ImportedLayer, OnlineLayer
+  SavedConnection, ImportedLayer, OnlineLayer, TileCacheRecord
 } from '../types';
 import {
   DB_NAME, DB_VERSION,
   STORE_FEATURES, STORE_SETTINGS, STORE_PRESETS,
   STORE_LAYERS, STORE_CONNECTIONS, STORE_IMPORTED,
-  STORE_TILES, STORE_ONLINE_LAYERS,
+  STORE_TILES, STORE_ONLINE_LAYERS, STORE_TILE_CACHES,
   DEFAULT_SETTINGS, DEFAULT_LAYER_PRESETS, DEFAULT_CONNECTIONS
 } from '../constants';
 
@@ -62,8 +62,10 @@ export class StorageManager {
           db.createObjectStore(STORE_ONLINE_LAYERS, { keyPath: 'id' });
         }
 
-        if (oldVersion < 2) {
-          // Migration placeholder for future versions
+        if (oldVersion < 3) {
+          if (!db.objectStoreNames.contains(STORE_TILE_CACHES)) {
+            db.createObjectStore(STORE_TILE_CACHES, { keyPath: 'id' });
+          }
         }
       }
     });
@@ -249,6 +251,23 @@ export class StorageManager {
 
   async deleteOnlineLayer(id: string): Promise<void> {
     await this.db.delete(STORE_ONLINE_LAYERS, id);
+  }
+
+  // ---- Tile Cache metadata ----
+  async saveCache(record: TileCacheRecord): Promise<void> {
+    await this.db.put(STORE_TILE_CACHES, record);
+  }
+
+  async getAllCaches(): Promise<TileCacheRecord[]> {
+    return this.db.getAll(STORE_TILE_CACHES);
+  }
+
+  async getCacheById(id: string): Promise<TileCacheRecord | undefined> {
+    return this.db.get(STORE_TILE_CACHES, id);
+  }
+
+  async deleteCache(id: string): Promise<void> {
+    await this.db.delete(STORE_TILE_CACHES, id);
   }
 
   // ---- Export all data for backup ----

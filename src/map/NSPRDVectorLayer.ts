@@ -5,6 +5,23 @@ import type { MapManager } from './MapManager';
 const EP = 'https://nsgiwa2.novascotia.ca/arcgis/rest/services/PLAN/PLAN_NSPRD_UT83/MapServer/0/query';
 const MIN_ZOOM = 12;
 
+function computeBBoxFromGeoJSON(
+  geom: { type: string; coordinates: unknown },
+): [number, number, number, number] {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const visit = (coords: unknown[]) => {
+    if (typeof coords[0] === 'number') {
+      const x = coords[0] as number, y = coords[1] as number;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    } else {
+      (coords as unknown[][]).forEach(visit);
+    }
+  };
+  visit(geom.coordinates as unknown[]);
+  return [minX, minY, maxX, maxY];
+}
+
 export class NSPRDVectorLayer {
   private instanceId: string | null = null;
   private fetchId = 0;
@@ -196,6 +213,28 @@ export class NSPRDVectorLayer {
     if (!this.instanceId) return [];
     const layerId = `bm-ov-${this.instanceId}`;
     return [layerId, `${layerId}-stroke`];
+  }
+
+  async searchByPID(pid: string): Promise<{ found: boolean; bbox?: [number, number, number, number]; objectId?: number }> {
+    const params = new URLSearchParams({
+      where: `PID='${pid.replace(/'/g, "''")}'`,
+      outFields: 'OBJECTID,PID',
+      returnGeometry: 'true',
+      f: 'geojson',
+      outSR: '4326',
+    });
+    try {
+      const resp = await fetch(`${EP}?${params.toString()}`);
+      if (!resp.ok) return { found: false };
+      const data = await resp.json() as { features?: Array<{ properties: Record<string,unknown>; geometry: { type: string; coordinates: unknown } }> };
+      if (!data.features?.length) return { found: false };
+      const feat = data.features[0];
+      const oid = Number(feat.properties.OBJECTID);
+      const bbox = computeBBoxFromGeoJSON(feat.geometry);
+      return { found: true, bbox, objectId: oid };
+    } catch {
+      return { found: false };
+    }
   }
 
   private fetchData(): void {
