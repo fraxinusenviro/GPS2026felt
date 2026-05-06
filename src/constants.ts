@@ -84,8 +84,28 @@ export const DEFAULT_LAYER_PRESETS: LayerPreset[] = [
     stroke_color: '#166534',
     stroke_width: 2,
     fill_opacity: 0.7,
-    types: DEFAULT_TYPE_PRESETS
-  }
+    types: DEFAULT_TYPE_PRESETS.filter(t => t.geometry_type === 'Point'),
+  },
+  {
+    id: 'default-line',
+    name: 'Field Lines',
+    geometry_type: 'LineString',
+    color: '#facc15',
+    stroke_color: '#b45309',
+    stroke_width: 2,
+    fill_opacity: 1.0,
+    types: DEFAULT_TYPE_PRESETS.filter(t => t.geometry_type === 'LineString'),
+  },
+  {
+    id: 'default-polygon',
+    name: 'Field Polygons',
+    geometry_type: 'Polygon',
+    color: '#4ade80',
+    stroke_color: '#166534',
+    stroke_width: 2,
+    fill_opacity: 0.4,
+    types: DEFAULT_TYPE_PRESETS.filter(t => t.geometry_type === 'Polygon'),
+  },
 ];
 
 const T = new Date().toISOString();
