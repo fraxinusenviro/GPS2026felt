@@ -1,4 +1,4 @@
-import type { AppSettings, FieldFeature, ToolMode, GeometryType, GeoJSONGeometry } from './types';
+import type { AppSettings, FieldFeature, ToolMode, GeometryType, GeoJSONGeometry, LayerPreset } from './types';
 import { StorageManager } from './storage/StorageManager';
 import { MapManager } from './map/MapManager';
 import { BasemapManager } from './map/BasemapManager';
@@ -14,11 +14,12 @@ import { GeometryEditor } from './ui/GeometryEditor';
 import { ImportDataPanel } from './ui/ImportDataPanel';
 import { ExportPanel } from './ui/ExportPanel';
 import { CachePanel } from './ui/CachePanel';
+import { ProjectPanel } from './ui/ProjectPanel';
 import { Toast } from './ui/Toast';
 import { Modal } from './ui/Modal';
 import { LogConsole } from './ui/LogConsole';
 import { EventBus } from './utils/EventBus';
-import { generateSessionId } from './constants';
+import { generateSessionId, DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack } from './constants';
 
 export class App {
   private storage = StorageManager.getInstance();
@@ -36,12 +37,14 @@ export class App {
   private importDataPanel!: ImportDataPanel;
   private exportPanel!: ExportPanel;
   private cachePanel!: CachePanel;
+  private projectPanel!: ProjectPanel;
   private toast!: Toast;
   private modal!: Modal;
   private logConsole!: LogConsole;
 
   private settings!: AppSettings;
   private features: FieldFeature[] = [];
+  private projectLayerPresets: LayerPreset[] = [];
   private wakeLock: WakeLockSentinel | null = null;
   private followUser = false;
 
@@ -70,6 +73,11 @@ export class App {
     this.geometryEditor = new GeometryEditor(this.mapManager);
     this.importDataPanel = new ImportDataPanel(this.importManager, this.mapManager);
     this.cachePanel = new CachePanel(this.mapManager, this.basemapManager);
+    this.projectPanel = new ProjectPanel(
+      id => this.loadProject(id),
+      (name, desc) => this.createProject(name, desc),
+      id => this.deleteProject(id),
+    );
     this.exportPanel = new ExportPanel(this.exportManager, () => {
       const b = this.mapManager.getBounds();
       if (!b) return null;
@@ -85,8 +93,16 @@ export class App {
     await this.presetManager.init(this.settings);
     await this.importDataPanel.init();
 
-    this.features = await this.storage.getAllFeatures();
-    this.mapManager.updateCollectedFeatures(this.features);
+    // Load project-scoped data
+    const activeProjectId = this.settings.active_project_id || 'default';
+    const activeProject = await this.storage.getProject(activeProjectId);
+    if (activeProject?.basemap_stack_json) {
+      this.basemapManager.setActiveProjectStack(activeProject.basemap_stack_json);
+    }
+    this.features = await this.storage.getFeaturesByProject(activeProjectId);
+    this.projectLayerPresets = await this.storage.getLayersByProject(activeProjectId);
+    this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
+    this.projectPanel.setActiveProjectId(activeProjectId);
 
     this.applySettings(this.settings);
     this.captureManager.startGPSWatch();
@@ -174,6 +190,16 @@ export class App {
       this.captureManager.setTool('select');
     });
 
+    // Layer preset style/visibility changed from basemap TOC
+    EventBus.on<LayerPreset>('layer-preset-updated', async (updatedPreset) => {
+      await this.storage.saveLayerPreset(updatedPreset);
+      const idx = this.projectLayerPresets.findIndex(lp => lp.id === updatedPreset.id);
+      if (idx >= 0) this.projectLayerPresets[idx] = updatedPreset;
+      else this.projectLayerPresets.push(updatedPreset);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
+      this.updateActiveLayerIndicator();
+    });
+
     // Add identified feature to a sketch layer
     EventBus.on<{ geometry: GeoJSONGeometry | null; label: string; props: Record<string, unknown> }>(
       'add-identify-feature',
@@ -182,7 +208,10 @@ export class App {
           EventBus.emit('toast', { message: 'No geometry available for this feature', type: 'warning' });
           return;
         }
-        const layers = await this.storage.getAllLayerPresets();
+        // Use project-scoped layers
+        const layers = this.projectLayerPresets.length
+          ? this.projectLayerPresets
+          : await this.storage.getLayersByProject(this.settings.active_project_id || 'default');
         const geomType = mapGeoJSONTypeToFieldType(geometry.type);
         const compatLayers = layers.filter(l => l.geometry_type === geomType);
         if (!compatLayers.length) {
@@ -207,6 +236,7 @@ export class App {
             created_by: this.settings.user_id,
             lat: null, lon: null, elevation: null, accuracy: null,
             layer_id: layerId, notes: '', photos: [],
+            project_id: this.settings.active_project_id || 'default',
           };
           await this.storage.saveFeature(feature);
           EventBus.emit('feature-added', { feature });
@@ -349,8 +379,9 @@ export class App {
         basemapPanel.style.display = 'none';
       } else {
         basemapPanel.style.display = 'block';
+        const activeProjectId = this.settings.active_project_id || 'default';
         const [imported, online] = await Promise.all([
-          this.storage.getAllImportedLayers(),
+          this.storage.getImportedLayersByProject(activeProjectId),
           this.storage.getAllOnlineLayers(),
         ]);
 
@@ -435,7 +466,10 @@ export class App {
 
         this.basemapManager.renderPanel(basemapPanel, () => {
           basemapPanel.style.display = 'none';
-        }, userLayers, pdfLayers, onDeletePDF, onDeleteUserLayer, onLayerStateChange);
+        }, userLayers, pdfLayers, onDeletePDF, onDeleteUserLayer, onLayerStateChange,
+        this.projectLayerPresets,
+        (updatedPreset) => { EventBus.emit('layer-preset-updated', updatedPreset); },
+        );
       }
     });
 
@@ -463,6 +497,11 @@ export class App {
     document.getElementById('btn-cache')?.addEventListener('click', () => {
       this.closeAllPanels();
       this.cachePanel.toggle();
+    });
+
+    document.getElementById('btn-project')?.addEventListener('click', () => {
+      this.closeAllPanels();
+      this.projectPanel.toggle();
     });
 
     // PID search bar
@@ -783,13 +822,98 @@ export class App {
   // Active sketch layer indicator + manager popover
   // ============================================================
   private updateActiveLayerIndicator(): void {
-    this.storage.getAllLayerPresets().then(layers => {
-      const active = layers.find(l => l.id === this.settings.default_layer_id) ?? layers[0];
-      const dot  = document.getElementById('active-layer-dot');
-      const name = document.getElementById('active-layer-name');
-      if (dot)  dot.style.background = active?.color ?? '#888';
-      if (name) name.textContent = active?.name ?? '—';
+    const layers = this.projectLayerPresets.length
+      ? this.projectLayerPresets
+      : [];
+    const active = layers.find(l => l.id === this.settings.default_layer_id) ?? layers[0];
+    const dot  = document.getElementById('active-layer-dot');
+    const name = document.getElementById('active-layer-name');
+    if (dot)  dot.style.background = active?.color ?? '#888';
+    if (name) name.textContent = active?.name ?? '—';
+  }
+
+  // ============================================================
+  // Project management
+  // ============================================================
+  async loadProject(id: string): Promise<void> {
+    // Save current stack to the current project before switching
+    const currentProject = await this.storage.getProject(this.settings.active_project_id || 'default');
+    if (currentProject) {
+      currentProject.basemap_stack_json = this.basemapManager.getCurrentStackJson();
+      currentProject.updated_at = new Date().toISOString();
+      await this.storage.saveProject(currentProject);
+    }
+
+    const project = await this.storage.getProject(id);
+    if (!project) return;
+
+    // Switch active project in settings
+    this.settings.active_project_id = id;
+    this.settings.default_layer_id = project.default_layer_id;
+    await this.storage.saveAppSettings(this.settings);
+
+    // Restore basemap stack
+    if (project.basemap_stack_json) {
+      this.basemapManager.setActiveProjectStack(project.basemap_stack_json);
+    }
+
+    // Load project features and layers
+    this.features = await this.storage.getFeaturesByProject(id);
+    this.projectLayerPresets = await this.storage.getLayersByProject(id);
+    this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
+
+    // Update UI
+    this.captureManager.setSettings(this.settings);
+    this.updateActiveLayerIndicator();
+    this.projectPanel.setActiveProjectId(id);
+    this.projectPanel.refresh();
+
+    // Fly to saved map view
+    if (project.map_center && project.map_zoom) {
+      this.mapManager.flyTo(project.map_center[1], project.map_center[0], project.map_zoom);
+    }
+
+    EventBus.emit('toast', {
+      message: `Project: ${project.name}`,
+      type: 'success',
+      duration: 2000,
     });
+  }
+
+  async createProject(name: string, description: string): Promise<void> {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    // Create default layer presets for this project
+    const presets = DEFAULT_PROJECT_LAYER_PRESETS(id);
+    for (const lp of presets) await this.storage.saveLayerPreset(lp);
+
+    const project = {
+      id,
+      name,
+      description,
+      created_at: now,
+      updated_at: now,
+      default_layer_id: presets[0].id, // Points layer
+      basemap_stack_json: buildDefaultProjectStack(),
+      map_center: [-63.5, 45.0] as [number, number],
+      map_zoom: 10,
+    };
+    await this.storage.saveProject(project);
+    await this.loadProject(id);
+  }
+
+  async deleteProject(id: string): Promise<void> {
+    await this.storage.deleteFeaturesByProject(id);
+    await this.storage.deleteLayersByProject(id);
+    await this.storage.deleteImportedLayersByProject(id);
+    await this.storage.deleteProject(id);
+
+    // If deleted project was active, switch to default
+    if ((this.settings.active_project_id || 'default') === id) {
+      await this.loadProject('default');
+    }
+    this.projectPanel.refresh();
   }
 
   wireLayerMgr(): void {
@@ -803,7 +927,7 @@ export class App {
       e.stopPropagation();
       if (popover.style.display !== 'none') { closePopover(); return; }
 
-      const layers = await this.storage.getAllLayerPresets();
+      const layers = await this.storage.getLayersByProject(this.settings.active_project_id || 'default');
       const btnRect = btn.getBoundingClientRect();
       const containerRect = btn.closest('#map-container, .app-container, body')?.getBoundingClientRect()
         ?? { left: 0, top: 0 };
@@ -871,6 +995,7 @@ export class App {
           if (!id) return;
           if (!confirm('Delete this sketch layer? Its recorded features will not be deleted.')) return;
           await this.storage.deleteLayerPreset(id);
+          this.projectLayerPresets = await this.storage.getLayersByProject(this.settings.active_project_id || 'default');
           if (this.settings.default_layer_id === id) {
             const remaining = layers.filter(l => l.id !== id);
             this.settings.default_layer_id = remaining[0]?.id ?? 'default';
@@ -901,10 +1026,13 @@ export class App {
           stroke_width: 2,
           fill_opacity: geomType === 'Polygon' ? 0.4 : 1.0,
           types: [],
+          project_id: this.settings.active_project_id || 'default',
+          visible: true,
         };
         await this.storage.saveLayerPreset(newLayer);
         this.settings.default_layer_id = newLayer.id;
         await this.storage.saveAppSettings(this.settings);
+        this.projectLayerPresets = await this.storage.getLayersByProject(this.settings.active_project_id || 'default');
         this.captureManager.setSettings(this.settings);
         this.updateActiveLayerIndicator();
         closePopover();

@@ -28,6 +28,20 @@ export interface FieldFeature {
   layer_id: string;             // Layer/preset group this belongs to
   notes: string;                // Additional notes
   photos: string[];             // base64 photo data URLs
+  project_id: string;           // owning project ID
+}
+
+// ---- Project ----
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+  default_layer_id: string;     // active sketch layer for this project
+  basemap_stack_json: string;   // JSON-serialized StackLayer[] from BasemapManager
+  map_center: [number, number]; // [lng, lat]
+  map_zoom: number;
 }
 
 // ---- GeoJSON minimal types (typed for clarity) ----
@@ -67,12 +81,15 @@ export interface LayerPreset {
   stroke_width: number;
   fill_opacity: number;
   types: TypePreset[];
+  project_id?: string;          // owning project ID (undefined = legacy global)
+  visible?: boolean;            // TOC visibility toggle (default true)
 }
 
 // ---- Settings ----
 export interface AppSettings {
   user_id: string;              // User initials / ID for point_id generation
   default_layer_id: string;
+  active_project_id: string;    // currently loaded project
   gps_distance_tolerance: number;  // metres between GPS stream points
   gps_time_tolerance: number;      // seconds between GPS stream points
   gps_min_accuracy: number;        // minimum GPS accuracy to accept (m)
@@ -194,6 +211,7 @@ export interface ImportedLayer {
   label_field?: string;          // field to use for map labels (vector layers)
   bounds?: [number, number, number, number]; // [west,south,east,north] for mbtiles/geopdf zoom
   image_data_url?: string;       // JPEG data URL for georeferenced geopdf overlay
+  project_id?: string;           // owning project ID (undefined = legacy)
 }
 
 // ---- Events ----

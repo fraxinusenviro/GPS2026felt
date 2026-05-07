@@ -4,6 +4,7 @@ import type { BasemapDef, AppSettings, TypePreset, LayerPreset, SavedConnection 
 export const DEFAULT_SETTINGS: AppSettings = {
   user_id: 'USER',
   default_layer_id: 'default',
+  active_project_id: 'default',
   gps_distance_tolerance: 5,     // 5 metres
   gps_time_tolerance: 3,          // 3 seconds
   gps_min_accuracy: 20,           // 20m max acceptable accuracy
@@ -446,7 +447,7 @@ export const LAYER_IDS = {
 
 // ---- Storage Keys ----
 export const DB_NAME = 'FieldMapper2026';
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 export const STORE_FEATURES = 'features';
 export const STORE_SETTINGS = 'settings';
 export const STORE_PRESETS = 'presets';
@@ -456,6 +457,31 @@ export const STORE_IMPORTED = 'imported_layers';
 export const STORE_TILES = 'tiles';
 export const STORE_ONLINE_LAYERS = 'online_layers';
 export const STORE_TILE_CACHES = 'tile_caches';
+export const STORE_PROJECTS = 'projects';
+
+// ---- Project defaults ----
+
+/** Returns 3 default layer presets scoped to a new project. */
+export function DEFAULT_PROJECT_LAYER_PRESETS(projectId: string): LayerPreset[] {
+  return [
+    { id: `${projectId}-points`,   name: 'Points',   geometry_type: 'Point',      color: '#22c55e', stroke_color: '#166534', stroke_width: 2, fill_opacity: 0.8,  types: [], project_id: projectId, visible: true },
+    { id: `${projectId}-lines`,    name: 'Lines',    geometry_type: 'LineString', color: '#3b82f6', stroke_color: '#1e40af', stroke_width: 2, fill_opacity: 1.0,  types: [], project_id: projectId, visible: true },
+    { id: `${projectId}-polygons`, name: 'Polygons', geometry_type: 'Polygon',    color: '#f59e0b', stroke_color: '#92400e', stroke_width: 2, fill_opacity: 0.35, types: [], project_id: projectId, visible: true },
+  ];
+}
+
+/** Returns the JSON string for a new project's default basemap stack. */
+export function buildDefaultProjectStack(): string {
+  const esriDef = BASEMAPS.find(b => b.id === 'esri-imagery')!;
+  const nsprdDef = (BASEMAP_OVERLAYS as BasemapDef[]).find(o => o.id === 'ns-plan-nsprd')!;
+  const dtmDef   = (BASEMAP_OVERLAYS as BasemapDef[]).find(o => o.id === 'hrdem-dtm-hillshade')!;
+  const stack = [
+    { instanceId: 'base-0', defId: esriDef.id, label: esriDef.label, url: esriDef.url, type: esriDef.type, tileSize: esriDef.tile_size ?? 256, maxZoom: esriDef.max_zoom ?? 19, opacity: 1, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 0 },
+    { instanceId: `ov-${Date.now()}-1`, defId: nsprdDef.id, label: nsprdDef.label, url: nsprdDef.url, type: nsprdDef.type, vector_config: nsprdDef.vector_config, tileSize: 256, maxZoom: nsprdDef.max_zoom ?? 20, opacity: 1, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 0 },
+    { instanceId: `ov-${Date.now()}-2`, defId: dtmDef.id,   label: dtmDef.label,   url: dtmDef.url,   type: dtmDef.type,   tileSize: dtmDef.tile_size ?? 256,   maxZoom: dtmDef.max_zoom ?? 17,   opacity: 0.6, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 0 },
+  ];
+  return JSON.stringify({ stack, collapsed: [] });
+}
 
 // ---- Session ----
 export function generateSessionId(): string {

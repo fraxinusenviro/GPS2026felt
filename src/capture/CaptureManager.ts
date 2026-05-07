@@ -235,6 +235,7 @@ export class CaptureManager {
       elevation: this.gpsState.elevation,
       accuracy: this.gpsState.accuracy,
       layer_id: this.settings?.default_layer_id ?? 'default',
+      project_id: this.settings?.active_project_id ?? 'default',
       notes: '',
       photos: []
     };
@@ -322,6 +323,7 @@ export class CaptureManager {
       elevation: this.gpsState.elevation,
       accuracy: this.gpsState.accuracy,
       layer_id: this.settings?.default_layer_id ?? 'default',
+      project_id: this.settings?.active_project_id ?? 'default',
       notes: '',
       photos: []
     };
@@ -492,6 +494,7 @@ export class CaptureManager {
       elevation: null,
       accuracy: null,
       layer_id: this.settings?.default_layer_id ?? 'default',
+      project_id: this.settings?.active_project_id ?? 'default',
       notes: '',
       photos: []
     };
@@ -530,6 +533,7 @@ export class CaptureManager {
       elevation: this.gpsState.elevation,
       accuracy: this.gpsState.accuracy,
       layer_id: this.settings?.default_layer_id ?? 'default',
+      project_id: this.settings?.active_project_id ?? 'default',
       notes: '',
       photos: []
     };

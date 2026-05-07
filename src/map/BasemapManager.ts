@@ -1,6 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import { BASEMAPS, BASEMAP_OVERLAYS, COG_RAMPS } from '../constants';
-import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry } from '../types';
+import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset } from '../types';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
@@ -85,6 +85,10 @@ export class BasemapManager {
   private activeCacheId: string | null = null;
   private activeCacheLayers: Map<string, string> = new Map();
 
+  // Feature layer presets for the basemap TOC
+  private featureLayerPresets: LayerPreset[] = [];
+  private onFeatureLayerChange: ((preset: LayerPreset) => void) | null = null;
+
   constructor(private mapManager: MapManager) {}
 
   // ---- State persistence ----
@@ -110,6 +114,30 @@ export class BasemapManager {
       if (Array.isArray(parsed.collapsed)) this.collapsedSections = new Set(parsed.collapsed);
       return true;
     } catch { return false; }
+  }
+
+  /** Returns the current stack serialized to JSON (for project persistence). */
+  getCurrentStackJson(): string {
+    try {
+      const knownIds = new Set(ALL_DEFS().map(d => d.id));
+      return JSON.stringify({
+        stack: this.stack.filter(l => knownIds.has(l.defId)),
+        collapsed: [...this.collapsedSections],
+      });
+    } catch { return '{}'; }
+  }
+
+  /** Replaces the active stack from a project's stored JSON (without touching localStorage). */
+  setActiveProjectStack(stackJson: string): void {
+    try {
+      const parsed = JSON.parse(stackJson) as { stack?: StackLayer[]; collapsed?: string[] };
+      if (Array.isArray(parsed.stack) && parsed.stack.length > 0) {
+        this.stack = parsed.stack;
+        if (Array.isArray(parsed.collapsed)) this.collapsedSections = new Set(parsed.collapsed);
+        this.rebuildMap();
+        this.saveStack(); // mirror to localStorage for live buffer
+      }
+    } catch { /* keep existing stack */ }
   }
 
   init(basemapId: string): void {
@@ -558,12 +586,16 @@ export class BasemapManager {
     onDeletePDF?: (id: string) => void,
     onDeleteUserLayer?: (id: string) => void,
     onLayerStateChange?: (id: string, updates: { visible?: boolean; opacity?: number }) => void,
+    layerPresets?: LayerPreset[],
+    onFeatureLayerChange?: (preset: LayerPreset) => void,
   ): void {
     this.userLayers = userLayers;
     this.pdfLayers = pdfLayers;
     this.onDeletePDF = onDeletePDF ?? null;
     this.onDeleteUserLayer = onDeleteUserLayer ?? null;
     this.onLayerStateChange = onLayerStateChange ?? null;
+    if (layerPresets !== undefined) this.featureLayerPresets = layerPresets;
+    if (onFeatureLayerChange !== undefined) this.onFeatureLayerChange = onFeatureLayerChange;
     if (this.stack.length === 0) this.init('esri-imagery');
     this.renderContent(container, onClose);
   }
@@ -669,6 +701,92 @@ export class BasemapManager {
     </div>`;
     return this.sectionToggle('pdfs', 'GeoPDF Layers', `${this.pdfLayers.length} loaded`) +
       this.sectionBody('pdfs', body);
+  }
+
+  // ---- Feature Layers section (collected GPS/sketch data) ----
+
+  private renderFeatureLayersSection(): string {
+    const presets = this.featureLayerPresets;
+    if (presets.length === 0) return '';
+
+    const geomIcon = (g: string) =>
+      g === 'Point'      ? '<svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><circle cx="8" cy="8" r="5"/></svg>' :
+      g === 'LineString' ? '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 14 L8 4 L14 10"/></svg>' :
+                           '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12 L8 2 L14 12 Z"/></svg>';
+
+    const rows = presets.map(lp => {
+      const vis = lp.visible !== false;
+      const geomType = lp.geometry_type;
+      return `
+        <div class="fl-row" data-fl-id="${lp.id}">
+          <button class="fl-vis-btn${vis ? '' : ' fl-hidden'}" data-fl-vis="${lp.id}" title="Toggle visibility">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+              ${vis
+                ? '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'
+                : '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>'}
+            </svg>
+          </button>
+          <span class="fl-geom-icon" style="color:${lp.color}">${geomIcon(geomType)}</span>
+          <span class="fl-name">${lp.name}</span>
+          <input type="color" class="fl-color-swatch" data-fl-color="${lp.id}" value="${lp.color}" title="Feature colour" />
+          <input type="range" class="fl-opacity-slider" data-fl-opacity="${lp.id}"
+            min="0" max="100" step="5" value="${Math.round(lp.fill_opacity * 100)}" title="Opacity" />
+          ${geomType === 'LineString' ? `
+          <input type="range" class="fl-width-slider" data-fl-width="${lp.id}"
+            min="1" max="10" step="0.5" value="${lp.stroke_width}" title="Line width" style="display:none" />` : ''}
+        </div>`;
+    }).join('');
+
+    return this.sectionToggle('feature-layers', 'Feature Layers', `${presets.length} layers`) +
+      this.sectionBody('feature-layers', `<div class="fl-list">${rows}</div>`);
+  }
+
+  private wireFeatureLayers(container: HTMLElement): void {
+    const findPreset = (id: string) => this.featureLayerPresets.find(lp => lp.id === id);
+    const emit = (lp: LayerPreset) => this.onFeatureLayerChange?.(lp);
+
+    container.querySelectorAll<HTMLButtonElement>('[data-fl-vis]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const lp = findPreset(btn.dataset.flVis!);
+        if (!lp) return;
+        lp.visible = !(lp.visible !== false);
+        btn.classList.toggle('fl-hidden', !lp.visible);
+        btn.innerHTML = lp.visible
+          ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
+          : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+        emit(lp);
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('[data-fl-color]').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const lp = findPreset(inp.dataset.flColor!);
+        if (!lp) return;
+        lp.color = inp.value;
+        lp.stroke_color = inp.value;
+        const icon = inp.closest('.fl-row')?.querySelector<HTMLElement>('.fl-geom-icon');
+        if (icon) icon.style.color = inp.value;
+        emit(lp);
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('[data-fl-opacity]').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const lp = findPreset(inp.dataset.flOpacity!);
+        if (!lp) return;
+        lp.fill_opacity = Number(inp.value) / 100;
+        emit(lp);
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('[data-fl-width]').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const lp = findPreset(inp.dataset.flWidth!);
+        if (!lp) return;
+        lp.stroke_width = Number(inp.value);
+        emit(lp);
+      });
+    });
   }
 
   // ---- Stack item rendering ----
@@ -815,6 +933,7 @@ export class BasemapManager {
           `).join('')}
         </div>`)}
 
+        ${this.renderFeatureLayersSection()}
         ${this.renderOverlayPalette()}
         ${this.renderPDFSection()}
         ${this.renderUserLayersSection()}
@@ -823,6 +942,7 @@ export class BasemapManager {
     `;
 
     container.querySelector('#bm-close')?.addEventListener('click', onClose);
+    this.wireFeatureLayers(container);
     this.wireContent(container, onClose);
   }
 
