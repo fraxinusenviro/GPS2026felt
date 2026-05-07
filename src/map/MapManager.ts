@@ -1,6 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import type { Map as MLMap, LngLat, StyleSpecification } from 'maplibre-gl';
-import type { FieldFeature, AppSettings } from '../types';
+import type { FieldFeature, AppSettings, LayerPreset } from '../types';
 import { LAYER_IDS, BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
@@ -585,14 +585,28 @@ export class MapManager {
   }
 
   // ---- Data Updates ----
-  updateCollectedFeatures(features: FieldFeature[]): void {
+  updateCollectedFeatures(features: FieldFeature[], layerPresets?: LayerPreset[]): void {
     if (!this.initialized) return;
+
+    // Build lookup: layer_id → { color, visible } from provided presets
+    const layerMap = new Map<string, { color: string; stroke: string; visible: boolean }>();
+    if (layerPresets) {
+      for (const lp of layerPresets) {
+        layerMap.set(lp.id, { color: lp.color, stroke: lp.stroke_color, visible: lp.visible !== false });
+      }
+    }
 
     const points: object[] = [];
     const lines: object[] = [];
     const polygons: object[] = [];
 
     for (const f of features) {
+      const lp = layerMap.get(f.layer_id);
+      if (lp && !lp.visible) continue; // skip hidden layers
+
+      const color = lp?.color ?? this.getFeatureColor(f.type);
+      const stroke = lp?.stroke ?? color;
+
       const geoFeature = {
         type: 'Feature',
         id: f.id,
@@ -602,7 +616,9 @@ export class MapManager {
           point_id: f.point_id,
           type: f.type,
           desc: f.desc,
-          color: this.getFeatureColor(f.type),
+          color,
+          stroke,
+          layer_id: f.layer_id,
           created_at: f.created_at
         }
       };
