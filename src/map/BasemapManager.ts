@@ -28,6 +28,7 @@ interface StackLayer {
   vecLineColor?: string;
   vecFillColor?: string;
   cogRampId?: string; // 'original' | key of COG_RAMPS
+  cogRampInvert?: boolean;
 }
 
 interface UserLayerInfo {
@@ -434,20 +435,30 @@ export class BasemapManager {
 
   private applyCogRamp(layer: StackLayer): void {
     const rampId = layer.cogRampId ?? 'original';
+    const invert = layer.cogRampInvert ?? false;
     const def = ALL_DEFS().find(d => d.id === layer.defId);
     const origColormap = def?.cog_colormap;
     if (!origColormap) return;
 
     const cogUrl = BasemapManager.cogUrlFromLayer(layer);
     if (rampId === 'original') {
-      this.mapManager.setCogColormap(cogUrl, origColormap as [number,number,number,number,number][]);
+      const stops = origColormap as [number,number,number,number,number][];
+      if (invert) {
+        const colors = stops.map(s => [s[1], s[2], s[3], s[4]] as [number,number,number,number]);
+        colors.reverse();
+        this.mapManager.setCogColormap(cogUrl, stops.map((s, i): [number,number,number,number,number] =>
+          [s[0], colors[i][0], colors[i][1], colors[i][2], colors[i][3]]));
+      } else {
+        this.mapManager.setCogColormap(cogUrl, stops);
+      }
       return;
     }
     const ramp = COG_RAMPS[rampId];
     if (!ramp) return;
     const minVal = origColormap[0][0];
     const maxVal = origColormap[origColormap.length - 1][0];
-    const stops = ramp.stops.map((c, i, arr): [number,number,number,number,number] => {
+    const srcStops = invert ? [...ramp.stops].reverse() : ramp.stops;
+    const stops = srcStops.map((c, i, arr): [number,number,number,number,number] => {
       const t = arr.length > 1 ? i / (arr.length - 1) : 0;
       return [minVal + t * (maxVal - minVal), c[0], c[1], c[2], 255];
     });
@@ -832,17 +843,23 @@ export class BasemapManager {
 
     const isCog = layer.url.startsWith('cog://');
     const cogRampId = layer.cogRampId ?? 'original';
-    const cogRampGradient = (() => {
-      if (!isCog) return '';
-      if (cogRampId === 'original') {
+    const cogRampInvert = layer.cogRampInvert ?? false;
+    const buildGradient = (rampId: string, invert: boolean): string => {
+      let stops: string[];
+      if (rampId === 'original') {
         const def = ALL_DEFS().find(d => d.id === layer.defId);
         const cm = def?.cog_colormap;
         if (!cm) return '';
-        return `linear-gradient(to right,${cm.map(s => `rgba(${s[1]},${s[2]},${s[3]},${s[4]/255})`).join(',')})`;
+        stops = cm.map(s => `rgba(${s[1]},${s[2]},${s[3]},${s[4]/255})`);
+      } else {
+        const ramp = COG_RAMPS[rampId];
+        if (!ramp) return '';
+        stops = ramp.stops.map(c => `rgb(${c[0]},${c[1]},${c[2]})`);
       }
-      const ramp = COG_RAMPS[cogRampId];
-      return ramp ? `linear-gradient(to right,${ramp.stops.map(c => `rgb(${c[0]},${c[1]},${c[2]})`).join(',')})` : '';
-    })();
+      if (invert) stops = [...stops].reverse();
+      return `linear-gradient(to right,${stops.join(',')})`;
+    };
+    const cogRampGradient = isCog ? buildGradient(cogRampId, cogRampInvert) : '';
     const cogRampRow = isCog ? `
       <div class="bm-adj-row">
         <label class="bm-adj-label">Ramp</label>
@@ -854,6 +871,13 @@ export class BasemapManager {
       <div class="bm-adj-row">
         <label class="bm-adj-label"></label>
         <div class="bm-ramp-preview" data-iid="${layer.instanceId}" style="flex:1;height:10px;border-radius:3px;border:1px solid var(--border,#444);background:${cogRampGradient}"></div>
+      </div>
+      <div class="bm-adj-row">
+        <label class="bm-adj-label"></label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
+          <input type="checkbox" class="bm-cog-invert" data-iid="${layer.instanceId}"${cogRampInvert?' checked':''} />
+          Invert ramp
+        </label>
       </div>` : '';
 
     const hasStylePanel = isVectorLayer
@@ -1071,26 +1095,47 @@ export class BasemapManager {
     });
 
     // COG ramp picker
+    const updateCogPreview = (iid: string) => {
+      const layer = this.stack.find(l => l.instanceId === iid);
+      if (!layer) return;
+      const rampId = layer.cogRampId ?? 'original';
+      const invert = layer.cogRampInvert ?? false;
+      let stops: string[];
+      if (rampId === 'original') {
+        const def = ALL_DEFS().find(d => d.id === layer.defId);
+        const cm = def?.cog_colormap;
+        stops = cm ? cm.map(s => `rgba(${s[1]},${s[2]},${s[3]},${s[4]/255})`) : [];
+      } else {
+        const ramp = COG_RAMPS[rampId];
+        stops = ramp ? ramp.stops.map(c => `rgb(${c[0]},${c[1]},${c[2]})`) : [];
+      }
+      if (invert) stops = [...stops].reverse();
+      const gradient = stops.length ? `linear-gradient(to right,${stops.join(',')})` : '';
+      const preview = container.querySelector<HTMLElement>(`.bm-ramp-preview[data-iid="${iid}"]`);
+      if (preview && gradient) preview.style.background = gradient;
+    };
+
     container.querySelectorAll<HTMLSelectElement>('.bm-cog-ramp').forEach(sel => {
       sel.addEventListener('change', () => {
         const iid = sel.dataset.iid!;
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
         layer.cogRampId = sel.value;
-        // Update gradient preview
-        const rampId = sel.value;
-        let gradient = '';
-        if (rampId === 'original') {
-          const def = ALL_DEFS().find(d => d.id === layer.defId);
-          const cm = def?.cog_colormap;
-          if (cm) gradient = `linear-gradient(to right,${cm.map(s=>`rgba(${s[1]},${s[2]},${s[3]},${s[4]/255})`).join(',')})`;
-        } else {
-          const ramp = COG_RAMPS[rampId];
-          if (ramp) gradient = `linear-gradient(to right,${ramp.stops.map(c=>`rgb(${c[0]},${c[1]},${c[2]})`).join(',')})`;
-        }
-        const preview = container.querySelector<HTMLElement>(`.bm-ramp-preview[data-iid="${iid}"]`);
-        if (preview && gradient) preview.style.background = gradient;
-        // Apply to registry and force tile refresh
+        updateCogPreview(iid);
+        this.applyCogRamp(layer);
+        this.refreshRasterOverlays();
+        this.saveStack();
+      });
+    });
+
+    // COG ramp invert toggle
+    container.querySelectorAll<HTMLInputElement>('.bm-cog-invert').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const iid = chk.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.cogRampInvert = chk.checked;
+        updateCogPreview(iid);
         this.applyCogRamp(layer);
         this.refreshRasterOverlays();
         this.saveStack();
