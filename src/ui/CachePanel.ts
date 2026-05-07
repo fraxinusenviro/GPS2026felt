@@ -57,9 +57,13 @@ export class CachePanel {
         <div class="panel-body cache-panel-body">
           ${this.activeTab === 'download' ? this.renderDownloadTab() : this.renderLibraryTab()}
         </div>
+        <div class="panel-footer">
+          <button class="btn btn-primary panel-done-btn" id="cache-done">Done</button>
+        </div>
       </div>`;
 
     document.getElementById('cache-close')?.addEventListener('click', () => this.close());
+    document.getElementById('cache-done')?.addEventListener('click', () => this.close());
     this.panel.querySelectorAll<HTMLButtonElement>('.cache-tab').forEach(btn => {
       btn.addEventListener('click', () => {
         this.activeTab = btn.dataset.tab as 'download' | 'library';
