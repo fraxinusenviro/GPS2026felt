@@ -145,23 +145,23 @@ export class App {
 
     EventBus.on<{ feature: FieldFeature }>('feature-added', ({ feature }) => {
       this.features.push(feature);
-      this.mapManager.updateCollectedFeatures(this.features);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
     });
 
     EventBus.on<{ feature: FieldFeature }>('feature-updated', ({ feature }) => {
       const idx = this.features.findIndex(f => f.id === feature.id);
       if (idx >= 0) this.features[idx] = feature;
-      this.mapManager.updateCollectedFeatures(this.features);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
     });
 
     EventBus.on<{ id: string }>('feature-deleted', ({ id }) => {
       this.features = this.features.filter(f => f.id !== id);
-      this.mapManager.updateCollectedFeatures(this.features);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
     });
 
     EventBus.on('features-cleared', () => {
       this.features = [];
-      this.mapManager.updateCollectedFeatures(this.features);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
     });
 
     EventBus.on<{ tool: ToolMode }>('tool-changed', ({ tool }) => {
@@ -867,6 +867,13 @@ export class App {
     this.updateActiveLayerIndicator();
     this.projectPanel.setActiveProjectId(id);
     this.projectPanel.refresh();
+
+    // Force basemap panel to re-render with new project's layer presets
+    const basemapPanel = document.getElementById('basemap-panel');
+    if (basemapPanel && basemapPanel.style.display !== 'none') {
+      basemapPanel.style.display = 'none';
+      document.getElementById('btn-basemap')?.click();
+    }
 
     // Fly to saved map view
     if (project.map_center && project.map_zoom) {
