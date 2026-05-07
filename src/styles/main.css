@@ -2,8 +2,6 @@
    Fraxinus Field Mapper - Main Styles
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@300;400&display=swap');
-
 :root {
   --color-bg: #1a2820;
   --color-surface: #1e3028;
@@ -30,7 +28,7 @@
   --shadow: 0 4px 16px rgba(0,0,0,0.4);
   --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
 
-  --font: 'Oswald', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
 }
 
@@ -44,7 +42,6 @@ html, body {
   width: 100%; height: 100%;
   overflow: hidden;
   font-family: var(--font);
-  font-weight: 300;
   font-size: 14px;
   background: var(--color-bg);
   color: var(--color-text);
@@ -865,8 +862,7 @@ html, body {
 
 .panel-header h2, .panel-header h3 {
   font-size: 16px;
-  font-weight: 400;
-  letter-spacing: 0.04em;
+  font-weight: 700;
   color: var(--color-text);
 }
 
