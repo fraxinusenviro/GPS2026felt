@@ -76,9 +76,13 @@ export class ProjectPanel {
             ? this.renderLibraryTab(projects, counts)
             : this.renderNewTab()}
         </div>
+        <div class="panel-footer">
+          <button class="btn btn-primary panel-done-btn" id="proj-done">Done</button>
+        </div>
       </div>`;
 
     document.getElementById('proj-close')?.addEventListener('click', () => this.close());
+    document.getElementById('proj-done')?.addEventListener('click', () => this.close());
 
     this.panel.querySelectorAll<HTMLButtonElement>('.cache-tab').forEach(btn => {
       btn.addEventListener('click', () => {
