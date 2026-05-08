@@ -29,6 +29,7 @@ interface StackLayer {
   vecFillColor?: string;
   cogRampId?: string; // 'original' | key of COG_RAMPS
   cogRampInvert?: boolean;
+  cogSmooth?: boolean;
 }
 
 interface UserLayerInfo {
@@ -465,6 +466,11 @@ export class BasemapManager {
     this.mapManager.setCogColormap(cogUrl, stops);
   }
 
+  private applyCogSmooth(layer: StackLayer): void {
+    const cogUrl = BasemapManager.cogUrlFromLayer(layer);
+    this.mapManager.setCogSmooth(cogUrl, layer.cogSmooth ?? false);
+  }
+
   private refreshRasterOverlays(): void {
     const overlays = this.stack.slice(0, this.stack.length - 1).reverse();
     const rasterOverlays = overlays.filter(l => this.getLayerType(l) === 'raster');
@@ -554,10 +560,11 @@ export class BasemapManager {
       hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
     })));
 
-    // Re-apply any saved COG ramp overrides (needed after page reload)
+    // Re-apply COG ramp / invert / smooth overrides (needed after page reload or project switch)
     for (const l of rasterOverlays) {
-      if (l.url.startsWith('cog://') && l.cogRampId && l.cogRampId !== 'original') {
-        this.applyCogRamp(l);
+      if (l.url.startsWith('cog://')) {
+        if (l.cogRampId || l.cogRampInvert) this.applyCogRamp(l);
+        if (l.cogSmooth) this.applyCogSmooth(l);
       }
     }
 
@@ -844,6 +851,7 @@ export class BasemapManager {
     const isCog = layer.url.startsWith('cog://');
     const cogRampId = layer.cogRampId ?? 'original';
     const cogRampInvert = layer.cogRampInvert ?? false;
+    const cogSmooth = layer.cogSmooth ?? false;
     const buildGradient = (rampId: string, invert: boolean): string => {
       let stops: string[];
       if (rampId === 'original') {
@@ -877,6 +885,13 @@ export class BasemapManager {
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
           <input type="checkbox" class="bm-cog-invert" data-iid="${layer.instanceId}"${cogRampInvert?' checked':''} />
           Invert ramp
+        </label>
+      </div>
+      <div class="bm-adj-row">
+        <label class="bm-adj-label"></label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
+          <input type="checkbox" class="bm-cog-smooth" data-iid="${layer.instanceId}"${cogSmooth?' checked':''} />
+          Smooth
         </label>
       </div>` : '';
 
@@ -1137,6 +1152,19 @@ export class BasemapManager {
         layer.cogRampInvert = chk.checked;
         updateCogPreview(iid);
         this.applyCogRamp(layer);
+        this.refreshRasterOverlays();
+        this.saveStack();
+      });
+    });
+
+    // COG smooth toggle
+    container.querySelectorAll<HTMLInputElement>('.bm-cog-smooth').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const iid = chk.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.cogSmooth = chk.checked;
+        this.applyCogSmooth(layer);
         this.refreshRasterOverlays();
         this.saveStack();
       });
