@@ -10,6 +10,7 @@ import proj4 from 'proj4';
 type CogColorStop = [number, number, number, number, number]; // [value, R, G, B, alpha 0-255]
 
 const cogColormapRegistry = new Map<string, CogColorStop[]>();
+const cogSmoothRegistry = new Map<string, boolean>();
 
 // Initialize from BASEMAP_OVERLAYS at module load time
 for (const def of BASEMAP_OVERLAYS) {
@@ -133,9 +134,11 @@ export class MapManager {
 
           if (winL >= winR || winT >= winB) return { data: new ArrayBuffer(0) };
 
+          const smooth = cogSmoothRegistry.get(cogUrl) ?? false;
           const rasters = await image.readRasters({
             window: [winL, winT, winR, winB],
             width: tileSize, height: tileSize, interleave: false,
+            resampleMethod: smooth ? 'bilinear' : 'nearest',
           }) as unknown as number[][];
 
           const canvas = new OffscreenCanvas(tileSize, tileSize);
@@ -1058,6 +1061,11 @@ export class MapManager {
   /** Update the colormap used for a COG layer (takes effect on next tile refresh). */
   setCogColormap(cogUrl: string, stops: CogColorStop[]): void {
     cogColormapRegistry.set(cogUrl, stops);
+  }
+
+  /** Set bilinear smooth resampling for a COG layer (takes effect on next tile refresh). */
+  setCogSmooth(cogUrl: string, smooth: boolean): void {
+    cogSmoothRegistry.set(cogUrl, smooth);
   }
 
   /** Extract the raw COG URL from a cog:// tile URL template. */
