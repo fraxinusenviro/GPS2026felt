@@ -4,6 +4,7 @@ import type { FieldFeature, AppSettings, LayerPreset, TypePreset } from '../type
 import { LAYER_IDS, BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
+import { SymbolRenderer } from '../ui/SymbolRenderer';
 import proj4 from 'proj4';
 
 // ---- Module-level COG colormap registry (mutable so ramp can be changed at runtime) ----
@@ -381,29 +382,29 @@ export class MapManager {
       }
     });
 
-    // Polygon fill
+    // Polygon fill (data-driven opacity)
     this.map.addLayer({
       id: LAYER_IDS.COLLECTED_POLYGONS_FILL,
       type: 'fill',
       source: 'collected-polygons',
       paint: {
         'fill-color': ['coalesce', ['get', 'color'], '#4ade80'],
-        'fill-opacity': 0.35
+        'fill-opacity': ['coalesce', ['get', 'fill_opacity'], 0.35]
       }
     });
 
-    // Polygon outline
+    // Polygon outline (data-driven stroke color + width)
     this.map.addLayer({
       id: LAYER_IDS.COLLECTED_POLYGONS_OUTLINE,
       type: 'line',
       source: 'collected-polygons',
       paint: {
-        'line-color': ['coalesce', ['get', 'color'], '#4ade80'],
-        'line-width': 2
+        'line-color': ['coalesce', ['get', 'stroke_color'], ['get', 'color'], '#4ade80'],
+        'line-width': ['coalesce', ['get', 'stroke_width'], 2]
       }
     });
 
-    // Lines
+    // Lines (data-driven color, width, dash)
     this.map.addLayer({
       id: LAYER_IDS.COLLECTED_LINES,
       type: 'line',
@@ -414,48 +415,52 @@ export class MapManager {
       },
       paint: {
         'line-color': ['coalesce', ['get', 'color'], '#facc15'],
-        'line-width': 3
+        'line-width': ['coalesce', ['get', 'stroke_width'], 3],
+        'line-dasharray': ['case',
+          ['==', ['get', 'dash_pattern'], 'dashed'], ['literal', [6, 3]],
+          ['==', ['get', 'dash_pattern'], 'dotted'], ['literal', [1, 3]],
+          ['literal', [1, 0]]
+        ]
       }
     });
 
-    // Points (data-driven radius from 'size' property)
+    // Points — circle layer for non-symbol features (circle shape, no icon)
+    // Also acts as hit-detection fallback for all points
     this.map.addLayer({
       id: LAYER_IDS.COLLECTED_POINTS,
       type: 'circle',
       source: 'collected-points',
+      filter: ['!', ['get', 'use_symbol']],
       paint: {
         'circle-radius': ['coalesce', ['get', 'size'], 7],
         'circle-color': ['coalesce', ['get', 'color'], '#4ade80'],
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 2
+        'circle-stroke-color': ['coalesce', ['get', 'stroke_color'], '#ffffff'],
+        'circle-stroke-width': ['coalesce', ['get', 'stroke_width'], 2],
+        'circle-opacity': ['coalesce', ['get', 'fill_opacity'], 1],
       }
     });
 
-    // Point icons (emoji overlay — only shown when icon property is non-empty)
+    // Points — canvas-rendered symbol images (non-circle shapes or with icon overlay)
     this.map.addLayer({
-      id: 'collected-points-icons',
+      id: 'collected-points-symbols',
       type: 'symbol',
       source: 'collected-points',
-      filter: ['!=', ['get', 'icon'], ''],
+      filter: ['get', 'use_symbol'],
       layout: {
-        'text-field': ['get', 'icon'],
-        'text-size': 14,
-        'text-allow-overlap': true,
-        'text-ignore-placement': true,
-        'symbol-placement': 'point',
-      },
-      paint: {
-        'text-halo-color': 'rgba(0,0,0,0.3)',
-        'text-halo-width': 0.5,
+        'icon-image': ['concat', 'preset-', ['get', 'preset_id']],
+        // icon-size scales 48px canvas: size/24 → default size 7 → 0.29 → ~14px
+        'icon-size': ['/', ['coalesce', ['get', 'size'], 7.0], 24.0],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
       }
     });
 
-    // Point labels (type text — hidden when icon is present)
+    // Point labels (type text — always shown unless feature has icon)
     this.map.addLayer({
       id: LAYER_IDS.COLLECTED_POINTS_LABELS,
       type: 'symbol',
       source: 'collected-points',
-      filter: ['==', ['get', 'icon'], ''],
+      filter: ['!', ['get', 'has_icon']],
       layout: {
         'text-field': ['get', 'type'],
         'text-size': 11,
@@ -619,11 +624,11 @@ export class MapManager {
       }
     }
 
-    // Build lookup: type label → { icon, size }
-    const typeMap = new Map<string, { icon: string; size: number }>();
+    // Build full TypePreset lookup: type label → TypePreset
+    const typeMap = new Map<string, TypePreset>();
     if (typePresets) {
       for (const tp of typePresets) {
-        typeMap.set(tp.label, { icon: tp.icon ?? '', size: tp.size ?? 7 });
+        typeMap.set(tp.label, tp);
       }
     }
 
@@ -633,11 +638,22 @@ export class MapManager {
 
     for (const f of features) {
       const lp = layerMap.get(f.layer_id);
-      if (lp && !lp.visible) continue; // skip hidden layers
+      if (lp && !lp.visible) continue;
 
-      const color = lp?.color ?? this.getFeatureColor(f.type);
-      const stroke = lp?.stroke ?? color;
-      const ti = typeMap.get(f.type);
+      const tp = typeMap.get(f.type);
+
+      // TypePreset color takes priority over LayerPreset color
+      const color       = tp?.color        ?? lp?.color  ?? this.getFeatureColor(f.type);
+      const strokeColor = tp?.stroke_color ?? lp?.stroke ?? '#ffffff';
+      const strokeWidth = tp?.stroke_width ?? 2;
+      const fillOpacity = tp?.fill_opacity ?? (f.geometry_type === 'Polygon' ? 0.35 : 1.0);
+      const size        = tp?.size         ?? 7;
+      const icon        = tp?.icon         ?? '';
+      const shape       = tp?.shape        ?? 'circle';
+      const dashPattern = tp?.dash_pattern ?? 'solid';
+
+      // use_symbol: true when shape is non-circle OR has icon (triggers symbol layer)
+      const useSymbol = (shape !== 'circle') || (icon !== '');
 
       const geoFeature = {
         type: 'Feature',
@@ -649,9 +665,16 @@ export class MapManager {
           type: f.type,
           desc: f.desc,
           color,
-          stroke,
-          icon: ti?.icon ?? '',
-          size: ti?.size ?? 7,
+          stroke_color: strokeColor,
+          stroke_width: strokeWidth,
+          fill_opacity: fillOpacity,
+          size,
+          icon,
+          shape,
+          dash_pattern: dashPattern,
+          has_icon: icon !== '',
+          use_symbol: useSymbol,
+          preset_id: tp?.id ?? '',
           layer_id: f.layer_id,
           created_at: f.created_at
         }
@@ -1058,10 +1081,18 @@ export class MapManager {
     return this.map.queryRenderedFeatures(point, {
       layers: [
         LAYER_IDS.COLLECTED_POINTS,
+        'collected-points-symbols',
         LAYER_IDS.COLLECTED_LINES,
         LAYER_IDS.COLLECTED_POLYGONS_FILL
       ]
     });
+  }
+
+  /** Load (or reload) canvas-rendered symbol images for all given TypePresets. */
+  loadPresetImages(presets: TypePreset[]): void {
+    if (!this.initialized) return;
+    const sr = new SymbolRenderer(this.map);
+    sr.registerAll(presets);
   }
 
   // ---- Basemap overlay management ----

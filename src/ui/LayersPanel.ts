@@ -1,9 +1,12 @@
-import type { ImportedLayer, FieldFeature, GeoJSONGeometry } from '../types';
+import type { ImportedLayer, FieldFeature, GeoJSONGeometry, GeometryType, TypePreset } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import type { ImportManager } from '../io/ImportManager';
 import type { ExportManager } from '../io/ExportManager';
 import { FeltExportDialog } from './FeltExportDialog';
+import { StylePicker } from './StylePicker';
+import { renderSwatchDataUrl } from './SymbolRenderer';
+import type { PresetManager } from './PresetManager';
 
 type MapBounds = { west: number; south: number; east: number; north: number };
 
@@ -14,6 +17,14 @@ export class LayersPanel {
   private storage = StorageManager.getInstance();
   private fileInput!: HTMLInputElement;
   private feltDialog = new FeltExportDialog();
+  private stylePicker = new StylePicker();
+
+  // Collected data visibility state per geometry type
+  private geomVisible: Record<GeometryType, boolean> = {
+    Point: true,
+    LineString: true,
+    Polygon: true,
+  };
 
   // Export state
   private exportFeatures: FieldFeature[] = [];
@@ -23,7 +34,9 @@ export class LayersPanel {
   constructor(
     private importManager: ImportManager,
     private exportManager: ExportManager,
-    private getMapBounds: () => MapBounds | null = () => null
+    private getMapBounds: () => MapBounds | null = () => null,
+    private presetManager?: PresetManager,
+    private onGeomVisibilityChange?: (geom: GeometryType, visible: boolean) => void,
   ) {
     this.fileInput = document.createElement('input');
     this.fileInput.type = 'file';
@@ -383,12 +396,49 @@ export class LayersPanel {
     return Object.keys(props).filter(k => typeof props[k] === 'string' || typeof props[k] === 'number');
   }
 
-  private renderLayersTab(): string {
-    if (this.importedLayers.length === 0) {
-      return '<p class="empty-state">No imported layers. Use Import tab to add data.</p>';
-    }
+  private renderCollectedDataSection(): string {
+    const presets = this.presetManager?.getPresets() ?? [];
+    const geomDefs: Array<{ geom: GeometryType; label: string; icon: string }> = [
+      { geom: 'Point',      label: 'Points',   icon: '<circle cx="12" cy="12" r="7" fill="currentColor"/>' },
+      { geom: 'LineString', label: 'Lines',    icon: '<polyline points="3,18 9,7 15,13 21,6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>' },
+      { geom: 'Polygon',    label: 'Polygons', icon: '<polygon points="12,3 21,9 18,20 6,20 3,9" fill="currentColor" fill-opacity="0.5" stroke="currentColor" stroke-width="1.5"/>' },
+    ];
+
     return `
-      <div id="imported-layers-list">
+      <div class="collected-section">
+        <div class="collected-section-title">Collected Features</div>
+        ${geomDefs.map(({ geom, label, icon }) => {
+          const visiblePresets = presets.filter(p =>
+            p.geometry_type === geom || p.geometry_type === 'all'
+          );
+          const visible = this.geomVisible[geom];
+          return `
+          <div class="collected-layer-row" data-geom="${geom}">
+            <button class="layer-vis-btn collected-vis-btn ${visible ? 'active' : ''}" data-geom="${geom}" title="Toggle ${label}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+            <svg class="collected-geom-icon" viewBox="0 0 24 24" width="18" height="18">${icon}</svg>
+            <span class="collected-label">${label}</span>
+            <div class="collected-presets">
+              ${visiblePresets.map(p => `
+                <button class="collected-preset-swatch" data-preset-id="${p.id}" title="${p.label} — click to edit style">
+                  <img src="${renderSwatchDataUrl(p, 20)}" width="20" height="20" alt="${p.label}" />
+                </button>
+              `).join('')}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  private renderLayersTab(): string {
+    const importedSection = this.importedLayers.length === 0
+      ? '<p class="empty-state" style="margin-top:8px">No imported layers. Use Import tab to add data.</p>'
+      : `<div id="imported-layers-list">
         ${this.importedLayers.map(l => {
           const fields = this.getFieldNames(l);
           return `
@@ -424,7 +474,12 @@ export class LayersPanel {
             </div>` : ''}
           </div>`;
         }).join('')}
-      </div>
+      </div>`;
+
+    return `
+      ${this.renderCollectedDataSection()}
+      <div class="imported-section-title" style="margin-top:14px">Imported Layers</div>
+      ${importedSection}
     `;
   }
 
@@ -460,6 +515,36 @@ export class LayersPanel {
 
   private wireTab(): void {
     if (this.activeTab === 'layers') {
+      // Collected data: geometry visibility toggles
+      this.panel.querySelectorAll<HTMLButtonElement>('.collected-vis-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const geom = btn.dataset.geom as GeometryType;
+          if (!geom) return;
+          this.geomVisible[geom] = !this.geomVisible[geom];
+          btn.classList.toggle('active', this.geomVisible[geom]);
+          this.onGeomVisibilityChange?.(geom, this.geomVisible[geom]);
+        });
+      });
+
+      // Collected data: preset swatch → open StylePicker
+      this.panel.querySelectorAll<HTMLButtonElement>('.collected-preset-swatch').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const presetId = btn.dataset.presetId;
+          const preset = this.presetManager?.getPreset(presetId ?? '');
+          if (!preset || !this.presetManager) return;
+          this.stylePicker.open(preset, async (updated: TypePreset) => {
+            Object.assign(preset, updated);
+            await StorageManager.getInstance().saveTypePreset(preset);
+            const idx = this.presetManager!.getPresets().findIndex((p: TypePreset) => p.id === preset.id);
+            if (idx >= 0) this.presetManager!.getPresets()[idx] = preset;
+            EventBus.emit('presets-changed', {});
+            // Re-render to refresh swatches
+            if (this.isOpen) this.render();
+          });
+        });
+      });
+
+      // Imported layer visibility toggles
       this.panel.querySelectorAll<HTMLButtonElement>('.layer-vis-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
           const layer = this.importedLayers.find(l => l.id === btn.dataset.id);

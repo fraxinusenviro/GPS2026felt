@@ -63,14 +63,23 @@ export interface GeoJSONFeatureCollection {
 }
 
 // ---- Preset / Type configuration ----
+export type PointShape = 'circle' | 'square' | 'diamond' | 'triangle';
+export type DashPattern = 'solid' | 'dashed' | 'dotted';
+
 export interface TypePreset {
   id: string;
   label: string;
   geometry_type: GeometryType | 'all';
-  color: string;      // hex colour for map symbolisation
-  icon?: string;      // emoji or short text rendered on map (e.g. "🌲", "🏠")
-  size?: number;      // circle radius in pixels (default 7)
-  is_quick_entry: boolean; // show as Quick Entry button
+  color: string;              // fill hex colour
+  fill_opacity?: number;      // 0–1, default 1.0 (points/lines) or 0.35 (polygons)
+  stroke_color?: string;      // hex, default '#ffffff' (points) or same as color
+  stroke_width?: number;      // px, default 2
+  shape?: PointShape;         // point shape, default 'circle'
+  icon?: string;              // icon key from AVAILABLE_ICONS (e.g. 'tree')
+  icon_color?: string;        // hex, default '#ffffff'
+  size?: number;              // circle radius / symbol half-size in px (default 7)
+  dash_pattern?: DashPattern; // line dash style, default 'solid'
+  is_quick_entry: boolean;
 }
 
 export interface LayerPreset {
