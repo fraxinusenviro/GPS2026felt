@@ -96,6 +96,7 @@ export class FeatureEditor {
           <div class="fe-actions">
             <button class="btn-primary" id="fe-save">Save Changes</button>
             <button class="btn-outline" id="fe-edit-geometry">Edit Geometry</button>
+            <button class="btn-outline" id="fe-duplicate">Duplicate</button>
             <button class="btn-outline btn-danger" id="fe-delete">Delete Feature</button>
           </div>
         </div>
@@ -108,6 +109,7 @@ export class FeatureEditor {
     });
 
     this.panel.querySelector('#fe-save')?.addEventListener('click', () => this.save());
+    this.panel.querySelector('#fe-duplicate')?.addEventListener('click', () => void this.duplicate(feature));
     this.panel.querySelector('#fe-delete')?.addEventListener('click', () => this.delete(feature.id));
     this.panel.querySelector('#fe-edit-geometry')?.addEventListener('click', () => {
       const feat = this.currentFeature;
@@ -190,6 +192,32 @@ export class FeatureEditor {
     await this.storage.deleteFeature(id);
     EventBus.emit('feature-deleted', { id });
     EventBus.emit('toast', { message: 'Feature deleted', type: 'warning' });
+  }
+
+  private async duplicate(feature: FieldFeature): Promise<void> {
+    const now = new Date().toISOString();
+    const offsetDeg = 0.00005; // ~5m
+    const cloneGeom = JSON.parse(JSON.stringify(feature.geometry)) as typeof feature.geometry;
+    const shiftCoord = (c: number[]) => [c[0] + offsetDeg, c[1] + offsetDeg, ...(c.length > 2 ? [c[2]] : [])];
+    if (cloneGeom.type === 'Point') {
+      cloneGeom.coordinates = shiftCoord(cloneGeom.coordinates as number[]) as [number, number];
+    } else if (cloneGeom.type === 'LineString') {
+      cloneGeom.coordinates = (cloneGeom.coordinates as number[][]).map(shiftCoord) as [number, number][];
+    } else {
+      cloneGeom.coordinates = (cloneGeom.coordinates as number[][][]).map(ring => ring.map(shiftCoord)) as [number, number][][];
+    }
+    const clone: FieldFeature = {
+      ...feature,
+      id: crypto.randomUUID(),
+      point_id: `${feature.point_id}-copy`,
+      geometry: cloneGeom,
+      created_at: now,
+      updated_at: now,
+      photos: [],
+    };
+    await this.storage.saveFeature(clone);
+    EventBus.emit('feature-added', { feature: clone });
+    EventBus.emit('toast', { message: 'Feature duplicated', type: 'success', duration: 1500 });
   }
 
   private escape(s: string): string {
