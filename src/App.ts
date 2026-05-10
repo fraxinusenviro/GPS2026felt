@@ -23,6 +23,8 @@ import { generateSessionId, DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectSt
 import { MeasurePanel } from './ui/MeasurePanel';
 import { FeatureListPanel } from './ui/FeatureListPanel';
 import { StatsPanel } from './ui/StatsPanel';
+import { UndoManager } from './utils/UndoManager';
+import * as turf from '@turf/turf';
 
 export class App {
   private storage = StorageManager.getInstance();
@@ -48,6 +50,7 @@ export class App {
   private measurePanel!: MeasurePanel;
   private featureListPanel!: FeatureListPanel;
   private statsPanel!: StatsPanel;
+  private undoManager = UndoManager.getInstance();
 
   private settings!: AppSettings;
   private features: FieldFeature[] = [];
@@ -116,7 +119,7 @@ export class App {
     }
     this.features = await this.storage.getFeaturesByProject(activeProjectId);
     this.projectLayerPresets = await this.storage.getLayersByProject(activeProjectId);
-    this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
+    this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     this.projectPanel.setActiveProjectId(activeProjectId);
 
     this.applySettings(this.settings);
@@ -174,24 +177,73 @@ export class App {
     });
 
     EventBus.on<{ feature: FieldFeature }>('feature-added', ({ feature }) => {
+      if (!this.undoManager.locked) {
+        const snap = JSON.parse(JSON.stringify(feature)) as FieldFeature;
+        this.undoManager.push({
+          description: `Add ${snap.type || snap.geometry_type}`,
+          undo: async () => {
+            await this.storage.deleteFeature(snap.id);
+            EventBus.emit('feature-deleted', { id: snap.id });
+          },
+          redo: async () => {
+            await this.storage.saveFeature(snap);
+            EventBus.emit('feature-added', { feature: snap });
+          },
+        });
+      }
       this.features.push(feature);
-      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     });
 
     EventBus.on<{ feature: FieldFeature }>('feature-updated', ({ feature }) => {
+      if (!this.undoManager.locked) {
+        const old = this.features.find(f => f.id === feature.id);
+        if (old) {
+          const oldSnap = JSON.parse(JSON.stringify(old)) as FieldFeature;
+          const newSnap = JSON.parse(JSON.stringify(feature)) as FieldFeature;
+          this.undoManager.push({
+            description: `Edit ${newSnap.type || newSnap.geometry_type}`,
+            undo: async () => {
+              await this.storage.saveFeature(oldSnap);
+              EventBus.emit('feature-updated', { feature: oldSnap });
+            },
+            redo: async () => {
+              await this.storage.saveFeature(newSnap);
+              EventBus.emit('feature-updated', { feature: newSnap });
+            },
+          });
+        }
+      }
       const idx = this.features.findIndex(f => f.id === feature.id);
       if (idx >= 0) this.features[idx] = feature;
-      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     });
 
     EventBus.on<{ id: string }>('feature-deleted', ({ id }) => {
+      if (!this.undoManager.locked) {
+        const deleted = this.features.find(f => f.id === id);
+        if (deleted) {
+          const snap = JSON.parse(JSON.stringify(deleted)) as FieldFeature;
+          this.undoManager.push({
+            description: `Delete ${snap.type || snap.geometry_type}`,
+            undo: async () => {
+              await this.storage.saveFeature(snap);
+              EventBus.emit('feature-added', { feature: snap });
+            },
+            redo: async () => {
+              await this.storage.deleteFeature(snap.id);
+              EventBus.emit('feature-deleted', { id: snap.id });
+            },
+          });
+        }
+      }
       this.features = this.features.filter(f => f.id !== id);
-      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     });
 
     EventBus.on('features-cleared', () => {
       this.features = [];
-      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     });
 
     EventBus.on<{ tool: ToolMode }>('tool-changed', ({ tool }) => {
@@ -220,13 +272,65 @@ export class App {
       this.captureManager.setTool('select');
     });
 
+    // Re-render map when type presets change (icon/size may have changed)
+    EventBus.on('presets-changed', () => {
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+    });
+
+    // Buffer feature: create a Turf buffer polygon around a selected feature's geometry
+    EventBus.on<{ geometry: GeoJSONGeometry; distanceM: number }>('buffer-feature', async ({ geometry, distanceM }) => {
+      let buffGeom: GeoJSONGeometry | null = null;
+      try {
+        // Cast to `unknown` first to satisfy overloaded Turf typings
+        const result = turf.buffer(geometry as unknown as Parameters<typeof turf.buffer>[0], distanceM / 1000, { units: 'kilometers' });
+        if (result && 'geometry' in result && result.geometry) {
+          buffGeom = result.geometry as GeoJSONGeometry;
+        }
+      } catch {
+        EventBus.emit('toast', { message: 'Buffer calculation failed', type: 'error' });
+        return;
+      }
+      if (!buffGeom) {
+        EventBus.emit('toast', { message: 'Buffer produced no geometry', type: 'warning' });
+        return;
+      }
+
+      const polyLayers = this.projectLayerPresets.filter(l => l.geometry_type === 'Polygon');
+      if (!polyLayers.length) {
+        EventBus.emit('toast', { message: 'No polygon layer in this project — create one first', type: 'warning' });
+        return;
+      }
+
+      const targetLayer = polyLayers.find(l => l.id === this.settings.default_layer_id) ?? polyLayers[0];
+      const now = new Date().toISOString();
+      const feature: FieldFeature = {
+        id: crypto.randomUUID(),
+        point_id: generatePointId(this.settings),
+        type: 'Buffer',
+        desc: `${distanceM}m buffer`,
+        geometry_type: 'Polygon',
+        geometry: buffGeom,
+        capture_method: 'sketch',
+        created_at: now, updated_at: now,
+        created_by: this.settings.user_id,
+        lat: null, lon: null, elevation: null, accuracy: null,
+        layer_id: targetLayer.id,
+        notes: '',
+        photos: [],
+        project_id: this.settings.active_project_id || 'default',
+      };
+      await this.storage.saveFeature(feature);
+      EventBus.emit('feature-added', { feature });
+      EventBus.emit('toast', { message: `${distanceM}m buffer added to ${targetLayer.name}`, type: 'success', duration: 2500 });
+    });
+
     // Layer preset style/visibility changed from basemap TOC
     EventBus.on<LayerPreset>('layer-preset-updated', async (updatedPreset) => {
       await this.storage.saveLayerPreset(updatedPreset);
       const idx = this.projectLayerPresets.findIndex(lp => lp.id === updatedPreset.id);
       if (idx >= 0) this.projectLayerPresets[idx] = updatedPreset;
       else this.projectLayerPresets.push(updatedPreset);
-      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
       this.updateActiveLayerIndicator();
     });
 
@@ -591,6 +695,21 @@ export class App {
 
     document.getElementById('btn-stats')?.addEventListener('click', () => {
       void this.statsPanel.toggle();
+    });
+
+    document.getElementById('btn-undo')?.addEventListener('click', () => void this.undoManager.undo());
+    document.getElementById('btn-redo')?.addEventListener('click', () => void this.undoManager.redo());
+
+    document.addEventListener('keydown', (e) => {
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.ctrlKey && !e.shiftKey && e.key === 'z') {
+        e.preventDefault();
+        void this.undoManager.undo();
+      } else if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'z')) {
+        e.preventDefault();
+        void this.undoManager.redo();
+      }
     });
 
     // Quick entry buttons — slots 0, 1, 2
@@ -997,7 +1116,7 @@ export class App {
     // Load project features and layers
     this.features = await this.storage.getFeaturesByProject(id);
     this.projectLayerPresets = await this.storage.getLayersByProject(id);
-    this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets);
+    this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
 
     // Update UI
     this.captureManager.setSettings(this.settings);

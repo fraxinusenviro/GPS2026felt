@@ -1,6 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import type { Map as MLMap, LngLat, StyleSpecification } from 'maplibre-gl';
-import type { FieldFeature, AppSettings, LayerPreset } from '../types';
+import type { FieldFeature, AppSettings, LayerPreset, TypePreset } from '../types';
 import { LAYER_IDS, BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
@@ -418,24 +418,44 @@ export class MapManager {
       }
     });
 
-    // Points
+    // Points (data-driven radius from 'size' property)
     this.map.addLayer({
       id: LAYER_IDS.COLLECTED_POINTS,
       type: 'circle',
       source: 'collected-points',
       paint: {
-        'circle-radius': 7,
+        'circle-radius': ['coalesce', ['get', 'size'], 7],
         'circle-color': ['coalesce', ['get', 'color'], '#4ade80'],
         'circle-stroke-color': '#ffffff',
         'circle-stroke-width': 2
       }
     });
 
-    // Point labels
+    // Point icons (emoji overlay — only shown when icon property is non-empty)
+    this.map.addLayer({
+      id: 'collected-points-icons',
+      type: 'symbol',
+      source: 'collected-points',
+      filter: ['!=', ['get', 'icon'], ''],
+      layout: {
+        'text-field': ['get', 'icon'],
+        'text-size': 14,
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+        'symbol-placement': 'point',
+      },
+      paint: {
+        'text-halo-color': 'rgba(0,0,0,0.3)',
+        'text-halo-width': 0.5,
+      }
+    });
+
+    // Point labels (type text — hidden when icon is present)
     this.map.addLayer({
       id: LAYER_IDS.COLLECTED_POINTS_LABELS,
       type: 'symbol',
       source: 'collected-points',
+      filter: ['==', ['get', 'icon'], ''],
       layout: {
         'text-field': ['get', 'type'],
         'text-size': 11,
@@ -588,14 +608,22 @@ export class MapManager {
   }
 
   // ---- Data Updates ----
-  updateCollectedFeatures(features: FieldFeature[], layerPresets?: LayerPreset[]): void {
+  updateCollectedFeatures(features: FieldFeature[], layerPresets?: LayerPreset[], typePresets?: TypePreset[]): void {
     if (!this.initialized) return;
 
-    // Build lookup: layer_id → { color, visible } from provided presets
+    // Build lookup: layer_id → { color, visible }
     const layerMap = new Map<string, { color: string; stroke: string; visible: boolean }>();
     if (layerPresets) {
       for (const lp of layerPresets) {
         layerMap.set(lp.id, { color: lp.color, stroke: lp.stroke_color, visible: lp.visible !== false });
+      }
+    }
+
+    // Build lookup: type label → { icon, size }
+    const typeMap = new Map<string, { icon: string; size: number }>();
+    if (typePresets) {
+      for (const tp of typePresets) {
+        typeMap.set(tp.label, { icon: tp.icon ?? '', size: tp.size ?? 7 });
       }
     }
 
@@ -609,6 +637,7 @@ export class MapManager {
 
       const color = lp?.color ?? this.getFeatureColor(f.type);
       const stroke = lp?.stroke ?? color;
+      const ti = typeMap.get(f.type);
 
       const geoFeature = {
         type: 'Feature',
@@ -621,6 +650,8 @@ export class MapManager {
           desc: f.desc,
           color,
           stroke,
+          icon: ti?.icon ?? '',
+          size: ti?.size ?? 7,
           layer_id: f.layer_id,
           created_at: f.created_at
         }
