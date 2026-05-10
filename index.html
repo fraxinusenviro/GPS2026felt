@@ -54,6 +54,15 @@
     <div id="map-container">
       <div id="map"></div>
 
+      <!-- North Arrow -->
+      <div id="north-arrow" title="North">
+        <svg viewBox="0 0 24 24" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="12,2 16,18 12,15 8,18" fill="#4ade80" stroke="none"/>
+          <polygon points="12,22 8,6 12,9 16,6" fill="rgba(255,255,255,0.3)" stroke="none"/>
+          <text x="12" y="13.5" text-anchor="middle" font-size="5" fill="#fff" font-family="sans-serif" font-weight="bold">N</text>
+        </svg>
+      </div>
+
       <!-- Crosshair -->
       <div id="crosshair">
         <div class="ch-h"></div>
@@ -124,6 +133,9 @@
             <button id="btn-search-pid" class="tool-btn" title="Search by PID">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="18" height="18"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             </button>
+            <button id="btn-measure" class="tool-btn" data-tool="measure" title="Measure Distance &amp; Area">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="18" height="18"><path d="M2 12h20M12 2v20M7 7l10 10M17 7L7 17"/></svg>
+            </button>
           </div>
         </div>
         <div class="toolbar-separator"></div>
@@ -191,6 +203,23 @@
         <button id="btn-export" class="map-ctrl-btn" title="Export Data">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </button>
+        <div class="ctrl-separator"></div>
+        <button id="btn-feature-list" class="map-ctrl-btn" title="Feature List">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="3" cy="18" r="1" fill="currentColor" stroke="none"/></svg>
+        </button>
+        <button id="btn-stats" class="map-ctrl-btn" title="Project Statistics">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        </button>
+        <button id="btn-screenshot" class="map-ctrl-btn" title="Save Map Screenshot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </button>
+        <button id="btn-terrain" class="map-ctrl-btn" title="Toggle 3D Terrain" data-active="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 20 2 20"/><polygon points="12 7 17 16 7 16" fill="currentColor" stroke="none" opacity="0.4"/></svg>
+        </button>
+        <button id="btn-goto" class="map-ctrl-btn" title="Go To Coordinates">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/><line x1="4.22" y1="4.22" x2="19.78" y2="19.78" stroke-dasharray="2 2"/></svg>
+        </button>
+        <div class="ctrl-separator"></div>
         <button id="btn-console" class="map-ctrl-btn" title="Debug Console">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
         </button>
@@ -267,9 +296,11 @@
     <div id="export-panel" class="side-panel" style="display:none"></div>
     <div id="cache-panel" class="side-panel" style="display:none"></div>
     <div id="project-panel" class="side-panel" style="display:none"></div>
+    <div id="feature-list-panel" class="side-panel" style="display:none"></div>
     <div id="layer-mgr-popover" class="layer-mgr-popover" style="display:none"></div>
     <div id="basemap-panel" class="floating-panel" style="display:none"></div>
     <div id="feature-editor-panel" class="floating-panel" style="display:none"></div>
+    <div id="stats-panel" class="floating-panel stats-panel" style="display:none"></div>
 
     <!-- Toast notifications -->
     <div id="toast-container"></div>

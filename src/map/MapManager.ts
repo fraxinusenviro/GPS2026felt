@@ -743,6 +743,64 @@ export class MapManager {
     return this.map.getBounds();
   }
 
+  getBearing(): number {
+    return this.map.getBearing();
+  }
+
+  getCanvas(): HTMLCanvasElement {
+    return this.map.getCanvas();
+  }
+
+  setTerrain(enabled: boolean): void {
+    if (enabled) {
+      if (!this.map.getSource('terrain-dem')) {
+        this.map.addSource('terrain-dem', {
+          type: 'raster-dem',
+          url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+          tileSize: 256,
+          encoding: 'terrarium'
+        } as Parameters<typeof this.map.addSource>[1]);
+      }
+      this.map.setTerrain({ source: 'terrain-dem', exaggeration: 1.5 });
+    } else {
+      this.map.setTerrain(null as unknown as Parameters<typeof this.map.setTerrain>[0]);
+    }
+  }
+
+  onRotate(callback: () => void): () => void {
+    this.map.on('rotate', callback);
+    return () => this.map.off('rotate', callback);
+  }
+
+  addMeasureLayer(): void {
+    if (this.map.getSource('measure-preview')) return;
+    this.map.addSource('measure-preview', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    this.map.addLayer({ id: 'measure-line', type: 'line', source: 'measure-preview',
+      filter: ['==', ['geometry-type'], 'LineString'],
+      paint: { 'line-color': '#facc15', 'line-width': 2, 'line-dasharray': [4, 2] }
+    });
+    this.map.addLayer({ id: 'measure-fill', type: 'fill', source: 'measure-preview',
+      filter: ['==', ['geometry-type'], 'Polygon'],
+      paint: { 'fill-color': '#facc15', 'fill-opacity': 0.15 }
+    });
+    this.map.addLayer({ id: 'measure-points', type: 'circle', source: 'measure-preview',
+      filter: ['==', ['geometry-type'], 'Point'],
+      paint: { 'circle-radius': 5, 'circle-color': '#facc15', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 }
+    });
+  }
+
+  updateMeasureLayer(data: object): void {
+    const src = this.map.getSource('measure-preview') as maplibregl.GeoJSONSource | undefined;
+    if (src) src.setData(data as Parameters<typeof src.setData>[0]);
+  }
+
+  removeMeasureLayer(): void {
+    ['measure-points', 'measure-fill', 'measure-line'].forEach(id => {
+      if (this.map.getLayer(id)) this.map.removeLayer(id);
+    });
+    if (this.map.getSource('measure-preview')) this.map.removeSource('measure-preview');
+  }
+
   zoomIn(): void {
     this.map.zoomIn();
   }

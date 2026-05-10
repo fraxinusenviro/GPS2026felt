@@ -20,6 +20,9 @@ import { Modal } from './ui/Modal';
 import { LogConsole } from './ui/LogConsole';
 import { EventBus } from './utils/EventBus';
 import { generateSessionId, DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack } from './constants';
+import { MeasurePanel } from './ui/MeasurePanel';
+import { FeatureListPanel } from './ui/FeatureListPanel';
+import { StatsPanel } from './ui/StatsPanel';
 
 export class App {
   private storage = StorageManager.getInstance();
@@ -42,11 +45,16 @@ export class App {
   private modal!: Modal;
   private logConsole!: LogConsole;
 
+  private measurePanel!: MeasurePanel;
+  private featureListPanel!: FeatureListPanel;
+  private statsPanel!: StatsPanel;
+
   private settings!: AppSettings;
   private features: FieldFeature[] = [];
   private projectLayerPresets: LayerPreset[] = [];
   private wakeLock: WakeLockSentinel | null = null;
   private followUser = false;
+  private terrainEnabled = false;
 
   async init(): Promise<void> {
     await this.storage.init();
@@ -93,6 +101,13 @@ export class App {
     await this.presetManager.init(this.settings);
     await this.importDataPanel.init();
 
+    this.measurePanel = new MeasurePanel(this.mapManager);
+    this.featureListPanel = new FeatureListPanel(
+      (lat, lon) => this.mapManager.flyTo(lat, lon, 17),
+      (f) => EventBus.emit('feature-selected', { feature: f }),
+    );
+    this.statsPanel = new StatsPanel();
+
     // Load project-scoped data
     const activeProjectId = this.settings.active_project_id || 'default';
     const activeProject = await this.storage.getProject(activeProjectId);
@@ -113,6 +128,21 @@ export class App {
     this.wireCaptureControls();
 
     this.gridOverlay.setVisible(this.settings.grid_visible);
+
+    // North arrow: rotate opposite to map bearing
+    this.mapManager.onRotate(() => {
+      const arrow = document.getElementById('north-arrow');
+      if (arrow) arrow.style.transform = `rotate(${-this.mapManager.getBearing()}deg)`;
+    });
+
+    // Permalink: restore view from URL hash on startup
+    this.restorePermalinkView();
+
+    // Permalink: update URL hash on map move
+    EventBus.on<{ center: { lat: number; lng: number }; zoom: number }>('map-moveend', ({ center, zoom }) => {
+      const hash = `#${zoom.toFixed(2)}/${center.lng.toFixed(5)}/${center.lat.toFixed(5)}`;
+      history.replaceState(null, '', hash);
+    });
 
     EventBus.emit('toast', { message: 'Field Mapper ready', type: 'success', duration: 2000 });
   }
@@ -325,10 +355,16 @@ export class App {
 
         // Toggle tools: tapping an already-active tool completes/stops it
         // gps-point is two-phase: first click = activate HUD, second click = drop point
-        const isToggle = ['sketch-line', 'sketch-polygon', 'gps-line', 'gps-polygon', 'gps-point-stream', 'gps-point'].includes(tool);
+        const isToggle = ['sketch-line', 'sketch-polygon', 'gps-line', 'gps-polygon', 'gps-point-stream', 'gps-point', 'measure'].includes(tool);
         if (isToggle && currentTool === tool) {
-          this.completeCurrentCapture(tool);
+          if (tool === 'measure') {
+            this.measurePanel.stop();
+            this.captureManager.setTool('gps-point');
+          } else {
+            this.completeCurrentCapture(tool);
+          }
         } else {
+          if (currentTool === 'measure') this.measurePanel.stop();
           this.activateTool(tool);
         }
       });
@@ -529,6 +565,34 @@ export class App {
       this.logConsole.toggle();
     });
 
+    document.getElementById('btn-terrain')?.addEventListener('click', () => {
+      this.terrainEnabled = !this.terrainEnabled;
+      this.mapManager.setTerrain(this.terrainEnabled);
+      this.updateButtonState('btn-terrain', this.terrainEnabled);
+      EventBus.emit('toast', {
+        message: this.terrainEnabled ? '3D terrain enabled' : '3D terrain disabled',
+        type: 'info',
+        duration: 1500,
+      });
+    });
+
+    document.getElementById('btn-goto')?.addEventListener('click', () => {
+      this.showGoToModal();
+    });
+
+    document.getElementById('btn-screenshot')?.addEventListener('click', () => {
+      this.captureMapScreenshot();
+    });
+
+    document.getElementById('btn-feature-list')?.addEventListener('click', () => {
+      this.closeAllPanels();
+      void this.featureListPanel.toggle();
+    });
+
+    document.getElementById('btn-stats')?.addEventListener('click', () => {
+      void this.statsPanel.toggle();
+    });
+
     // Quick entry buttons — slots 0, 1, 2
     const qeSlots: Array<{ btnId: string; slot: number }> = [
       { btnId: 'btn-quick-entry',   slot: 0 },
@@ -617,7 +681,9 @@ export class App {
 
       if (tool === 'edit-geometry') return; // GeometryEditor handles its own clicks
 
-      if (tool === 'sketch-point') {
+      if (tool === 'measure') {
+        this.measurePanel.handleClick(lngLat.lng, lngLat.lat);
+      } else if (tool === 'sketch-point') {
         // Use persistent point entry HUD values — no modal
         const type = (document.getElementById('type-selector') as HTMLSelectElement)?.value ?? '';
         const desc = (document.getElementById('point-entry-desc') as HTMLInputElement)?.value ?? '';
@@ -809,6 +875,77 @@ export class App {
     const btn = document.getElementById(btnId);
     if (btn) btn.dataset.active = String(active);
     btn?.classList.toggle('active', active);
+  }
+
+  private restorePermalinkView(): void {
+    const hash = window.location.hash.slice(1);
+    if (!hash) return;
+    const parts = hash.split('/');
+    if (parts.length < 3) return;
+    const zoom = parseFloat(parts[0]);
+    const lng = parseFloat(parts[1]);
+    const lat = parseFloat(parts[2]);
+    if (!isNaN(zoom) && !isNaN(lng) && !isNaN(lat)) {
+      this.mapManager.flyTo(lat, lng, zoom);
+    }
+  }
+
+  private showGoToModal(): void {
+    EventBus.emit('show-modal', {
+      title: 'Go To Coordinates',
+      html: `
+        <div class="form-group">
+          <label>Coordinates
+            <input type="text" id="goto-input" placeholder="lat, lon  or  UTM zone easting northing" autocomplete="off" style="width:100%" />
+          </label>
+          <div style="font-size:11px;color:var(--color-text-muted);margin-top:4px">
+            e.g. 44.562, -63.755 &nbsp;·&nbsp; 45°20'N 63°45'W
+          </div>
+        </div>`,
+      confirmLabel: 'Go',
+      onConfirm: () => {
+        const val = (document.getElementById('goto-input') as HTMLInputElement)?.value.trim() ?? '';
+        if (!val) return;
+        const parsed = this.parseCoords(val);
+        if (!parsed) {
+          EventBus.emit('toast', { message: 'Could not parse coordinates', type: 'error' });
+          return;
+        }
+        this.mapManager.flyTo(parsed.lat, parsed.lng, 16);
+        EventBus.emit('toast', { message: `Navigating to ${parsed.lat.toFixed(5)}, ${parsed.lng.toFixed(5)}`, type: 'success', duration: 2000 });
+      },
+      onCancel: () => {},
+    });
+    requestAnimationFrame(() => {
+      const el = document.getElementById('goto-input') as HTMLInputElement | null;
+      el?.focus();
+    });
+  }
+
+  private parseCoords(s: string): { lat: number; lng: number } | null {
+    // Try decimal degrees: lat, lon
+    const dd = s.match(/(-?\d+\.?\d*)[°,\s]+(-?\d+\.?\d*)/);
+    if (dd) {
+      const lat = parseFloat(dd[1]), lng = parseFloat(dd[2]);
+      if (!isNaN(lat) && !isNaN(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+        return { lat, lng };
+      }
+    }
+    return null;
+  }
+
+  private captureMapScreenshot(): void {
+    try {
+      const canvas = this.mapManager.getCanvas();
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `map-${new Date().toISOString().slice(0, 10)}.png`;
+      a.click();
+      EventBus.emit('toast', { message: 'Map screenshot saved', type: 'success', duration: 2000 });
+    } catch (err) {
+      EventBus.emit('toast', { message: `Screenshot failed: ${(err as Error).message}`, type: 'error' });
+    }
   }
 
   private closeAllPanels(): void {
