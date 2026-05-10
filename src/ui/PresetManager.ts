@@ -2,11 +2,14 @@ import { v4 as uuidv4 } from 'uuid';
 import type { TypePreset, AppSettings, GeometryType } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
+import { StylePicker } from './StylePicker';
+import { renderSwatchDataUrl } from './SymbolRenderer';
 
 export class PresetManager {
   private presets: TypePreset[] = [];
   private quickEntryPresetIds: [string, string, string] = ['', '', ''];
   private storage = StorageManager.getInstance();
+  private stylePicker = new StylePicker();
 
   async init(settings: AppSettings): Promise<void> {
     this.presets = await this.storage.getAllTypePresets();
@@ -60,7 +63,6 @@ export class PresetManager {
 
     const filtered = this.getPresetsForGeomType(geomType);
 
-    // Update main toolbar type-selector
     const sel = document.getElementById('type-selector') as HTMLSelectElement;
     if (sel) {
       const current = sel.value;
@@ -74,7 +76,6 @@ export class PresetManager {
       });
     }
 
-    // Also populate capture HUD type selector
     this.populateCaptureTypeSelector(tool);
   }
 
@@ -117,13 +118,11 @@ export class PresetManager {
         if (label) label.textContent = preset.label;
         btn.title = `Quick Entry: ${preset.label}`;
         btn.style.background = `linear-gradient(135deg, ${preset.color}, ${preset.color}99)`;
-        // Slot 0 (btn-quick-entry) is always visible; slots 1 and 2 only when assigned
         if (index > 0) btn.style.display = '';
       } else {
         if (label) label.textContent = index === 0 ? 'Quick Entry' : `QE ${index + 1}`;
         btn.title = 'Quick Entry';
         btn.style.background = '';
-        // Hide slots 1 and 2 when no preset assigned
         if (index > 0) btn.style.display = 'none';
       }
     }
@@ -149,7 +148,7 @@ export class PresetManager {
     container.innerHTML = `
       <div class="settings-section">
         <h4><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>Type Presets</h4>
-        <p class="settings-hint">Define types for each geometry type. These appear in the Type selector.</p>
+        <p class="settings-hint">Define feature types per geometry. Click the style button (palette) to edit symbology.</p>
         <div id="presets-list"></div>
         <button class="btn-outline" id="btn-add-preset">+ Add Preset</button>
       </div>
@@ -181,21 +180,6 @@ export class PresetManager {
     });
   }
 
-  private geomSwatch(color: string, geomType: GeometryType | 'all'): string {
-    if (geomType === 'LineString') {
-      return `<svg class="preset-swatch" viewBox="0 0 26 14" width="26" height="14" aria-hidden="true">
-        <polyline points="2,12 9,4 17,10 24,2" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>`;
-    }
-    if (geomType === 'Polygon') {
-      return `<svg class="preset-swatch" viewBox="0 0 22 16" width="22" height="16" aria-hidden="true">
-        <polygon points="4,14 1,6 8,1 18,3 21,11 14,15" fill="${color}55" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/>
-      </svg>`;
-    }
-    // Point or 'all' — show icon if set, otherwise color dot
-    return `<span class="preset-color-dot" style="background:${color}"></span>`
-  }
-
   private renderPresetList(container: HTMLElement): void {
     const groups: Array<{ geomType: GeometryType | 'all'; label: string }> = [
       { geomType: 'Point', label: 'Points' },
@@ -209,14 +193,20 @@ export class PresetManager {
       const group = this.presets.filter(p => p.geometry_type === geomType);
       if (group.length === 0) continue;
       html += `<div class="preset-group-header" data-geom="${geomType}">${label}</div>`;
-      html += group.map(p => `
+      html += group.map(p => {
+        const swatchUrl = renderSwatchDataUrl(p, 26);
+        return `
         <div class="preset-row" data-id="${p.id}">
-          ${this.geomSwatch(p.color, p.geometry_type)}
-          ${p.icon ? `<span class="preset-icon-badge" title="Map icon">${p.icon}</span>` : ''}
+          <img class="preset-swatch-img" src="${swatchUrl}" width="26" height="26" alt="" />
           <span class="preset-label">${p.label}</span>
-          ${p.size && p.size !== 7 ? `<span class="preset-size-badge" title="Size">${p.size}px</span>` : ''}
           ${geomType === 'Point' ? `<span class="preset-qe-badge ${p.is_quick_entry ? 'active' : ''}" title="Quick Entry">QE</span>` : ''}
-          <button class="preset-edit-btn" data-id="${p.id}" title="Edit">
+          <button class="preset-style-btn" data-id="${p.id}" title="Edit style">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="14.5" r="2.5"/><circle cx="8.5" cy="14.5" r="2.5"/>
+              <path d="M13.5 9v1.5M17.5 17v3M8.5 17v3M15.5 7.5L18 11M11.5 7.5L9 11"/>
+            </svg>
+          </button>
+          <button class="preset-edit-btn" data-id="${p.id}" title="Edit label/geometry">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -224,7 +214,8 @@ export class PresetManager {
           </button>
           <button class="preset-del-btn" data-id="${p.id}" title="Delete">✕</button>
         </div>
-      `).join('');
+        `;
+      }).join('');
     }
     container.innerHTML = html;
 
@@ -235,6 +226,7 @@ export class PresetManager {
         this.presets = this.presets.filter(p => p.id !== id);
         this.renderPresetList(container);
         this.populateTypeSelector();
+        EventBus.emit('presets-changed', {});
       });
     });
 
@@ -242,12 +234,29 @@ export class PresetManager {
       btn.addEventListener('click', () => {
         const id = btn.dataset.id!;
         const preset = this.presets.find(p => p.id === id);
-        if (preset) this.showEditPresetDialog(preset, container);
+        if (preset) this.showEditLabelDialog(preset, container);
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('.preset-style-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id!;
+        const preset = this.presets.find(p => p.id === id);
+        if (!preset) return;
+        this.stylePicker.open(preset, async (updated) => {
+          Object.assign(preset, updated);
+          await this.storage.saveTypePreset(preset);
+          const idx = this.presets.findIndex(p => p.id === preset.id);
+          if (idx >= 0) this.presets[idx] = preset;
+          this.renderPresetList(container);
+          this.populateTypeSelector();
+          EventBus.emit('presets-changed', {});
+        });
       });
     });
   }
 
-  private showEditPresetDialog(preset: TypePreset, listContainer: HTMLElement): void {
+  private showEditLabelDialog(preset: TypePreset, listContainer: HTMLElement): void {
     EventBus.emit('show-modal', {
       title: 'Edit Preset',
       html: `
@@ -260,29 +269,13 @@ export class PresetManager {
             <option value="all" ${preset.geometry_type === 'all' ? 'selected' : ''}>All</option>
           </select>
         </label>
-        <label>Color <input type="color" id="edit-preset-color" value="${preset.color}" /></label>
-        <label style="margin-top:8px">
-          Map Icon (emoji)
-          <input type="text" id="edit-preset-icon" value="${preset.icon ?? ''}" placeholder="e.g. 🌲 🏠 💧 ⚠️" maxlength="4" style="width:80px;font-size:18px" />
-          <span style="font-size:11px;color:var(--color-text-muted);display:block;margin-top:2px">Leave blank for colored dot only</span>
-        </label>
-        ${preset.geometry_type === 'Point' || preset.geometry_type === 'all' ? `
-        <label style="margin-top:8px">
-          Point Size (px)
-          <input type="range" id="edit-preset-size" min="4" max="20" value="${preset.size ?? 7}" style="width:120px;vertical-align:middle" />
-          <span id="edit-preset-size-val">${preset.size ?? 7}px</span>
-        </label>` : ''}
+        <p class="settings-hint" style="margin-top:8px">To edit colour, icon and shape, use the palette button (🎨) in the preset list.</p>
       `,
       onConfirm: async () => {
         const label = (document.getElementById('edit-preset-label') as HTMLInputElement).value.trim();
         if (!label) return;
         preset.label = label;
         preset.geometry_type = (document.getElementById('edit-preset-geom') as HTMLSelectElement).value as GeometryType | 'all';
-        preset.color = (document.getElementById('edit-preset-color') as HTMLInputElement).value;
-        const iconVal = (document.getElementById('edit-preset-icon') as HTMLInputElement | null)?.value.trim() ?? '';
-        preset.icon = iconVal || undefined;
-        const sizeVal = (document.getElementById('edit-preset-size') as HTMLInputElement | null)?.value;
-        preset.size = sizeVal ? parseInt(sizeVal) : undefined;
         await this.storage.saveTypePreset(preset);
         const idx = this.presets.findIndex(p => p.id === preset.id);
         if (idx >= 0) this.presets[idx] = preset;
@@ -290,13 +283,6 @@ export class PresetManager {
         this.populateTypeSelector();
         EventBus.emit('presets-changed', {});
       }
-    });
-    requestAnimationFrame(() => {
-      const sizeInput = document.getElementById('edit-preset-size') as HTMLInputElement | null;
-      const sizeVal = document.getElementById('edit-preset-size-val');
-      sizeInput?.addEventListener('input', () => {
-        if (sizeVal) sizeVal.textContent = `${sizeInput.value}px`;
-      });
     });
   }
 
@@ -314,25 +300,19 @@ export class PresetManager {
           </select>
         </label>
         <label>Color <input type="color" id="new-preset-color" value="#4ade80" /></label>
-        <label style="margin-top:8px">
-          Map Icon (emoji)
-          <input type="text" id="new-preset-icon" placeholder="e.g. 🌲 🏠 💧" maxlength="4" style="width:80px;font-size:18px" />
-          <span style="font-size:11px;color:var(--color-text-muted);display:block;margin-top:2px">Leave blank for colored dot only</span>
-        </label>
+        <p class="settings-hint" style="margin-top:8px">After adding, use the palette button to set icon, shape and other style options.</p>
       `,
       onConfirm: async () => {
         const label = (document.getElementById('new-preset-label') as HTMLInputElement).value.trim();
         if (!label) return;
         const geom = (document.getElementById('new-preset-geom') as HTMLSelectElement).value as GeometryType | 'all';
         const color = (document.getElementById('new-preset-color') as HTMLInputElement).value;
-        const iconVal = (document.getElementById('new-preset-icon') as HTMLInputElement | null)?.value.trim() ?? '';
 
         const preset: TypePreset = {
           id: uuidv4(),
           label,
           geometry_type: geom,
           color,
-          icon: iconVal || undefined,
           is_quick_entry: false,
         };
         await this.storage.saveTypePreset(preset);

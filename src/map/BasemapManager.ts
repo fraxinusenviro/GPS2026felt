@@ -1,10 +1,12 @@
 import maplibregl from 'maplibre-gl';
 import { BASEMAPS, BASEMAP_OVERLAYS, COG_RAMPS } from '../constants';
-import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset } from '../types';
+import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType } from '../types';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
 import { EventBus } from '../utils/EventBus';
+import { StylePicker } from '../ui/StylePicker';
+import { renderSwatchDataUrl } from '../ui/SymbolRenderer';
 
 const BM_STACK_KEY = 'fm2026_bm_stack';
 
@@ -90,6 +92,11 @@ export class BasemapManager {
   // Feature layer presets for the basemap TOC
   private featureLayerPresets: LayerPreset[] = [];
   private onFeatureLayerChange: ((preset: LayerPreset) => void) | null = null;
+
+  // TypePresets for collected data symbology TOC
+  private typePresets: TypePreset[] = [];
+  private onTypePresetChange: ((preset: TypePreset) => void) | null = null;
+  private stylePicker = new StylePicker();
 
   constructor(private mapManager: MapManager) {}
 
@@ -606,6 +613,8 @@ export class BasemapManager {
     onLayerStateChange?: (id: string, updates: { visible?: boolean; opacity?: number }) => void,
     layerPresets?: LayerPreset[],
     onFeatureLayerChange?: (preset: LayerPreset) => void,
+    typePresets?: TypePreset[],
+    onTypePresetChange?: (preset: TypePreset) => void,
   ): void {
     this.userLayers = userLayers;
     this.pdfLayers = pdfLayers;
@@ -614,6 +623,8 @@ export class BasemapManager {
     this.onLayerStateChange = onLayerStateChange ?? null;
     if (layerPresets !== undefined) this.featureLayerPresets = layerPresets;
     if (onFeatureLayerChange !== undefined) this.onFeatureLayerChange = onFeatureLayerChange;
+    if (typePresets !== undefined) this.typePresets = typePresets;
+    if (onTypePresetChange !== undefined) this.onTypePresetChange = onTypePresetChange;
     if (this.stack.length === 0) this.init('esri-imagery');
     this.renderContent(container, onClose);
   }
@@ -719,6 +730,52 @@ export class BasemapManager {
     </div>`;
     return this.sectionToggle('pdfs', 'GeoPDF Layers', `${this.pdfLayers.length} loaded`) +
       this.sectionBody('pdfs', body);
+  }
+
+  // ---- Collected Data section (Points / Lines / Polygons with TypePreset swatches) ----
+
+  private renderCollectedDataSection(): string {
+    if (this.typePresets.length === 0) return '';
+
+    const geomDefs: Array<{ geom: GeometryType; label: string }> = [
+      { geom: 'Point',      label: 'Points'   },
+      { geom: 'LineString', label: 'Lines'    },
+      { geom: 'Polygon',    label: 'Polygons' },
+    ];
+
+    const body = geomDefs.map(({ geom, label }) => {
+      const presets = this.typePresets.filter(p =>
+        p.geometry_type === geom || p.geometry_type === 'all'
+      );
+      return `
+        <div class="cd-row">
+          <span class="cd-geom-label">${label}</span>
+          <div class="cd-swatches">
+            ${presets.map(p => `
+              <button class="cd-swatch-btn" data-cd-preset-id="${p.id}" title="${p.label} — click to edit style">
+                <img src="${renderSwatchDataUrl(p, 22)}" width="22" height="22" alt="${p.label}" />
+              </button>
+            `).join('') || '<span class="cd-no-presets">—</span>'}
+          </div>
+        </div>`;
+    }).join('');
+
+    return this.sectionToggle('collected-data', 'Collected Features', 'click swatch to style') +
+      this.sectionBody('collected-data', `<div class="cd-list">${body}</div>`);
+  }
+
+  private wireCollectedData(container: HTMLElement): void {
+    container.querySelectorAll<HTMLButtonElement>('[data-cd-preset-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const presetId = btn.dataset.cdPresetId!;
+        const preset = this.typePresets.find(p => p.id === presetId);
+        if (!preset) return;
+        this.stylePicker.open(preset, (updated: TypePreset) => {
+          Object.assign(preset, updated);
+          this.onTypePresetChange?.(preset);
+        });
+      });
+    });
   }
 
   // ---- Feature Layers section (collected GPS/sketch data) ----
@@ -972,6 +1029,7 @@ export class BasemapManager {
           `).join('')}
         </div>`)}
 
+        ${this.renderCollectedDataSection()}
         ${this.renderFeatureLayersSection()}
         ${this.renderOverlayPalette()}
         ${this.renderPDFSection()}
@@ -982,6 +1040,7 @@ export class BasemapManager {
 
     container.querySelector('#bm-close')?.addEventListener('click', onClose);
     this.wireFeatureLayers(container);
+    this.wireCollectedData(container);
     this.wireContent(container, onClose);
   }
 

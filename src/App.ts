@@ -24,6 +24,7 @@ import { MeasurePanel } from './ui/MeasurePanel';
 import { FeatureListPanel } from './ui/FeatureListPanel';
 import { StatsPanel } from './ui/StatsPanel';
 import { UndoManager } from './utils/UndoManager';
+import { SymbolRenderer } from './ui/SymbolRenderer';
 import * as turf from '@turf/turf';
 
 export class App {
@@ -51,6 +52,7 @@ export class App {
   private featureListPanel!: FeatureListPanel;
   private statsPanel!: StatsPanel;
   private undoManager = UndoManager.getInstance();
+  private symbolRenderer!: SymbolRenderer;
 
   private settings!: AppSettings;
   private features: FieldFeature[] = [];
@@ -71,6 +73,9 @@ export class App {
     this.logConsole = new LogConsole();
 
     await this.mapManager.init('map', this.settings);
+
+    // SymbolRenderer must be created after map init (needs the map instance)
+    this.symbolRenderer = new SymbolRenderer(this.mapManager.getMap());
 
     this.basemapManager = new BasemapManager(this.mapManager);
     this.basemapManager.init(this.settings.basemap_id);
@@ -102,6 +107,8 @@ export class App {
     await this.settingsPanel.init(this.settings);
 
     await this.presetManager.init(this.settings);
+    // Register canvas symbol images for all presets into MapLibre
+    this.symbolRenderer.registerAll(this.presetManager.getPresets());
     await this.importDataPanel.init();
 
     this.measurePanel = new MeasurePanel(this.mapManager);
@@ -272,8 +279,9 @@ export class App {
       this.captureManager.setTool('select');
     });
 
-    // Re-render map when type presets change (icon/size may have changed)
+    // Re-render map when type presets change (re-register symbols + redraw features)
     EventBus.on('presets-changed', () => {
+      this.symbolRenderer.registerAll(this.presetManager.getPresets());
       this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     });
 
@@ -609,6 +617,13 @@ export class App {
         }, userLayers, pdfLayers, onDeletePDF, onDeleteUserLayer, onLayerStateChange,
         this.projectLayerPresets,
         (updatedPreset) => { EventBus.emit('layer-preset-updated', updatedPreset); },
+        this.presetManager.getPresets(),
+        async (updatedTypePreset) => {
+          await this.storage.saveTypePreset(updatedTypePreset);
+          const idx = this.presetManager.getPresets().findIndex(p => p.id === updatedTypePreset.id);
+          if (idx >= 0) this.presetManager.getPresets()[idx] = updatedTypePreset;
+          EventBus.emit('presets-changed', {});
+        },
         );
       }
     });
