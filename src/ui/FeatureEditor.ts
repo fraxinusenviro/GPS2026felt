@@ -97,6 +97,7 @@ export class FeatureEditor {
             <button class="btn-primary" id="fe-save">Save Changes</button>
             <button class="btn-outline" id="fe-edit-geometry">Edit Geometry</button>
             <button class="btn-outline" id="fe-duplicate">Duplicate</button>
+            <button class="btn-outline" id="fe-buffer">Buffer…</button>
             <button class="btn-outline btn-danger" id="fe-delete">Delete Feature</button>
           </div>
         </div>
@@ -110,6 +111,7 @@ export class FeatureEditor {
 
     this.panel.querySelector('#fe-save')?.addEventListener('click', () => this.save());
     this.panel.querySelector('#fe-duplicate')?.addEventListener('click', () => void this.duplicate(feature));
+    this.panel.querySelector('#fe-buffer')?.addEventListener('click', () => this.promptBuffer(feature));
     this.panel.querySelector('#fe-delete')?.addEventListener('click', () => this.delete(feature.id));
     this.panel.querySelector('#fe-edit-geometry')?.addEventListener('click', () => {
       const feat = this.currentFeature;
@@ -192,6 +194,31 @@ export class FeatureEditor {
     await this.storage.deleteFeature(id);
     EventBus.emit('feature-deleted', { id });
     EventBus.emit('toast', { message: 'Feature deleted', type: 'warning' });
+  }
+
+  private promptBuffer(feature: FieldFeature): void {
+    EventBus.emit('show-modal', {
+      title: 'Create Buffer',
+      html: `
+        <div class="form-group">
+          <label>Buffer Distance (metres)
+            <input type="number" id="buffer-dist" value="50" min="1" max="100000" step="1" style="width:100%" />
+          </label>
+          <div style="font-size:11px;color:var(--color-text-muted);margin-top:4px">
+            Creates a polygon buffer around the selected ${feature.geometry_type.toLowerCase()}.
+          </div>
+        </div>`,
+      confirmLabel: 'Create Buffer',
+      onConfirm: () => {
+        const dist = parseFloat((document.getElementById('buffer-dist') as HTMLInputElement)?.value ?? '50');
+        if (isNaN(dist) || dist <= 0) return;
+        EventBus.emit('buffer-feature', { geometry: feature.geometry, distanceM: dist });
+      },
+      onCancel: () => {},
+    });
+    requestAnimationFrame(() => {
+      (document.getElementById('buffer-dist') as HTMLInputElement | null)?.select();
+    });
   }
 
   private async duplicate(feature: FieldFeature): Promise<void> {

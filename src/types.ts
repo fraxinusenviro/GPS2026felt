@@ -68,7 +68,8 @@ export interface TypePreset {
   label: string;
   geometry_type: GeometryType | 'all';
   color: string;      // hex colour for map symbolisation
-  icon?: string;      // optional SVG icon
+  icon?: string;      // emoji or short text rendered on map (e.g. "🌲", "🏠")
+  size?: number;      // circle radius in pixels (default 7)
   is_quick_entry: boolean; // show as Quick Entry button
 }
 
