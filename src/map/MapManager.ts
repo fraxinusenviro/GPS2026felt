@@ -404,23 +404,47 @@ export class MapManager {
       }
     });
 
-    // Lines (data-driven color, width, dash)
+    // Lines — solid (default): all that are not dashed or dotted
     this.map.addLayer({
       id: LAYER_IDS.COLLECTED_LINES,
       type: 'line',
       source: 'collected-lines',
-      layout: {
-        'line-cap': 'round',
-        'line-join': 'round'
-      },
+      filter: ['all',
+        ['!=', ['coalesce', ['get', 'dash_pattern'], 'solid'], 'dashed'],
+        ['!=', ['coalesce', ['get', 'dash_pattern'], 'solid'], 'dotted'],
+      ],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': ['coalesce', ['get', 'color'], '#facc15'],
         'line-width': ['coalesce', ['get', 'stroke_width'], 3],
-        'line-dasharray': ['case',
-          ['==', ['get', 'dash_pattern'], 'dashed'], ['literal', [6, 3]],
-          ['==', ['get', 'dash_pattern'], 'dotted'], ['literal', [1, 3]],
-          ['literal', [1, 0]]
-        ]
+      }
+    });
+
+    // Lines — dashed
+    this.map.addLayer({
+      id: 'collected-lines-dashed',
+      type: 'line',
+      source: 'collected-lines',
+      filter: ['==', ['get', 'dash_pattern'], 'dashed'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#facc15'],
+        'line-width': ['coalesce', ['get', 'stroke_width'], 3],
+        'line-dasharray': [6, 3],
+      }
+    });
+
+    // Lines — dotted
+    this.map.addLayer({
+      id: 'collected-lines-dotted',
+      type: 'line',
+      source: 'collected-lines',
+      filter: ['==', ['get', 'dash_pattern'], 'dotted'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#facc15'],
+        'line-width': ['coalesce', ['get', 'stroke_width'], 3],
+        'line-dasharray': [1.5, 3],
       }
     });
 
@@ -1083,6 +1107,8 @@ export class MapManager {
         LAYER_IDS.COLLECTED_POINTS,
         'collected-points-symbols',
         LAYER_IDS.COLLECTED_LINES,
+        'collected-lines-dashed',
+        'collected-lines-dotted',
         LAYER_IDS.COLLECTED_POLYGONS_FILL
       ]
     });
