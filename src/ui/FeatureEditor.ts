@@ -93,12 +93,27 @@ export class FeatureEditor {
             </div>
           </div>
 
-          <div class="fe-actions">
-            <button class="btn-primary" id="fe-save">Save Changes</button>
-            <button class="btn-outline" id="fe-edit-geometry">Edit Geometry</button>
-            <button class="btn-outline" id="fe-duplicate">Duplicate</button>
-            <button class="btn-outline" id="fe-buffer">Buffer…</button>
-            <button class="btn-outline btn-danger" id="fe-delete">Delete Feature</button>
+          <div class="fe-icon-actions">
+            <button class="fe-icon-btn fe-icon-primary" id="fe-save" title="Save Changes">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              <span>Save</span>
+            </button>
+            <button class="fe-icon-btn" id="fe-edit-geometry" title="Edit Geometry">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              <span>Geometry</span>
+            </button>
+            <button class="fe-icon-btn" id="fe-duplicate" title="Duplicate Feature">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>Copy</span>
+            </button>
+            <button class="fe-icon-btn" id="fe-buffer" title="Create Buffer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8" stroke-dasharray="3 2"/></svg>
+              <span>Buffer</span>
+            </button>
+            <button class="fe-icon-btn fe-icon-danger" id="fe-delete" title="Delete Feature">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+              <span>Delete</span>
+            </button>
           </div>
         </div>
       </div>

@@ -82,6 +82,8 @@ export interface TypePreset {
   rotation?: number;          // shape rotation degrees 0-360, default 0
   icon_rotation?: number;     // icon overlay rotation degrees 0-360, default 0
   is_quick_entry: boolean;
+  visible?: boolean;          // hide all features of this type on map (default true)
+  show_labels?: boolean;      // show type label text on map (default true)
 }
 
 export interface LayerPreset {

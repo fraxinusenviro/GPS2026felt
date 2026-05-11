@@ -634,9 +634,9 @@ export class BasemapManager {
 
   // ---- Palette helpers ----
 
-  private sectionToggle(id: string, label: string, hint: string): string {
+  private sectionToggle(id: string, label: string, hint: string, isLibrary = false): string {
     const open = !this.collapsedSections.has(id);
-    return `<button class="bm-section-toggle" data-section="${id}" data-open="${open}">
+    return `<button class="bm-section-toggle${isLibrary ? ' bm-section-library' : ''}" data-section="${id}" data-open="${open}">
       ${label} <span class="bm-section-hint">${hint}</span>
       <span class="bm-toggle-chevron">▾</span>
     </button>`;
@@ -662,14 +662,14 @@ export class BasemapManager {
     let result = '';
     // LiDAR (ungrouped overlays) — own top-level section
     if (ungrouped.length) {
-      result += this.sectionToggle('lidar', 'LiDAR Hillshades', 'click + to add') +
+      result += this.sectionToggle('lidar', 'LiDAR Hillshades', 'click + to add', true) +
         this.sectionBody('lidar', paletteRows(ungrouped));
     }
     // Each named group gets its own top-level collapsible section
     for (const g of groupNames) {
       const key = `group-${g.replace(/\s+/g, '-').toLowerCase()}`;
       const items = BASEMAP_OVERLAYS.filter(o => o.group === g);
-      result += this.sectionToggle(key, g, 'click + to add') +
+      result += this.sectionToggle(key, g, 'click + to add', true) +
         this.sectionBody(key, paletteRows(items));
     }
     return result;
@@ -749,6 +749,10 @@ export class BasemapManager {
 
     const totalCount = this.collectedFeatures.length;
 
+    const eyeOnSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    const eyeOffSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+    const labelOnSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+
     // Build one row per TypePreset (only those that have matching geometry)
     const rows = this.typePresets.map(p => {
       const count = countByType.get(p.label) ?? 0;
@@ -757,15 +761,19 @@ export class BasemapManager {
         p.geometry_type === 'Point'      ? '●' :
         p.geometry_type === 'LineString' ? '╌' :
         p.geometry_type === 'Polygon'    ? '▭' : '◈';
+      const isVisible = p.visible !== false;
+      const showLabels = p.show_labels !== false;
 
       return `
-        <div class="cd-type-row">
+        <div class="cd-type-row${!isVisible ? ' cd-type-hidden' : ''}">
           <button class="cd-swatch-btn" data-cd-preset-id="${p.id}" title="${p.label} — click to edit style">
             <img src="${swatchUrl}" width="22" height="22" alt="${p.label}" />
           </button>
           <span class="cd-type-geom" title="${p.geometry_type}">${geomIcon}</span>
           <span class="cd-type-label">${p.label}</span>
           <span class="cd-type-count">${count > 0 ? count : '—'}</span>
+          <button class="cd-toggle-btn cd-vis-btn${isVisible ? ' active' : ''}" data-cd-vis="${p.id}" title="${isVisible ? 'Hide on map' : 'Show on map'}">${isVisible ? eyeOnSvg : eyeOffSvg}</button>
+          <button class="cd-toggle-btn cd-label-btn${showLabels ? ' active' : ''}" data-cd-label="${p.id}" title="${showLabels ? 'Hide labels' : 'Show labels'}">${labelOnSvg}</button>
         </div>`;
     }).join('');
 
@@ -785,6 +793,9 @@ export class BasemapManager {
   }
 
   private wireCollectedData(container: HTMLElement): void {
+    const eyeOnSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+    const eyeOffSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+
     container.querySelectorAll<HTMLButtonElement>('[data-cd-preset-id]').forEach(btn => {
       btn.addEventListener('click', () => {
         const presetId = btn.dataset.cdPresetId!;
@@ -794,6 +805,36 @@ export class BasemapManager {
           Object.assign(preset, updated);
           this.onTypePresetChange?.(preset);
         });
+      });
+    });
+
+    // Visibility toggles
+    container.querySelectorAll<HTMLButtonElement>('[data-cd-vis]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.cdVis!;
+        const preset = this.typePresets.find(p => p.id === id);
+        if (!preset) return;
+        preset.visible = preset.visible === false ? true : false;
+        const isVisible = preset.visible !== false;
+        btn.classList.toggle('active', isVisible);
+        btn.innerHTML = isVisible ? eyeOnSvg : eyeOffSvg;
+        btn.title = isVisible ? 'Hide on map' : 'Show on map';
+        btn.closest('.cd-type-row')?.classList.toggle('cd-type-hidden', !isVisible);
+        this.onTypePresetChange?.(preset);
+      });
+    });
+
+    // Label toggles
+    container.querySelectorAll<HTMLButtonElement>('[data-cd-label]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.cdLabel!;
+        const preset = this.typePresets.find(p => p.id === id);
+        if (!preset) return;
+        preset.show_labels = preset.show_labels === false ? true : false;
+        const showLabels = preset.show_labels !== false;
+        btn.classList.toggle('active', showLabels);
+        btn.title = showLabels ? 'Hide labels' : 'Show labels';
+        this.onTypePresetChange?.(preset);
       });
     });
   }
@@ -1037,7 +1078,7 @@ export class BasemapManager {
           ${this.stack.map((layer, idx) => this.renderStackItem(layer, idx)).join('')}
         </div>
 
-        ${this.sectionToggle('basemaps', 'Standard Basemaps', 'click + to add')}
+        ${this.sectionToggle('basemaps', 'Standard Basemaps', 'click + to add', true)}
         ${this.sectionBody('basemaps', `<div class="bm-palette">
           ${BASEMAPS.map(bm => `
             <div class="bm-palette-row">
