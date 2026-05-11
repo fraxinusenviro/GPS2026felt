@@ -4206,3 +4206,125 @@ input[type=color] {
   border-color: var(--color-accent);
   transform: scale(1.12);
 }
+
+/* ============================================================
+   StylePicker: slider row with numeric input
+   ============================================================ */
+.sp-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sp-slider-row input[type="range"] {
+  flex: 1;
+  height: 4px;
+  accent-color: var(--color-accent);
+  min-width: 0;
+}
+.sp-num-input {
+  width: 52px;
+  padding: 2px 4px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 11px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.sp-num-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+.sp-slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+.sp-slider-label-txt {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+/* ============================================================
+   Basemap TOC: Collected Features type list
+   ============================================================ */
+.cd-type-list {
+  padding: 2px 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.cd-type-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.cd-type-row:last-child { border-bottom: none; }
+.cd-type-geom {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+.cd-type-label {
+  font-size: 12px;
+  color: var(--color-text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cd-type-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  min-width: 22px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.cd-untyped-row { opacity: 0.7; }
+
+/* ============================================================
+   ProjectPanel: rename controls
+   ============================================================ */
+.proj-rename-input {
+  flex: 1;
+  padding: 2px 6px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
+  color: var(--color-text);
+  min-width: 0;
+}
+.proj-rename-input:focus {
+  outline: none;
+  border-color: var(--color-accent-bright, #6adf9a);
+}
+.btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 2px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, opacity 0.15s;
+}
+.btn-icon:hover {
+  color: var(--color-accent);
+  opacity: 1 !important;
+}
+.proj-item-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}

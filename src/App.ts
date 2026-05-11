@@ -93,6 +93,7 @@ export class App {
       id => this.loadProject(id),
       (name, desc) => this.createProject(name, desc),
       id => this.deleteProject(id),
+      (id, name) => this.renameProject(id, name),
     );
     this.exportPanel = new ExportPanel(this.exportManager, () => {
       const b = this.mapManager.getBounds();
@@ -285,11 +286,10 @@ export class App {
       this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     });
 
-    // Buffer feature: create a Turf buffer polygon around a selected feature's geometry
+    // Buffer feature: create a Turf buffer polygon and save directly to the project polygon layer
     EventBus.on<{ geometry: GeoJSONGeometry; distanceM: number }>('buffer-feature', async ({ geometry, distanceM }) => {
       let buffGeom: GeoJSONGeometry | null = null;
       try {
-        // Cast to `unknown` first to satisfy overloaded Turf typings
         const result = turf.buffer(geometry as unknown as Parameters<typeof turf.buffer>[0], distanceM / 1000, { units: 'kilometers' });
         if (result && 'geometry' in result && result.geometry) {
           buffGeom = result.geometry as GeoJSONGeometry;
@@ -303,13 +303,7 @@ export class App {
         return;
       }
 
-      const polyLayers = this.projectLayerPresets.filter(l => l.geometry_type === 'Polygon');
-      if (!polyLayers.length) {
-        EventBus.emit('toast', { message: 'No polygon layer in this project — create one first', type: 'warning' });
-        return;
-      }
-
-      const targetLayer = polyLayers.find(l => l.id === this.settings.default_layer_id) ?? polyLayers[0];
+      const projectId = this.settings.active_project_id || 'default';
       const now = new Date().toISOString();
       const feature: FieldFeature = {
         id: crypto.randomUUID(),
@@ -322,14 +316,14 @@ export class App {
         created_at: now, updated_at: now,
         created_by: this.settings.user_id,
         lat: null, lon: null, elevation: null, accuracy: null,
-        layer_id: targetLayer.id,
+        layer_id: `${projectId}-polygons`,
         notes: '',
         photos: [],
-        project_id: this.settings.active_project_id || 'default',
+        project_id: projectId,
       };
       await this.storage.saveFeature(feature);
       EventBus.emit('feature-added', { feature });
-      EventBus.emit('toast', { message: `${distanceM}m buffer added to ${targetLayer.name}`, type: 'success', duration: 2500 });
+      EventBus.emit('toast', { message: `${distanceM}m buffer added to Polygons`, type: 'success', duration: 2500 });
     });
 
     // Layer preset style/visibility changed from basemap TOC
@@ -342,7 +336,7 @@ export class App {
       this.updateActiveLayerIndicator();
     });
 
-    // Add identified feature to a sketch layer
+    // Add identified feature directly to the project's geometry-type layer
     EventBus.on<{ geometry: GeoJSONGeometry | null; label: string; props: Record<string, unknown> }>(
       'add-identify-feature',
       async ({ geometry }) => {
@@ -350,107 +344,27 @@ export class App {
           EventBus.emit('toast', { message: 'No geometry available for this feature', type: 'warning' });
           return;
         }
-        // Use project-scoped layers
-        const layers = this.projectLayerPresets.length
-          ? this.projectLayerPresets
-          : await this.storage.getLayersByProject(this.settings.active_project_id || 'default');
+        const projectId = this.settings.active_project_id || 'default';
         const geomType = mapGeoJSONTypeToFieldType(geometry.type);
-        const compatLayers = layers.filter(l => l.geometry_type === geomType);
-        if (!compatLayers.length) {
-          EventBus.emit('toast', { message: `No sketch layers for ${geomType} — create one first`, type: 'warning' });
-          return;
-        }
-
-        // Prefer the currently active layer if it matches; otherwise pick first compatible
-        const activeLayer = compatLayers.find(l => l.id === this.settings.default_layer_id)
-          ?? compatLayers[0];
-
-        const saveToLayer = async (layerId: string, typeId: string) => {
-          const now = new Date().toISOString();
-          const feature: FieldFeature = {
-            id: crypto.randomUUID(),
-            point_id: generatePointId(this.settings),
-            type: typeId, desc: '',
-            geometry_type: geomType,
-            geometry: normalizeGeometry(geometry),
-            capture_method: 'sketch',
-            created_at: now, updated_at: now,
-            created_by: this.settings.user_id,
-            lat: null, lon: null, elevation: null, accuracy: null,
-            layer_id: layerId, notes: '', photos: [],
-            project_id: this.settings.active_project_id || 'default',
-          };
-          await this.storage.saveFeature(feature);
-          EventBus.emit('feature-added', { feature });
-          EventBus.emit('toast', { message: `Added to ${layers.find(l => l.id === layerId)?.name ?? layerId}`, type: 'success' });
+        const suffix = geomType === 'Point' ? 'points' : geomType === 'LineString' ? 'lines' : 'polygons';
+        const layerId = `${projectId}-${suffix}`;
+        const now = new Date().toISOString();
+        const feature: FieldFeature = {
+          id: crypto.randomUUID(),
+          point_id: generatePointId(this.settings),
+          type: '', desc: '',
+          geometry_type: geomType,
+          geometry: normalizeGeometry(geometry),
+          capture_method: 'sketch',
+          created_at: now, updated_at: now,
+          created_by: this.settings.user_id,
+          lat: null, lon: null, elevation: null, accuracy: null,
+          layer_id: layerId, notes: '', photos: [],
+          project_id: projectId,
         };
-
-        // If active layer matches geom type, save directly with a single confirmation
-        if (activeLayer.id === this.settings.default_layer_id) {
-          const defaultType = activeLayer.types[0]?.id ?? '';
-          if (activeLayer.types.length <= 1) {
-            // Only one type — save immediately
-            await saveToLayer(activeLayer.id, defaultType);
-            return;
-          }
-          // Multiple types — quick modal to pick type
-          EventBus.emit('show-modal', {
-            title: `Add to ${activeLayer.name}`,
-            html: `
-              <div class="form-group">
-                <label>Type
-                  <select id="sketch-type-sel">
-                    ${activeLayer.types.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
-                  </select>
-                </label>
-              </div>`,
-            confirmLabel: 'Add',
-            onConfirm: async () => {
-              const typeId = (document.getElementById('sketch-type-sel') as HTMLSelectElement)?.value ?? defaultType;
-              await saveToLayer(activeLayer.id, typeId);
-            },
-          });
-          return;
-        }
-
-        // Active layer not compatible — show full layer + type selector
-        EventBus.emit('show-modal', {
-          title: 'Add to sketch',
-          html: `
-            <div class="form-group">
-              <label>Layer
-                <select id="sketch-layer-sel">
-                  ${compatLayers.map(l => `<option value="${l.id}"${l.id === activeLayer.id ? ' selected' : ''}>${l.name}</option>`).join('')}
-                </select>
-              </label>
-            </div>
-            <div class="form-group">
-              <label>Type
-                <select id="sketch-type-sel">
-                  ${activeLayer.types.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
-                </select>
-              </label>
-            </div>`,
-          confirmLabel: 'Add',
-          onConfirm: async () => {
-            const layerId = (document.getElementById('sketch-layer-sel') as HTMLSelectElement)?.value ?? activeLayer.id;
-            const typeId  = (document.getElementById('sketch-type-sel') as HTMLSelectElement)?.value ?? activeLayer.types[0]?.id ?? '';
-            await saveToLayer(layerId, typeId);
-          },
-        });
-
-        // Wire layer change → update type select
-        requestAnimationFrame(() => {
-          const layerSel = document.getElementById('sketch-layer-sel') as HTMLSelectElement | null;
-          const typeSel  = document.getElementById('sketch-type-sel') as HTMLSelectElement | null;
-          layerSel?.addEventListener('change', () => {
-            const layer = compatLayers.find(l => l.id === layerSel.value);
-            if (!layer || !typeSel) return;
-            typeSel.innerHTML = layer.types.map(t =>
-              `<option value="${t.id}">${t.label}</option>`,
-            ).join('');
-          });
-        });
+        await this.storage.saveFeature(feature);
+        EventBus.emit('feature-added', { feature });
+        EventBus.emit('toast', { message: `Feature added to ${geomType === 'Point' ? 'Points' : geomType === 'LineString' ? 'Lines' : 'Polygons'}`, type: 'success' });
       },
     );
   }
@@ -624,6 +538,7 @@ export class App {
           if (idx >= 0) this.presetManager.getPresets()[idx] = updatedTypePreset;
           EventBus.emit('presets-changed', {});
         },
+        this.features,
         );
       }
     });
@@ -744,7 +659,6 @@ export class App {
       });
     }
 
-    this.wireLayerMgr();
   }
 
   private activateTool(tool: ToolMode): void {
@@ -1192,6 +1106,18 @@ export class App {
       await this.loadProject('default');
     }
     this.projectPanel.refresh();
+  }
+
+  async renameProject(id: string, name: string): Promise<void> {
+    const project = await this.storage.getProject(id);
+    if (!project) return;
+    project.name = name;
+    project.updated_at = new Date().toISOString();
+    await this.storage.saveProject(project);
+    this.projectPanel.refresh();
+    if ((this.settings.active_project_id || 'default') === id) {
+      EventBus.emit('toast', { message: `Project renamed to "${name}"`, type: 'success', duration: 2000 });
+    }
   }
 
   wireLayerMgr(): void {

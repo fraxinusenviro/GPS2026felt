@@ -1,6 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import { BASEMAPS, BASEMAP_OVERLAYS, COG_RAMPS } from '../constants';
-import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType } from '../types';
+import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature } from '../types';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
@@ -95,6 +95,7 @@ export class BasemapManager {
 
   // TypePresets for collected data symbology TOC
   private typePresets: TypePreset[] = [];
+  private collectedFeatures: FieldFeature[] = [];
   private onTypePresetChange: ((preset: TypePreset) => void) | null = null;
   private stylePicker = new StylePicker();
 
@@ -615,6 +616,7 @@ export class BasemapManager {
     onFeatureLayerChange?: (preset: LayerPreset) => void,
     typePresets?: TypePreset[],
     onTypePresetChange?: (preset: TypePreset) => void,
+    features?: FieldFeature[],
   ): void {
     this.userLayers = userLayers;
     this.pdfLayers = pdfLayers;
@@ -625,6 +627,7 @@ export class BasemapManager {
     if (onFeatureLayerChange !== undefined) this.onFeatureLayerChange = onFeatureLayerChange;
     if (typePresets !== undefined) this.typePresets = typePresets;
     if (onTypePresetChange !== undefined) this.onTypePresetChange = onTypePresetChange;
+    if (features !== undefined) this.collectedFeatures = features;
     if (this.stack.length === 0) this.init('esri-imagery');
     this.renderContent(container, onClose);
   }
@@ -732,36 +735,53 @@ export class BasemapManager {
       this.sectionBody('pdfs', body);
   }
 
-  // ---- Collected Data section (Points / Lines / Polygons with TypePreset swatches) ----
+  // ---- Collected Data section — stacked type list with feature counts ----
 
   private renderCollectedDataSection(): string {
-    if (this.typePresets.length === 0) return '';
+    if (this.typePresets.length === 0 && this.collectedFeatures.length === 0) return '';
 
-    const geomDefs: Array<{ geom: GeometryType; label: string }> = [
-      { geom: 'Point',      label: 'Points'   },
-      { geom: 'LineString', label: 'Lines'    },
-      { geom: 'Polygon',    label: 'Polygons' },
-    ];
+    // Count features by type label
+    const countByType = new Map<string, number>();
+    for (const f of this.collectedFeatures) {
+      const key = f.type || '(untyped)';
+      countByType.set(key, (countByType.get(key) ?? 0) + 1);
+    }
 
-    const body = geomDefs.map(({ geom, label }) => {
-      const presets = this.typePresets.filter(p =>
-        p.geometry_type === geom || p.geometry_type === 'all'
-      );
+    const totalCount = this.collectedFeatures.length;
+
+    // Build one row per TypePreset (only those that have matching geometry)
+    const rows = this.typePresets.map(p => {
+      const count = countByType.get(p.label) ?? 0;
+      const swatchUrl = renderSwatchDataUrl(p, 22);
+      const geomIcon =
+        p.geometry_type === 'Point'      ? '●' :
+        p.geometry_type === 'LineString' ? '╌' :
+        p.geometry_type === 'Polygon'    ? '▭' : '◈';
+
       return `
-        <div class="cd-row">
-          <span class="cd-geom-label">${label}</span>
-          <div class="cd-swatches">
-            ${presets.map(p => `
-              <button class="cd-swatch-btn" data-cd-preset-id="${p.id}" title="${p.label} — click to edit style">
-                <img src="${renderSwatchDataUrl(p, 22)}" width="22" height="22" alt="${p.label}" />
-              </button>
-            `).join('') || '<span class="cd-no-presets">—</span>'}
-          </div>
+        <div class="cd-type-row">
+          <button class="cd-swatch-btn" data-cd-preset-id="${p.id}" title="${p.label} — click to edit style">
+            <img src="${swatchUrl}" width="22" height="22" alt="${p.label}" />
+          </button>
+          <span class="cd-type-geom" title="${p.geometry_type}">${geomIcon}</span>
+          <span class="cd-type-label">${p.label}</span>
+          <span class="cd-type-count">${count > 0 ? count : '—'}</span>
         </div>`;
     }).join('');
 
-    return this.sectionToggle('collected-data', 'Collected Features', 'click swatch to style') +
-      this.sectionBody('collected-data', `<div class="cd-list">${body}</div>`);
+    // Show untyped features if any exist
+    const untypedCount = countByType.get('(untyped)') ?? 0;
+    const untypedRow = untypedCount > 0 ? `
+      <div class="cd-type-row cd-untyped-row">
+        <span class="cd-type-geom">◈</span>
+        <span class="cd-type-label" style="color:var(--color-text-muted)">(untyped)</span>
+        <span class="cd-type-count">${untypedCount}</span>
+      </div>` : '';
+
+    const hint = totalCount > 0 ? `${totalCount} features` : 'click swatch to style';
+
+    return this.sectionToggle('collected-data', 'Collected Features', hint) +
+      this.sectionBody('collected-data', `<div class="cd-type-list">${rows}${untypedRow}</div>`);
   }
 
   private wireCollectedData(container: HTMLElement): void {
@@ -1030,7 +1050,6 @@ export class BasemapManager {
         </div>`)}
 
         ${this.renderCollectedDataSection()}
-        ${this.renderFeatureLayersSection()}
         ${this.renderOverlayPalette()}
         ${this.renderPDFSection()}
         ${this.renderUserLayersSection()}
@@ -1039,7 +1058,6 @@ export class BasemapManager {
     `;
 
     container.querySelector('#bm-close')?.addEventListener('click', onClose);
-    this.wireFeatureLayers(container);
     this.wireCollectedData(container);
     this.wireContent(container, onClose);
   }

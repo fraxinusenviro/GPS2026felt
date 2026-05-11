@@ -32,6 +32,26 @@ const DASH_OPTIONS: Array<{ value: DashPattern; label: string }> = [
   { value: 'dotted', label: '· · ·' },
 ];
 
+/** Render a slider row with a synced numeric input. */
+function sliderRow(
+  id: string,
+  valId: string,
+  min: number,
+  max: number,
+  step: number,
+  value: number,
+  unit: string,
+  formatVal: (v: number) => string,
+): string {
+  return `
+    <div class="sp-slider-row">
+      <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${value}" />
+      <input type="number" class="sp-num-input" id="${id}-num"
+        min="${min}" max="${max}" step="${step}" value="${value}" />
+      <span class="sp-val" id="${valId}">${formatVal(value)}${unit === '%' ? '' : unit}</span>
+    </div>`;
+}
+
 export class StylePicker {
   private container: HTMLElement | null = null;
 
@@ -67,6 +87,8 @@ export class StylePicker {
     const iconColor   = preset.icon_color   ?? '#ffffff';
     const size        = preset.size         ?? 7;
     const dashPattern = preset.dash_pattern ?? 'solid';
+    const rotation    = preset.rotation     ?? 0;
+    const iconRot     = preset.icon_rotation ?? 0;
 
     return `
       <div class="style-picker-panel">
@@ -105,10 +127,13 @@ export class StylePicker {
           <!-- Size -->
           <div class="sp-section">
             <div class="sp-section-title">Size</div>
-            <div class="sp-row">
-              <input type="range" id="sp-size" min="4" max="20" step="1" value="${size}" />
-              <span class="sp-val" id="sp-size-val">${size}px</span>
-            </div>
+            ${sliderRow('sp-size', 'sp-size-val', 4, 20, 0.5, size, 'px', v => v.toString())}
+          </div>
+
+          <!-- Shape Rotation -->
+          <div class="sp-section">
+            <div class="sp-section-title">Rotation</div>
+            ${sliderRow('sp-rotation', 'sp-rotation-val', 0, 360, 1, rotation, '°', v => `${v}`)}
           </div>
           ` : ''}
 
@@ -122,11 +147,10 @@ export class StylePicker {
                 <span>Color</span>
               </label>
               ${isPoly || preset.geometry_type === 'all' ? `
-              <label class="sp-slider-label">
-                Opacity
-                <input type="range" id="sp-fill-opacity" min="0" max="1" step="0.05" value="${fillOpacity}" />
-                <span class="sp-val" id="sp-fill-opacity-val">${Math.round(fillOpacity * 100)}%</span>
-              </label>` : ''}
+              <div class="sp-slider-group">
+                <span class="sp-slider-label-txt">Opacity</span>
+                ${sliderRow('sp-fill-opacity', 'sp-fill-opacity-val', 0, 1, 0.05, fillOpacity, '%', v => `${Math.round(v * 100)}%`)}
+              </div>` : ''}
             </div>
           </div>
           ` : ''}
@@ -139,11 +163,10 @@ export class StylePicker {
                 <input type="color" id="sp-stroke-color" value="${strokeColor}" />
                 <span>Color</span>
               </label>
-              <label class="sp-slider-label">
-                Width
-                <input type="range" id="sp-stroke-width" min="0" max="8" step="0.5" value="${strokeWidth}" />
-                <span class="sp-val" id="sp-stroke-width-val">${strokeWidth}px</span>
-              </label>
+            </div>
+            <div class="sp-slider-group">
+              <span class="sp-slider-label-txt">Width</span>
+              ${sliderRow('sp-stroke-width', 'sp-stroke-width-val', 0, 8, 0.5, strokeWidth, 'px', v => `${v}`)}
             </div>
           </div>
 
@@ -192,6 +215,10 @@ export class StylePicker {
                 <input type="color" id="sp-icon-color" value="${iconColor}" />
                 <span>Icon Color</span>
               </label>
+            </div>
+            <div class="sp-slider-group" style="margin-top:6px">
+              <span class="sp-slider-label-txt">Icon Rotation</span>
+              ${sliderRow('sp-icon-rotation', 'sp-icon-rotation-val', 0, 360, 1, iconRot, '°', v => `${v}`)}
             </div>
           </div>
           ` : ''}
@@ -251,19 +278,40 @@ export class StylePicker {
       });
     });
 
-    // Sliders + color inputs → live preview
-    ['sp-size', 'sp-fill-opacity', 'sp-stroke-width'].forEach(id => {
-      const el = overlay.querySelector<HTMLInputElement>(`#${id}`);
-      if (!el) return;
-      const valEl = overlay.querySelector<HTMLElement>(`#${id}-val`);
-      el.addEventListener('input', () => {
-        if (valEl) {
-          if (id === 'sp-fill-opacity') valEl.textContent = `${Math.round(parseFloat(el.value) * 100)}%`;
-          else valEl.textContent = `${el.value}px`;
-        }
+    // Sync each range ↔ number input pair, update value display, trigger preview
+    const sliderIds = [
+      { range: 'sp-size',         num: 'sp-size-num',         valId: 'sp-size-val',         fmt: (v: number) => `${v}px` },
+      { range: 'sp-rotation',     num: 'sp-rotation-num',     valId: 'sp-rotation-val',     fmt: (v: number) => `${v}°` },
+      { range: 'sp-fill-opacity', num: 'sp-fill-opacity-num', valId: 'sp-fill-opacity-val', fmt: (v: number) => `${Math.round(v * 100)}%` },
+      { range: 'sp-stroke-width', num: 'sp-stroke-width-num', valId: 'sp-stroke-width-val', fmt: (v: number) => `${v}px` },
+      { range: 'sp-icon-rotation',num: 'sp-icon-rotation-num',valId: 'sp-icon-rotation-val',fmt: (v: number) => `${v}°` },
+    ];
+
+    for (const { range, num, valId, fmt } of sliderIds) {
+      const rangeEl = overlay.querySelector<HTMLInputElement>(`#${range}`);
+      const numEl   = overlay.querySelector<HTMLInputElement>(`#${num}`);
+      const valEl   = overlay.querySelector<HTMLElement>(`#${valId}`);
+      if (!rangeEl) continue;
+
+      rangeEl.addEventListener('input', () => {
+        const v = parseFloat(rangeEl.value);
+        if (numEl) numEl.value = String(v);
+        if (valEl) valEl.textContent = fmt(v);
         updatePreview();
       });
-    });
+
+      numEl?.addEventListener('input', () => {
+        const v = parseFloat(numEl.value);
+        if (!isNaN(v)) {
+          const clamped = Math.max(parseFloat(rangeEl.min), Math.min(parseFloat(rangeEl.max), v));
+          rangeEl.value = String(clamped);
+          if (valEl) valEl.textContent = fmt(clamped);
+          updatePreview();
+        }
+      });
+    }
+
+    // Color inputs → live preview
     ['sp-fill-color', 'sp-stroke-color', 'sp-icon-color'].forEach(id => {
       overlay.querySelector(`#${id}`)?.addEventListener('input', updatePreview);
     });
@@ -282,12 +330,14 @@ export class StylePicker {
   private collectState(overlay: HTMLElement, original: TypePreset): TypePreset {
     const isPoly = original.geometry_type === 'Polygon';
 
-    const fillColor   = (overlay.querySelector<HTMLInputElement>('#sp-fill-color'))?.value   ?? original.color;
-    const strokeColor = (overlay.querySelector<HTMLInputElement>('#sp-stroke-color'))?.value ?? original.stroke_color ?? '#ffffff';
-    const iconColor   = (overlay.querySelector<HTMLInputElement>('#sp-icon-color'))?.value   ?? original.icon_color   ?? '#ffffff';
-    const strokeWidth = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-stroke-width'))?.value ?? '2');
-    const size        = parseInt((overlay.querySelector<HTMLInputElement>('#sp-size'))?.value ?? '7');
-    const fillOpacity = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-fill-opacity'))?.value ?? (isPoly ? '0.35' : '1'));
+    const fillColor    = (overlay.querySelector<HTMLInputElement>('#sp-fill-color'))?.value    ?? original.color;
+    const strokeColor  = (overlay.querySelector<HTMLInputElement>('#sp-stroke-color'))?.value  ?? original.stroke_color ?? '#ffffff';
+    const iconColor    = (overlay.querySelector<HTMLInputElement>('#sp-icon-color'))?.value    ?? original.icon_color   ?? '#ffffff';
+    const strokeWidth  = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-stroke-width-num') ?? overlay.querySelector<HTMLInputElement>('#sp-stroke-width'))?.value ?? '2');
+    const size         = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-size-num') ?? overlay.querySelector<HTMLInputElement>('#sp-size'))?.value ?? '7');
+    const fillOpacity  = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-fill-opacity-num') ?? overlay.querySelector<HTMLInputElement>('#sp-fill-opacity'))?.value ?? (isPoly ? '0.35' : '1'));
+    const rotation     = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-rotation-num') ?? overlay.querySelector<HTMLInputElement>('#sp-rotation'))?.value ?? '0');
+    const iconRotation = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-icon-rotation-num') ?? overlay.querySelector<HTMLInputElement>('#sp-icon-rotation'))?.value ?? '0');
 
     const activeShape = overlay.querySelector<HTMLButtonElement>('.sp-shape-btn.active')?.dataset.shape as PointShape | undefined;
     const activeIcon  = overlay.querySelector<HTMLButtonElement>('.sp-icon-btn.active')?.dataset.icon ?? '';
@@ -295,15 +345,17 @@ export class StylePicker {
 
     return {
       ...original,
-      color:        fillColor,
-      fill_opacity: fillOpacity,
-      stroke_color: strokeColor,
-      stroke_width: strokeWidth,
-      shape:        activeShape ?? original.shape,
-      icon:         activeIcon || undefined,
-      icon_color:   iconColor,
-      size:         isNaN(size) ? original.size : size,
-      dash_pattern: activeDash ?? original.dash_pattern,
+      color:         fillColor,
+      fill_opacity:  isNaN(fillOpacity) ? original.fill_opacity : fillOpacity,
+      stroke_color:  strokeColor,
+      stroke_width:  isNaN(strokeWidth) ? original.stroke_width : strokeWidth,
+      shape:         activeShape ?? original.shape,
+      icon:          activeIcon || undefined,
+      icon_color:    iconColor,
+      size:          isNaN(size) ? original.size : size,
+      dash_pattern:  activeDash ?? original.dash_pattern,
+      rotation:      isNaN(rotation) ? original.rotation : rotation,
+      icon_rotation: isNaN(iconRotation) ? original.icon_rotation : iconRotation,
     };
   }
 }

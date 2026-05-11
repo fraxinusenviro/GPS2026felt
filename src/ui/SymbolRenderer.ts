@@ -85,23 +85,34 @@ function renderPresetCanvas(preset: TypePreset): HTMLCanvasElement {
   const strokeColor = preset.stroke_color ?? '#ffffff';
   const strokeWidth = Math.max(1, preset.stroke_width ?? 2);
   const shape = preset.shape ?? 'circle';
+  const shapeRad = ((preset.rotation ?? 0) * Math.PI) / 180;
 
-  // Background shape
+  // Background shape (with optional rotation)
+  ctx.save();
+  if (shapeRad !== 0) {
+    ctx.translate(cx, cy);
+    ctx.rotate(shapeRad);
+    ctx.translate(-cx, -cy);
+  }
   drawShape(ctx, shape, cx, cy, r);
   ctx.fillStyle = hexToRgba(preset.color, fillOpacity);
   ctx.fill();
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth = strokeWidth;
   ctx.stroke();
+  ctx.restore();
 
-  // Icon overlay
+  // Icon overlay (with optional rotation)
   if (preset.icon && ICON_PATHS[preset.icon]) {
     const iconColor = preset.icon_color ?? '#ffffff';
     const iconSize = r * 1.3;
     const offset = cx - iconSize / 2;
+    const iconRad = ((preset.icon_rotation ?? 0) * Math.PI) / 180;
 
     ctx.save();
-    ctx.translate(offset, offset);
+    ctx.translate(cx, cy);
+    if (iconRad !== 0) ctx.rotate(iconRad);
+    ctx.translate(-iconSize / 2, -iconSize / 2);
     const scale = iconSize / 24;
     ctx.scale(scale, scale);
     ctx.strokeStyle = iconColor;
@@ -112,6 +123,7 @@ function renderPresetCanvas(preset: TypePreset): HTMLCanvasElement {
     const path = new Path2D(ICON_PATHS[preset.icon]);
     ctx.stroke(path);
     ctx.restore();
+    void offset; // suppress unused warning
   }
 
   return canvas;

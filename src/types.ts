@@ -79,6 +79,8 @@ export interface TypePreset {
   icon_color?: string;        // hex, default '#ffffff'
   size?: number;              // circle radius / symbol half-size in px (default 7)
   dash_pattern?: DashPattern; // line dash style, default 'solid'
+  rotation?: number;          // shape rotation degrees 0-360, default 0
+  icon_rotation?: number;     // icon overlay rotation degrees 0-360, default 0
   is_quick_entry: boolean;
 }
 

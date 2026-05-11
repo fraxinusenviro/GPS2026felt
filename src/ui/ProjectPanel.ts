@@ -4,27 +4,35 @@ import { StorageManager } from '../storage/StorageManager';
 type OnLoadProject = (id: string) => Promise<void>;
 type OnCreateProject = (name: string, description: string) => Promise<void>;
 type OnDeleteProject = (id: string) => Promise<void>;
+type OnRenameProject = (id: string, name: string) => Promise<void>;
 
 export class ProjectPanel {
   private panel: HTMLElement;
   private isOpen = false;
   private activeTab: 'library' | 'new' = 'library';
   private activeProjectId = 'default';
+  private renamingId: string | null = null;
 
   private onLoad: OnLoadProject;
   private onCreate: OnCreateProject;
   private onDelete: OnDeleteProject;
+  private onRename: OnRenameProject;
   private storage = StorageManager.getInstance();
 
   constructor(
     onLoad: OnLoadProject,
     onCreate: OnCreateProject,
     onDelete: OnDeleteProject,
+    onRename?: OnRenameProject,
   ) {
     this.panel = document.getElementById('project-panel')!;
     this.onLoad = onLoad;
     this.onCreate = onCreate;
     this.onDelete = onDelete;
+    this.onRename = onRename ?? (async (id, name) => {
+      const proj = await this.storage.getProject(id);
+      if (proj) { proj.name = name; proj.updated_at = new Date().toISOString(); await this.storage.saveProject(proj); }
+    });
   }
 
   setActiveProjectId(id: string): void {
@@ -45,6 +53,7 @@ export class ProjectPanel {
 
   close(): void {
     this.isOpen = false;
+    this.renamingId = null;
     this.panel.classList.remove('open');
     setTimeout(() => { if (!this.isOpen) this.panel.style.display = 'none'; }, 300);
   }
@@ -56,7 +65,6 @@ export class ProjectPanel {
   private async render(): Promise<void> {
     const projects = await this.storage.getAllProjects();
 
-    // Attach feature counts
     const counts = await Promise.all(
       projects.map(p => this.storage.getProjectFeatureCount(p.id))
     );
@@ -99,15 +107,28 @@ export class ProjectPanel {
     if (projects.length === 0) {
       return '<p class="proj-empty">No projects yet. Create one to get started.</p>';
     }
+
+    const pencilSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+
     return `<div class="proj-list">
       ${projects.map((p, i) => {
         const isActive = p.id === this.activeProjectId;
+        const isRenaming = p.id === this.renamingId;
         const date = new Date(p.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
         return `
           <div class="proj-item${isActive ? ' proj-active' : ''}" data-proj-id="${p.id}">
             <div class="proj-item-header">
-              <span class="proj-name">${escHtml(p.name)}</span>
+              ${isRenaming
+                ? `<input type="text" class="proj-rename-input" id="proj-rename-${p.id}"
+                    value="${escHtml(p.name)}" maxlength="60" style="flex:1;padding:2px 6px;font-size:14px;font-weight:600;background:var(--bg-3,#243a24);border:1px solid var(--color-accent);border-radius:4px;color:var(--color-text);min-width:0" />`
+                : `<span class="proj-name">${escHtml(p.name)}</span>`
+              }
               ${isActive ? '<span class="proj-badge">Active</span>' : ''}
+              ${isRenaming
+                ? `<button class="btn btn-sm btn-primary proj-rename-save-btn" data-save-rename="${p.id}" style="padding:2px 8px;font-size:12px">Save</button>
+                   <button class="btn btn-sm btn-secondary proj-rename-cancel-btn" data-cancel-rename="${p.id}" style="padding:2px 8px;font-size:12px">✕</button>`
+                : `<button class="btn-icon proj-rename-btn" data-rename="${p.id}" title="Rename project" style="opacity:0.5;padding:2px">${pencilSvg}</button>`
+              }
             </div>
             <div class="proj-meta">${date} · ${counts[i]} feature${counts[i] !== 1 ? 's' : ''}</div>
             ${p.description ? `<div class="proj-desc">${escHtml(p.description)}</div>` : ''}
@@ -143,6 +164,7 @@ export class ProjectPanel {
   }
 
   private wireLibrary(): void {
+    // Activate
     this.panel.querySelectorAll<HTMLButtonElement>('[data-activate]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.activate!;
@@ -153,6 +175,7 @@ export class ProjectPanel {
       });
     });
 
+    // Delete
     this.panel.querySelectorAll<HTMLButtonElement>('[data-delete]').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.delete!;
@@ -162,6 +185,55 @@ export class ProjectPanel {
         btn.disabled = true;
         await this.onDelete(id);
         void this.render();
+      });
+    });
+
+    // Rename — enter edit mode
+    this.panel.querySelectorAll<HTMLButtonElement>('[data-rename]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.renamingId = btn.dataset.rename!;
+        void this.render();
+        // Focus the input after render
+        requestAnimationFrame(() => {
+          const input = this.panel.querySelector<HTMLInputElement>(`#proj-rename-${this.renamingId}`);
+          input?.focus();
+          input?.select();
+        });
+      });
+    });
+
+    // Rename — save
+    this.panel.querySelectorAll<HTMLButtonElement>('[data-save-rename]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.saveRename!;
+        const input = this.panel.querySelector<HTMLInputElement>(`#proj-rename-${id}`);
+        const name = input?.value.trim() ?? '';
+        if (!name) { input?.focus(); return; }
+        btn.disabled = true;
+        await this.onRename(id, name);
+        this.renamingId = null;
+        void this.render();
+      });
+    });
+
+    // Rename — cancel
+    this.panel.querySelectorAll<HTMLButtonElement>('[data-cancel-rename]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.renamingId = null;
+        void this.render();
+      });
+    });
+
+    // Allow Enter key in rename input to save
+    this.panel.querySelectorAll<HTMLInputElement>('.proj-rename-input').forEach(input => {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const id = input.id.replace('proj-rename-', '');
+          this.panel.querySelector<HTMLButtonElement>(`[data-save-rename="${id}"]`)?.click();
+        } else if (e.key === 'Escape') {
+          this.renamingId = null;
+          void this.render();
+        }
       });
     });
   }
