@@ -27,6 +27,13 @@ export class CaptureManager {
 
   getCurrentTool(): ToolMode { return this.currentTool; }
 
+  /** Returns the canonical layer ID for a geometry type in the active project. */
+  private geomLayerId(geomType: GeometryType): string {
+    const projectId = this.settings?.active_project_id ?? 'default';
+    const suffix = geomType === 'Point' ? 'points' : geomType === 'LineString' ? 'lines' : 'polygons';
+    return `${projectId}-${suffix}`;
+  }
+
   setTool(tool: ToolMode): void {
     // Cancel any active session/sketch when switching to a DIFFERENT tool
     if (tool !== this.currentTool) {
@@ -234,7 +241,7 @@ export class CaptureManager {
       lon,
       elevation: this.gpsState.elevation,
       accuracy: this.gpsState.accuracy,
-      layer_id: this.settings?.default_layer_id ?? 'default',
+      layer_id: this.geomLayerId('Point'),
       project_id: this.settings?.active_project_id ?? 'default',
       notes: '',
       photos: []
@@ -322,7 +329,7 @@ export class CaptureManager {
       lon: centerCoord[0],
       elevation: this.gpsState.elevation,
       accuracy: this.gpsState.accuracy,
-      layer_id: this.settings?.default_layer_id ?? 'default',
+      layer_id: this.geomLayerId(this.session!.geometry_type),
       project_id: this.settings?.active_project_id ?? 'default',
       notes: '',
       photos: []
@@ -493,7 +500,7 @@ export class CaptureManager {
       lon: geomType === 'Point' ? vertices[0][0] : null,
       elevation: null,
       accuracy: null,
-      layer_id: this.settings?.default_layer_id ?? 'default',
+      layer_id: this.geomLayerId(geomType),
       project_id: this.settings?.active_project_id ?? 'default',
       notes: '',
       photos: []
@@ -532,7 +539,7 @@ export class CaptureManager {
       lon: this.gpsState.lon,
       elevation: this.gpsState.elevation,
       accuracy: this.gpsState.accuracy,
-      layer_id: this.settings?.default_layer_id ?? 'default',
+      layer_id: this.geomLayerId('Point'),
       project_id: this.settings?.active_project_id ?? 'default',
       notes: '',
       photos: []
