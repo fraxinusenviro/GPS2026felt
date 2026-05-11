@@ -59,7 +59,6 @@ export class App {
   private projectLayerPresets: LayerPreset[] = [];
   private wakeLock: WakeLockSentinel | null = null;
   private followUser = false;
-  private terrainEnabled = false;
 
   async init(): Promise<void> {
     await this.storage.init();
@@ -140,10 +139,13 @@ export class App {
 
     this.gridOverlay.setVisible(this.settings.grid_visible);
 
-    // North arrow: rotate opposite to map bearing
+    // North arrow: rotate SVG opposite to map bearing; tap to reset north
     this.mapManager.onRotate(() => {
-      const arrow = document.getElementById('north-arrow');
-      if (arrow) arrow.style.transform = `rotate(${-this.mapManager.getBearing()}deg)`;
+      const svg = document.getElementById('north-arrow-svg');
+      if (svg) svg.style.transform = `rotate(${-this.mapManager.getBearing()}deg)`;
+    });
+    document.getElementById('north-arrow')?.addEventListener('click', () => {
+      this.mapManager.resetNorthPitch();
     });
 
     // Permalink: restore view from URL hash on startup
@@ -400,10 +402,6 @@ export class App {
     const identifyBtn = document.getElementById('btn-identify') as HTMLButtonElement | null;
     if (identifyBtn) this.basemapManager.setupIdentify(identifyBtn);
 
-    // Zoom controls
-    document.getElementById('btn-zoom-in')?.addEventListener('click', () => this.mapManager.zoomIn());
-    document.getElementById('btn-zoom-out')?.addEventListener('click', () => this.mapManager.zoomOut());
-
     // Location buttons
     document.getElementById('btn-locate')?.addEventListener('click', () => {
       const gps = this.captureManager.getGPSState();
@@ -597,17 +595,6 @@ export class App {
 
     document.getElementById('btn-console')?.addEventListener('click', () => {
       this.logConsole.toggle();
-    });
-
-    document.getElementById('btn-terrain')?.addEventListener('click', () => {
-      this.terrainEnabled = !this.terrainEnabled;
-      this.mapManager.setTerrain(this.terrainEnabled);
-      this.updateButtonState('btn-terrain', this.terrainEnabled);
-      EventBus.emit('toast', {
-        message: this.terrainEnabled ? '3D terrain enabled' : '3D terrain disabled',
-        type: 'info',
-        duration: 1500,
-      });
     });
 
     document.getElementById('btn-goto')?.addEventListener('click', () => {

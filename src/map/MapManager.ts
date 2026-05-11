@@ -486,7 +486,7 @@ export class MapManager {
       source: 'collected-points',
       filter: ['!', ['get', 'has_icon']],
       layout: {
-        'text-field': ['get', 'type'],
+        'text-field': ['get', 'label_text'],
         'text-size': 11,
         'text-offset': [0, 1.5],
         'text-anchor': 'top',
@@ -665,6 +665,8 @@ export class MapManager {
       if (lp && !lp.visible) continue;
 
       const tp = typeMap.get(f.type);
+      // Skip features whose TypePreset is marked invisible
+      if (tp && tp.visible === false) continue;
 
       // TypePreset color takes priority over LayerPreset color
       const color       = tp?.color        ?? lp?.color  ?? this.getFeatureColor(f.type);
@@ -679,6 +681,9 @@ export class MapManager {
       // use_symbol: true when shape is non-circle OR has icon (triggers symbol layer)
       const useSymbol = (shape !== 'circle') || (icon !== '');
 
+      // label_text: empty when show_labels explicitly false
+      const labelText = (!tp || tp.show_labels !== false) ? (f.type || '') : '';
+
       const geoFeature = {
         type: 'Feature',
         id: f.id,
@@ -688,6 +693,7 @@ export class MapManager {
           point_id: f.point_id,
           type: f.type,
           desc: f.desc,
+          label_text: labelText,
           color,
           stroke_color: strokeColor,
           stroke_width: strokeWidth,
@@ -825,24 +831,12 @@ export class MapManager {
     return this.map.getBearing();
   }
 
-  getCanvas(): HTMLCanvasElement {
-    return this.map.getCanvas();
+  resetNorthPitch(): void {
+    this.map.easeTo({ bearing: 0, pitch: 0, duration: 400 });
   }
 
-  setTerrain(enabled: boolean): void {
-    if (enabled) {
-      if (!this.map.getSource('terrain-dem')) {
-        this.map.addSource('terrain-dem', {
-          type: 'raster-dem',
-          url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
-          tileSize: 256,
-          encoding: 'terrarium'
-        } as Parameters<typeof this.map.addSource>[1]);
-      }
-      this.map.setTerrain({ source: 'terrain-dem', exaggeration: 1.5 });
-    } else {
-      this.map.setTerrain(null as unknown as Parameters<typeof this.map.setTerrain>[0]);
-    }
+  getCanvas(): HTMLCanvasElement {
+    return this.map.getCanvas();
   }
 
   onRotate(callback: () => void): () => void {

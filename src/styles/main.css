@@ -708,7 +708,7 @@ html, body {
    ============================================================ */
 #capture-controls {
   position: absolute;
-  bottom: 60px;
+  top: 8px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -1485,6 +1485,73 @@ label textarea {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--color-border);
+}
+
+/* Icon-button row in FeatureEditor */
+.fe-icon-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+  justify-content: stretch;
+}
+
+.fe-icon-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 2px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text-dim);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.fe-icon-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.fe-icon-btn:hover {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  border-color: var(--color-border-hover);
+}
+
+.fe-icon-primary {
+  background: var(--color-accent-dark);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.fe-icon-primary:hover {
+  background: var(--color-accent);
+  color: #000;
+}
+
+.fe-icon-danger {
+  color: var(--color-danger);
+  border-color: rgba(248,113,113,0.3);
+}
+
+.fe-icon-danger:hover {
+  background: var(--color-danger-dim);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
 /* Photos */
@@ -3486,25 +3553,21 @@ input[type=color] {
 }
 
 /* ============================================================
-   North Arrow
+   North Arrow (button in right-controls)
    ============================================================ */
-#north-arrow {
-  position: absolute;
-  bottom: 70px;
-  left: 62px;
-  z-index: 50;
-  width: 36px;
-  height: 36px;
-  background: rgba(20, 40, 28, 0.85);
-  border: 1px solid rgba(74, 222, 128, 0.25);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: default;
+.north-arrow-btn {
+  position: relative;
+}
+
+.north-arrow-btn:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--color-border-hover);
+}
+
+#north-arrow-svg {
+  display: block;
   transform-origin: center;
   transition: transform 0.1s linear;
-  pointer-events: none;
 }
 
 /* ============================================================
@@ -4327,4 +4390,105 @@ input[type=color] {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+/* ============================================================
+   Header project button
+   ============================================================ */
+.header-project-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.header-project-btn:hover {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  border-color: var(--color-border-hover);
+}
+
+.header-btn-label {
+  font-size: 11px;
+}
+
+/* ============================================================
+   Basemap TOC — library vs active/imported section distinction
+   ============================================================ */
+.bm-section-library {
+  background: rgba(30,48,40,0.6);
+  color: rgba(255,255,255,0.5);
+  border-left: 3px solid rgba(74,222,128,0.18);
+}
+
+.bm-section-library .bm-section-hint {
+  color: rgba(74,222,128,0.3);
+}
+
+.bm-section-library .bm-toggle-chevron {
+  color: rgba(255,255,255,0.35);
+}
+
+.bm-section-toggle.bm-section-library:hover {
+  background: rgba(40,64,52,0.9);
+  color: rgba(255,255,255,0.85);
+  border-left-color: rgba(74,222,128,0.5);
+}
+
+.bm-section-toggle.bm-section-library:hover .bm-section-hint {
+  color: rgba(74,222,128,0.55);
+}
+
+.bm-section-toggle.bm-section-library:hover .bm-toggle-chevron {
+  color: rgba(255,255,255,0.6);
+}
+
+/* ============================================================
+   Collected Data — visibility and label toggles
+   ============================================================ */
+.cd-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  opacity: 0.5;
+}
+
+.cd-toggle-btn:hover {
+  opacity: 1;
+  color: var(--color-accent);
+  border-color: var(--color-border-hover);
+}
+
+.cd-toggle-btn.active {
+  opacity: 1;
+  color: var(--color-accent);
+}
+
+.cd-label-btn {
+  color: var(--color-text-muted);
+}
+
+.cd-type-hidden .cd-type-label,
+.cd-type-hidden .cd-type-geom,
+.cd-type-hidden .cd-type-count {
+  opacity: 0.35;
 }
