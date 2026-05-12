@@ -1952,9 +1952,9 @@ label textarea {
 @media (max-width: 360px) {
   .tool-btn, .map-ctrl-btn { width: 36px; height: 36px; }
   .tool-btn svg, .map-ctrl-btn svg { width: 20px; height: 20px; }
-  .north-arrow-btn { width: 64px; height: 64px; }
-  #north-arrow-svg { width: 60px !important; height: 60px !important; }
   .icon-btn { width: 36px; height: 36px; }
+  .north-arrow-btn { width: 76px; height: 76px; bottom: 90px; }
+  #north-arrow-svg { width: 66px !important; height: 66px !important; }
   #left-toolbar { padding: 4px 2px; }
 }
 
@@ -3575,17 +3575,30 @@ input[type=color] {
 }
 
 /* ============================================================
-   North Arrow (button in right-controls)
+   North Arrow — floating overlay on the map canvas
    ============================================================ */
 .north-arrow-btn {
-  position: relative;
-  width: 80px;
-  height: 80px;
+  position: absolute;
+  bottom: 110px;
+  left: 80px;
+  z-index: 150;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  border: 1px solid rgba(74, 222, 128, 0.25);
+  background: rgba(15, 30, 20, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .north-arrow-btn:hover {
-  background: var(--color-accent-dim);
-  border-color: var(--color-border-hover);
+  background: rgba(15, 30, 20, 0.9);
+  border-color: rgba(74, 222, 128, 0.5);
 }
 
 #north-arrow-svg {
