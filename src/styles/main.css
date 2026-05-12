@@ -272,8 +272,8 @@ html, body {
 }
 
 .tool-btn {
-  width: 44px;
-  height: 44px;
+  width: 60px;
+  height: 60px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
@@ -287,8 +287,8 @@ html, body {
 }
 
 .tool-btn svg {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
 }
 
 .tool-btn:hover {
@@ -505,8 +505,8 @@ html, body {
 }
 
 .map-ctrl-btn {
-  width: 44px;
-  height: 44px;
+  width: 60px;
+  height: 60px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
@@ -519,8 +519,8 @@ html, body {
 }
 
 .map-ctrl-btn svg {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
 }
 
 .map-ctrl-btn:hover {
@@ -1206,8 +1206,8 @@ label textarea {
 }
 
 .icon-btn {
-  width: 40px;
-  height: 40px;
+  width: 54px;
+  height: 54px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
@@ -1220,8 +1220,8 @@ label textarea {
 }
 
 .icon-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
 }
 
 .icon-btn:hover {
@@ -1950,8 +1950,12 @@ label textarea {
 }
 
 @media (max-width: 360px) {
-  .tool-btn, .map-ctrl-btn { width: 40px; height: 40px; }
-  .tool-btn svg, .map-ctrl-btn svg { width: 16px; height: 16px; }
+  .tool-btn, .map-ctrl-btn { width: 48px; height: 48px; }
+  .tool-btn svg, .map-ctrl-btn svg { width: 18px; height: 18px; }
+  .north-arrow-btn { width: 60px; height: 60px; }
+  #north-arrow-svg { width: 50px !important; height: 50px !important; }
+  .icon-btn { width: 44px; height: 44px; }
+  .icon-btn svg { width: 18px; height: 18px; }
   #left-toolbar { padding: 4px 2px; }
 }
 
@@ -2255,14 +2259,16 @@ input[type=color] {
 
 .bm-drag-handle {
   color: var(--color-text-muted);
-  font-size: 16px;
+  font-size: 20px;
   cursor: grab;
   flex-shrink: 0;
-  padding: 6px 4px;
-  margin: -6px -4px -6px -2px;
+  padding: 8px 6px;
+  margin: -8px -4px -8px -2px;
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
+  display: flex;
+  align-items: center;
 }
 .bm-drag-handle:active { cursor: grabbing; }
 .bm-layer-icon {
@@ -3574,6 +3580,8 @@ input[type=color] {
    ============================================================ */
 .north-arrow-btn {
   position: relative;
+  width: 76px;
+  height: 76px;
 }
 
 .north-arrow-btn:hover {
@@ -3970,6 +3978,13 @@ input[type=color] {
   line-height: 1;
 }
 .sp-close:hover { color: var(--color-text); }
+
+.sp-preview-sticky {
+  padding: 10px 16px 8px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface, #1a2e1e);
+  flex-shrink: 0;
+}
 
 .sp-body {
   overflow-y: auto;

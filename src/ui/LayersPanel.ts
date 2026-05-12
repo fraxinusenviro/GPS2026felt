@@ -5,7 +5,7 @@ import type { ImportManager } from '../io/ImportManager';
 import type { ExportManager } from '../io/ExportManager';
 import { FeltExportDialog } from './FeltExportDialog';
 import { StylePicker } from './StylePicker';
-import { renderSwatchDataUrl } from './SymbolRenderer';
+import { renderSwatchDataUrl, renderLineSwatchDataUrl, renderPolygonSwatchDataUrl } from './SymbolRenderer';
 import type { PresetManager } from './PresetManager';
 
 type MapBounds = { west: number; south: number; east: number; north: number };
@@ -412,6 +412,10 @@ export class LayersPanel {
             p.geometry_type === geom || p.geometry_type === 'all'
           );
           const visible = this.geomVisible[geom];
+          const swatchFor = (p: TypePreset) =>
+            geom === 'LineString' ? renderLineSwatchDataUrl(p, 20)
+            : geom === 'Polygon'  ? renderPolygonSwatchDataUrl(p, 20)
+            : renderSwatchDataUrl(p, 20);
           return `
           <div class="collected-layer-row" data-geom="${geom}">
             <button class="layer-vis-btn collected-vis-btn ${visible ? 'active' : ''}" data-geom="${geom}" title="Toggle ${label}">
@@ -425,7 +429,7 @@ export class LayersPanel {
             <div class="collected-presets">
               ${visiblePresets.map(p => `
                 <button class="collected-preset-swatch" data-preset-id="${p.id}" title="${p.label} — click to edit style">
-                  <img src="${renderSwatchDataUrl(p, 20)}" width="20" height="20" alt="${p.label}" />
+                  <img src="${swatchFor(p)}" width="20" height="20" alt="${p.label}" />
                 </button>
               `).join('')}
             </div>
