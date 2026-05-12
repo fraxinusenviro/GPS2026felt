@@ -1908,6 +1908,10 @@ label textarea {
   font-size: 10px !important;
 }
 
+.maplibregl-ctrl-bottom-left {
+  left: 90px !important;
+}
+
 /* ============================================================
    Accuracy display
    ============================================================ */
@@ -1953,8 +1957,8 @@ label textarea {
   .tool-btn, .map-ctrl-btn { width: 36px; height: 36px; }
   .tool-btn svg, .map-ctrl-btn svg { width: 20px; height: 20px; }
   .icon-btn { width: 36px; height: 36px; }
-  .north-arrow-btn { width: 76px; height: 76px; bottom: 90px; }
-  #north-arrow-svg { width: 66px !important; height: 66px !important; }
+  .north-arrow-btn { width: 64px; height: 64px; right: 140px; bottom: 16px; }
+  #north-arrow-svg { width: 58px !important; height: 58px !important; }
   #left-toolbar { padding: 4px 2px; }
 }
 
@@ -3579,26 +3583,23 @@ input[type=color] {
    ============================================================ */
 .north-arrow-btn {
   position: absolute;
-  bottom: 110px;
-  left: 80px;
+  bottom: 20px;
+  right: 170px;
   z-index: 150;
-  width: 92px;
-  height: 92px;
-  border-radius: 50%;
-  border: 1px solid rgba(74, 222, 128, 0.25);
-  background: rgba(15, 30, 20, 0.72);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  width: 83px;
+  height: 83px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, border-color 0.15s;
+  transition: opacity 0.15s;
 }
 
 .north-arrow-btn:hover {
-  background: rgba(15, 30, 20, 0.9);
-  border-color: rgba(74, 222, 128, 0.5);
+  opacity: 0.85;
 }
 
 #north-arrow-svg {
