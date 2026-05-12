@@ -77,6 +77,7 @@ export interface TypePreset {
   shape?: PointShape;         // point shape, default 'circle'
   icon?: string;              // icon key from AVAILABLE_ICONS (e.g. 'tree')
   icon_color?: string;        // hex, default '#ffffff'
+  icon_size?: number;         // icon scale multiplier relative to symbol (default 1.0 = 100%)
   size?: number;              // circle radius / symbol half-size in px (default 7)
   dash_pattern?: DashPattern; // line dash style, default 'solid'
   rotation?: number;          // shape rotation degrees 0-360, default 0

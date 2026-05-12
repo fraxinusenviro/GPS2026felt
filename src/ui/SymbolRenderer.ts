@@ -143,7 +143,7 @@ function renderPresetCanvas(preset: TypePreset): HTMLCanvasElement {
   // Icon overlay (with optional rotation)
   if (preset.icon && ICON_PATHS[preset.icon]) {
     const iconColor = preset.icon_color ?? '#ffffff';
-    const iconSize = r * 1.3;
+    const iconSize = r * 1.3 * (preset.icon_size ?? 1.0);
     const offset = cx - iconSize / 2;
     const iconRad = ((preset.icon_rotation ?? 0) * Math.PI) / 180;
 

@@ -85,6 +85,7 @@ export class StylePicker {
     const strokeColor = preset.stroke_color ?? (isPoint ? '#ffffff' : preset.color);
     const strokeWidth = preset.stroke_width ?? 2;
     const iconColor   = preset.icon_color   ?? '#ffffff';
+    const iconScale   = preset.icon_size    ?? 1.0;
     const size        = preset.size         ?? 7;
     const dashPattern = preset.dash_pattern ?? 'solid';
     const rotation    = preset.rotation     ?? 0;
@@ -228,6 +229,10 @@ export class StylePicker {
               </label>
             </div>
             <div class="sp-slider-group" style="margin-top:6px">
+              <span class="sp-slider-label-txt">Icon Size</span>
+              ${sliderRow('sp-icon-size', 'sp-icon-size-val', 0.5, 2.0, 0.05, iconScale, '%', v => `${Math.round(v * 100)}%`)}
+            </div>
+            <div class="sp-slider-group" style="margin-top:6px">
               <span class="sp-slider-label-txt">Icon Rotation</span>
               ${sliderRow('sp-icon-rotation', 'sp-icon-rotation-val', 0, 360, 1, iconRot, '°', v => `${v}`)}
             </div>
@@ -310,6 +315,7 @@ export class StylePicker {
       { range: 'sp-rotation',     num: 'sp-rotation-num',     valId: 'sp-rotation-val',     fmt: (v: number) => `${v}°` },
       { range: 'sp-fill-opacity', num: 'sp-fill-opacity-num', valId: 'sp-fill-opacity-val', fmt: (v: number) => `${Math.round(v * 100)}%` },
       { range: 'sp-stroke-width', num: 'sp-stroke-width-num', valId: 'sp-stroke-width-val', fmt: (v: number) => `${v}px` },
+      { range: 'sp-icon-size',    num: 'sp-icon-size-num',    valId: 'sp-icon-size-val',    fmt: (v: number) => `${Math.round(v * 100)}%` },
       { range: 'sp-icon-rotation',num: 'sp-icon-rotation-num',valId: 'sp-icon-rotation-val',fmt: (v: number) => `${v}°` },
     ];
 
@@ -364,6 +370,7 @@ export class StylePicker {
     const fillOpacity  = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-fill-opacity-num') ?? overlay.querySelector<HTMLInputElement>('#sp-fill-opacity'))?.value ?? (isPoly ? '0.35' : '1'));
     const rotation     = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-rotation-num') ?? overlay.querySelector<HTMLInputElement>('#sp-rotation'))?.value ?? '0');
     const iconRotation = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-icon-rotation-num') ?? overlay.querySelector<HTMLInputElement>('#sp-icon-rotation'))?.value ?? '0');
+    const iconSize     = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-icon-size-num') ?? overlay.querySelector<HTMLInputElement>('#sp-icon-size'))?.value ?? '1');
 
     const activeShape = overlay.querySelector<HTMLButtonElement>('.sp-shape-btn.active')?.dataset.shape as PointShape | undefined;
     const activeIcon  = overlay.querySelector<HTMLButtonElement>('.sp-icon-btn.active')?.dataset.icon ?? '';
@@ -378,6 +385,7 @@ export class StylePicker {
       shape:         activeShape ?? original.shape,
       icon:          activeIcon || undefined,
       icon_color:    iconColor,
+      icon_size:     isNaN(iconSize) ? original.icon_size : iconSize,
       size:          isNaN(size) ? original.size : size,
       dash_pattern:  activeDash ?? original.dash_pattern,
       rotation:      isNaN(rotation) ? original.rotation : rotation,
