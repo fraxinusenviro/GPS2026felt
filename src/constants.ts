@@ -216,6 +216,36 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
       fillColor: '#3a7a4a',
     }
   },
+  // ---- NS Topographic ----
+  {
+    id: 'ns-base-contours',
+    label: 'NS Contour Lines (10k)',
+    type: 'nshn-vector',
+    group: 'Nova Scotia',
+    url: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/BASE/BASE_NSTDB_10k_Landforms_WM84/MapServer/2/query',
+    attribution: 'Nova Scotia Topographic Database (NSTDB) 1:10,000',
+    vector_config: {
+      endpoint: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/BASE/BASE_NSTDB_10k_Landforms_WM84/MapServer/2/query',
+      geomType: 'line',
+      outFields: 'OBJECTID,FEAT_CODE,FEAT_DESC,ZVALUE',
+      // chars 2-4 of FEAT_CODE: 'CI'/'DI' = index contour (bold), all others = regular (thin)
+      lineColor: ['match', ['slice', ['get', 'FEAT_CODE'], 2, 4],
+        'CI', '#e8c890',
+        'DI', '#e8c890',
+        '#c4a870',
+      ],
+      lineWidth: ['match', ['slice', ['get', 'FEAT_CODE'], 2, 4],
+        'CI', 1.5,
+        'DI', 1.5,
+        0.75,
+      ],
+      fieldLabels: {
+        FEAT_CODE: 'Feature Code',
+        FEAT_DESC: 'Contour Type',
+        ZVALUE: 'Elevation (m)',
+      },
+    },
+  },
   // ---- NS Bio / Habitat ----
   {
     id: 'ns-bio-habitat',
