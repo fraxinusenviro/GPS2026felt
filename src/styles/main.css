@@ -272,8 +272,8 @@ html, body {
 }
 
 .tool-btn {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
@@ -505,8 +505,8 @@ html, body {
 }
 
 .map-ctrl-btn {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
@@ -1206,8 +1206,8 @@ label textarea {
 }
 
 .icon-btn {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
@@ -1950,7 +1950,7 @@ label textarea {
 }
 
 @media (max-width: 360px) {
-  .tool-btn, .map-ctrl-btn { width: 36px; height: 36px; }
+  .tool-btn, .map-ctrl-btn { width: 40px; height: 40px; }
   .tool-btn svg, .map-ctrl-btn svg { width: 16px; height: 16px; }
   #left-toolbar { padding: 4px 2px; }
 }
