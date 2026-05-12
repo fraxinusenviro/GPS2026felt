@@ -1078,6 +1078,7 @@ export class BasemapManager {
         </div>`)}
 
         ${this.renderCollectedDataSection()}
+        ${this.renderUserLayersSection()}
 
         ${this.sectionToggle('basemaps', 'Standard Basemaps', 'click + to add', true)}
         ${this.sectionBody('basemaps', `<div class="bm-palette">
@@ -1093,7 +1094,6 @@ export class BasemapManager {
 
         ${this.renderOverlayPalette()}
         ${this.renderPDFSection()}
-        ${this.renderUserLayersSection()}
 
       </div>
     `;
