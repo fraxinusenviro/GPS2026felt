@@ -1,5 +1,5 @@
 import type { TypePreset, PointShape, DashPattern } from '../types';
-import { ICON_CATEGORIES, ICON_PATHS, renderSwatchDataUrl } from './SymbolRenderer';
+import { ICON_CATEGORIES, ICON_PATHS, renderSwatchDataUrl, renderLineSwatchDataUrl, renderPolygonSwatchDataUrl } from './SymbolRenderer';
 
 type OnSave = (updated: TypePreset) => void;
 
@@ -101,7 +101,7 @@ export class StylePicker {
           <button class="sp-close" id="sp-close">✕</button>
         </div>
 
-        <div class="sp-body">
+        <div class="sp-preview-sticky">
           <div class="sp-preview-row">
             <div class="sp-preview-col">
               <div class="sp-preview-box">
@@ -116,7 +116,9 @@ export class StylePicker {
               <div class="sp-preview-label">Actual Size</div>
             </div>
           </div>
+        </div>
 
+        <div class="sp-body">
           ${isPoint || preset.geometry_type === 'all' ? `
           <!-- Shape -->
           <div class="sp-section">
@@ -215,7 +217,7 @@ export class StylePicker {
                 <div class="sp-icon-category-label">${cat.label}</div>
                 ${cat.icons.filter(key => ICON_PATHS[key]).map(key => `
                   <button class="sp-icon-btn ${preset.icon === key ? 'active' : ''}" data-icon="${key}" title="${key}">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <svg viewBox="0 0 256 256" width="18" height="18" fill="currentColor">
                       <path d="${ICON_PATHS[key]}"/>
                     </svg>
                   </button>
@@ -259,26 +261,32 @@ export class StylePicker {
     // Live preview updater
     const updatePreview = () => {
       const tmpPreset = this.collectState(overlay, preset);
+      const isLine = tmpPreset.geometry_type === 'LineString';
+      const isPoly = tmpPreset.geometry_type === 'Polygon';
+      const getUrl = (sz: number) =>
+        isLine ? renderLineSwatchDataUrl(tmpPreset, sz)
+        : isPoly ? renderPolygonSwatchDataUrl(tmpPreset, sz)
+        : renderSwatchDataUrl(tmpPreset, sz);
 
       const canvas = overlay.querySelector<HTMLCanvasElement>('#sp-preview-canvas');
       if (canvas) {
         const ctx = canvas.getContext('2d')!;
         ctx.clearRect(0, 0, 64, 64);
         const img = new Image();
-        img.src = renderSwatchDataUrl(tmpPreset, 64);
+        img.src = getUrl(64);
         img.onload = () => ctx.drawImage(img, 0, 0);
       }
 
       const actualCanvas = overlay.querySelector<HTMLCanvasElement>('#sp-actual-canvas');
       if (actualCanvas) {
-        const sz = Math.max(12, Math.round((tmpPreset.size ?? 7) * 4));
+        const sz = (isLine || isPoly) ? 64 : Math.max(12, Math.round((tmpPreset.size ?? 7) * 4));
         actualCanvas.width = actualCanvas.height = sz;
         actualCanvas.style.width = `${sz}px`;
         actualCanvas.style.height = `${sz}px`;
         const ctx2 = actualCanvas.getContext('2d')!;
         ctx2.clearRect(0, 0, sz, sz);
         const img2 = new Image();
-        img2.src = renderSwatchDataUrl(tmpPreset, sz);
+        img2.src = getUrl(sz);
         img2.onload = () => ctx2.drawImage(img2, 0, 0);
       }
     };
