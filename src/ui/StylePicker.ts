@@ -1,5 +1,5 @@
 import type { TypePreset, PointShape, DashPattern } from '../types';
-import { AVAILABLE_ICONS, ICON_PATHS, renderSwatchDataUrl } from './SymbolRenderer';
+import { ICON_CATEGORIES, ICON_PATHS, renderSwatchDataUrl } from './SymbolRenderer';
 
 type OnSave = (updated: TypePreset) => void;
 
@@ -102,10 +102,18 @@ export class StylePicker {
 
         <div class="sp-body">
           <div class="sp-preview-row">
-            <div class="sp-preview-box">
-              <canvas id="sp-preview-canvas" width="64" height="64"></canvas>
+            <div class="sp-preview-col">
+              <div class="sp-preview-box">
+                <canvas id="sp-preview-canvas" width="64" height="64"></canvas>
+              </div>
+              <div class="sp-preview-label">Preview</div>
             </div>
-            <div class="sp-preview-label">Live Preview</div>
+            <div class="sp-preview-col">
+              <div class="sp-actual-size-box">
+                <canvas id="sp-actual-canvas" width="32" height="32"></canvas>
+              </div>
+              <div class="sp-preview-label">Actual Size</div>
+            </div>
           </div>
 
           ${isPoint || preset.geometry_type === 'all' ? `
@@ -202,12 +210,15 @@ export class StylePicker {
               <button class="sp-icon-btn ${!preset.icon ? 'active' : ''}" data-icon="" title="None">
                 <svg viewBox="0 0 24 24" width="18" height="18"><line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" stroke-width="2"/><line x1="20" y1="4" x2="4" y2="20" stroke="currentColor" stroke-width="2"/></svg>
               </button>
-              ${AVAILABLE_ICONS.map(key => `
-                <button class="sp-icon-btn ${preset.icon === key ? 'active' : ''}" data-icon="${key}" title="${key}">
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="${ICON_PATHS[key]}"/>
-                  </svg>
-                </button>
+              ${ICON_CATEGORIES.map(cat => `
+                <div class="sp-icon-category-label">${cat.label}</div>
+                ${cat.icons.filter(key => ICON_PATHS[key]).map(key => `
+                  <button class="sp-icon-btn ${preset.icon === key ? 'active' : ''}" data-icon="${key}" title="${key}">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="${ICON_PATHS[key]}"/>
+                    </svg>
+                  </button>
+                `).join('')}
               `).join('')}
             </div>
             <div class="sp-row" style="margin-top:8px">
@@ -242,14 +253,29 @@ export class StylePicker {
 
     // Live preview updater
     const updatePreview = () => {
-      const canvas = overlay.querySelector<HTMLCanvasElement>('#sp-preview-canvas');
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d')!;
-      ctx.clearRect(0, 0, 64, 64);
       const tmpPreset = this.collectState(overlay, preset);
-      const img = new Image();
-      img.src = renderSwatchDataUrl(tmpPreset, 64);
-      img.onload = () => ctx.drawImage(img, 0, 0);
+
+      const canvas = overlay.querySelector<HTMLCanvasElement>('#sp-preview-canvas');
+      if (canvas) {
+        const ctx = canvas.getContext('2d')!;
+        ctx.clearRect(0, 0, 64, 64);
+        const img = new Image();
+        img.src = renderSwatchDataUrl(tmpPreset, 64);
+        img.onload = () => ctx.drawImage(img, 0, 0);
+      }
+
+      const actualCanvas = overlay.querySelector<HTMLCanvasElement>('#sp-actual-canvas');
+      if (actualCanvas) {
+        const sz = Math.max(12, Math.round((tmpPreset.size ?? 7) * 4));
+        actualCanvas.width = actualCanvas.height = sz;
+        actualCanvas.style.width = `${sz}px`;
+        actualCanvas.style.height = `${sz}px`;
+        const ctx2 = actualCanvas.getContext('2d')!;
+        ctx2.clearRect(0, 0, sz, sz);
+        const img2 = new Image();
+        img2.src = renderSwatchDataUrl(tmpPreset, sz);
+        img2.onload = () => ctx2.drawImage(img2, 0, 0);
+      }
     };
 
     // Shape buttons

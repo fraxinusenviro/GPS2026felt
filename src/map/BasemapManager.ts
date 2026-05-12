@@ -636,8 +636,12 @@ export class BasemapManager {
 
   private sectionToggle(id: string, label: string, hint: string, isLibrary = false): string {
     const open = !this.collapsedSections.has(id);
+    // pencil-ruler for active/collected sections; map+plus for library sections
+    const iconSvg = isLibrary
+      ? `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.65"><path d="M3 7l6-3 6 3 6-3v13l-6 3-6-3-6 3V7z"/><path d="M9 4v13M15 7v13"/><line x1="19" y1="4" x2="19" y2="8"/><line x1="17" y1="6" x2="21" y2="6"/></svg>`
+      : `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:0.8"><path d="M17 3a2.83 2.83 0 014 4L7 21H3v-4L17 3z"/><path d="M15 5l4 4"/><path d="M3 22h6M3 17h3"/></svg>`;
     return `<button class="bm-section-toggle${isLibrary ? ' bm-section-library' : ''}" data-section="${id}" data-open="${open}">
-      ${label} <span class="bm-section-hint">${hint}</span>
+      ${iconSvg}<span class="bm-toggle-label">${label}</span> <span class="bm-section-hint">${hint}</span>
       <span class="bm-toggle-chevron">▾</span>
     </button>`;
   }
@@ -1062,7 +1066,6 @@ export class BasemapManager {
   // ---- Main render ----
 
   private renderContent(container: HTMLElement, onClose: () => void): void {
-    const basemapsOpen = !this.collapsedSections.has('basemaps');
     container.innerHTML = `
       <div class="panel-header">
         <h3>Basemap &amp; Overlays</h3>
@@ -1070,13 +1073,12 @@ export class BasemapManager {
       </div>
       <div class="panel-body bm-panel-body">
 
-        <div class="bm-section-title-static">
-          Active Layers
-          <span class="bm-section-hint">drag to reorder · top = drawn on top</span>
-        </div>
-        <div class="bm-stack" id="bm-stack">
+        ${this.sectionToggle('active-layers', 'Active Layers', 'drag to reorder · top = drawn on top', false)}
+        ${this.sectionBody('active-layers', `<div class="bm-stack" id="bm-stack">
           ${this.stack.map((layer, idx) => this.renderStackItem(layer, idx)).join('')}
-        </div>
+        </div>`)}
+
+        ${this.renderCollectedDataSection()}
 
         ${this.sectionToggle('basemaps', 'Standard Basemaps', 'click + to add', true)}
         ${this.sectionBody('basemaps', `<div class="bm-palette">
@@ -1090,7 +1092,6 @@ export class BasemapManager {
           `).join('')}
         </div>`)}
 
-        ${this.renderCollectedDataSection()}
         ${this.renderOverlayPalette()}
         ${this.renderPDFSection()}
         ${this.renderUserLayersSection()}
