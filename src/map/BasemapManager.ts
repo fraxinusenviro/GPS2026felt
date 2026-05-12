@@ -482,13 +482,22 @@ export class BasemapManager {
 
   private refreshRasterOverlays(): void {
     const overlays = this.stack.slice(0, this.stack.length - 1).reverse();
-    const rasterOverlays = overlays.filter(l => this.getLayerType(l) === 'raster');
-    this.mapManager.rebuildBasemapOverlays(rasterOverlays.map(l => ({
-      instanceId: l.instanceId,
-      url: this.activeCacheLayers.get(l.defId) ?? l.url,
-      opacity: l.opacity, visible: l.visible,
-      hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
-    })));
+    this.mapManager.clearAllRasterOverlays();
+    for (const l of overlays) {
+      const ltype = this.getLayerType(l);
+      if (ltype === 'raster') {
+        this.mapManager.addSingleRasterOverlay({
+          instanceId: l.instanceId,
+          url: this.activeCacheLayers.get(l.defId) ?? l.url,
+          opacity: l.opacity, visible: l.visible,
+          hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
+        });
+      } else if (ltype === 'nsprd-vector') {
+        this.nsprdLayer?.activate(l.instanceId, l.opacity, l.visible);
+      } else if (ltype === 'nshn-vector') {
+        this.nshnLayers.get(l.instanceId)?.activate(l.instanceId, l.opacity, l.visible);
+      }
+    }
   }
 
   // ---- Tile Cache activation ----
@@ -557,51 +566,56 @@ export class BasemapManager {
     this.mapManager.setBasemapPaint('raster-contrast', baseLayer.contrast ?? 0);
     this.mapManager.setBasemapPaint('raster-brightness-max', baseLayer.brightness ?? 1);
 
+    // overlays ordered bottom-to-top (index 0 = lowest in UI stack, last = highest)
     const overlays = this.stack.slice(0, this.stack.length - 1).reverse();
-    const rasterOverlays = overlays.filter(l => this.getLayerType(l) === 'raster');
-    const nsprdEntry = overlays.find(l => this.getLayerType(l) === 'nsprd-vector');
-    const nshnEntries = overlays.filter(l => this.getLayerType(l) === 'nshn-vector');
 
-    this.mapManager.rebuildBasemapOverlays(rasterOverlays.map(l => ({
-      instanceId: l.instanceId,
-      url: this.activeCacheLayers.get(l.defId) ?? l.url,
-      opacity: l.opacity, visible: l.visible,
-      hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
-    })));
+    // Clear all raster overlays so they can be re-inserted in the correct unified order
+    this.mapManager.clearAllRasterOverlays();
 
-    // Re-apply COG ramp / invert / smooth overrides (needed after page reload or project switch)
-    for (const l of rasterOverlays) {
-      if (l.url.startsWith('cog://')) {
-        if (l.cogRampId || l.cogRampInvert) this.applyCogRamp(l);
-        if (l.cogSmooth) this.applyCogSmooth(l);
-      }
-    }
-
-    if (nsprdEntry) {
-      if (!this.nsprdLayer) this.nsprdLayer = new NSPRDVectorLayer(this.mapManager);
-      this.nsprdLayer.activate(nsprdEntry.instanceId, nsprdEntry.opacity, nsprdEntry.visible);
-      this.applyVectorStyleOverrides(nsprdEntry);
-    } else {
-      this.nsprdLayer?.deactivate();
-    }
-
-    // Deactivate NSHN layers no longer in the stack
-    const activeNshnIds = new Set(nshnEntries.map(e => e.instanceId));
+    // Deactivate NSHN layers that are no longer in the stack
+    const activeNshnIds = new Set(
+      overlays.filter(l => this.getLayerType(l) === 'nshn-vector').map(e => e.instanceId)
+    );
     for (const [iid, layer] of this.nshnLayers) {
       if (!activeNshnIds.has(iid)) {
         layer.deactivate();
         this.nshnLayers.delete(iid);
       }
     }
-    // Activate new or unchanged NSHN layers
-    for (const entry of nshnEntries) {
-      const cfg = this.getVectorConfig(entry);
-      if (!cfg) continue;
-      if (!this.nshnLayers.has(entry.instanceId)) {
-        this.nshnLayers.set(entry.instanceId, new NSHNVectorLayer(this.mapManager, cfg));
+
+    // Deactivate NSPRD if not in stack
+    const hasNsprd = overlays.some(l => this.getLayerType(l) === 'nsprd-vector');
+    if (!hasNsprd) this.nsprdLayer?.deactivate();
+
+    // Process all overlay types in unified bottom-to-top order so map layer positions
+    // match the UI stack exactly (last activated ends up closest to user features)
+    for (const l of overlays) {
+      const ltype = this.getLayerType(l);
+      if (ltype === 'raster') {
+        this.mapManager.addSingleRasterOverlay({
+          instanceId: l.instanceId,
+          url: this.activeCacheLayers.get(l.defId) ?? l.url,
+          opacity: l.opacity, visible: l.visible,
+          hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
+        });
+        // Re-apply COG ramp / invert / smooth overrides (needed after page reload or project switch)
+        if (l.url.startsWith('cog://')) {
+          if (l.cogRampId || l.cogRampInvert) this.applyCogRamp(l);
+          if (l.cogSmooth) this.applyCogSmooth(l);
+        }
+      } else if (ltype === 'nsprd-vector') {
+        if (!this.nsprdLayer) this.nsprdLayer = new NSPRDVectorLayer(this.mapManager);
+        this.nsprdLayer.activate(l.instanceId, l.opacity, l.visible);
+        this.applyVectorStyleOverrides(l);
+      } else if (ltype === 'nshn-vector') {
+        const cfg = this.getVectorConfig(l);
+        if (!cfg) continue;
+        if (!this.nshnLayers.has(l.instanceId)) {
+          this.nshnLayers.set(l.instanceId, new NSHNVectorLayer(this.mapManager, cfg));
+        }
+        this.nshnLayers.get(l.instanceId)!.activate(l.instanceId, l.opacity, l.visible);
+        this.applyVectorStyleOverrides(l);
       }
-      this.nshnLayers.get(entry.instanceId)!.activate(entry.instanceId, entry.opacity, entry.visible);
-      this.applyVectorStyleOverrides(entry);
     }
   }
 

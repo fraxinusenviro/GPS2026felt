@@ -17,7 +17,10 @@ export class NSHNVectorLayer {
   ) {}
 
   activate(instanceId: string, opacity: number, visible: boolean): void {
-    if (this.instanceId === instanceId) return;
+    if (this.instanceId === instanceId) {
+      this.reorderLayers();
+      return;
+    }
     this.deactivate();
     this.instanceId = instanceId;
 
@@ -84,6 +87,15 @@ export class NSHNVectorLayer {
     this.moveHandler = () => this.fetchData();
     map.on('moveend', this.moveHandler);
     this.fetchData();
+  }
+
+  private reorderLayers(): void {
+    if (!this.instanceId) return;
+    const map = this.mapManager.getMap();
+    const layerId = `bm-ov-${this.instanceId}`;
+    const strokeId = `${layerId}-stroke`;
+    if (map.getLayer(layerId)) map.moveLayer(layerId, LAYER_IDS.USER_ACCURACY);
+    if (map.getLayer(strokeId)) map.moveLayer(strokeId, LAYER_IDS.USER_ACCURACY);
   }
 
   deactivate(): void {

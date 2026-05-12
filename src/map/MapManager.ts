@@ -1176,6 +1176,40 @@ export class MapManager {
     }
   }
 
+  clearAllRasterOverlays(): void {
+    if (!this.initialized) return;
+    for (const layerId of [...this.basemapOverlayIds]) {
+      const srcId = layerId.replace('bm-ov-', 'bmsrc-');
+      if (this.map.getLayer(layerId)) this.map.removeLayer(layerId);
+      if (this.map.getSource(srcId)) this.map.removeSource(srcId);
+    }
+    this.basemapOverlayIds = [];
+  }
+
+  addSingleRasterOverlay(ov: {
+    instanceId: string; url: string; opacity: number; visible: boolean;
+    hueRotate?: number; saturation?: number; contrast?: number; brightness?: number;
+  }): void {
+    if (!this.initialized) return;
+    const layerId = `bm-ov-${ov.instanceId}`;
+    const srcId = `bmsrc-${ov.instanceId}`;
+    if (!this.map.getSource(srcId)) {
+      this.map.addSource(srcId, { type: 'raster', tiles: [ov.url], tileSize: 256 });
+    }
+    this.map.addLayer(
+      { id: layerId, type: 'raster', source: srcId, paint: {
+        'raster-opacity': ov.opacity,
+        'raster-hue-rotate': ov.hueRotate ?? 0,
+        'raster-saturation': ov.saturation ?? 0,
+        'raster-contrast': ov.contrast ?? 0,
+        'raster-brightness-max': ov.brightness ?? 1,
+      }},
+      LAYER_IDS.USER_ACCURACY,
+    );
+    if (!ov.visible) this.map.setLayoutProperty(layerId, 'visibility', 'none');
+    this.basemapOverlayIds.push(layerId);
+  }
+
   setBasemapOverlayOpacity(instanceId: string, opacity: number): void {
     if (!this.initialized) return;
     const layerId = `bm-ov-${instanceId}`;
