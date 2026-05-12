@@ -479,23 +479,26 @@ export class MapManager {
       }
     });
 
-    // Point labels (type text — always shown unless feature has icon)
+    // Point labels — shown for all collected points when label_text is non-empty
     this.map.addLayer({
       id: LAYER_IDS.COLLECTED_POINTS_LABELS,
       type: 'symbol',
       source: 'collected-points',
-      filter: ['!', ['get', 'has_icon']],
       layout: {
         'text-field': ['get', 'label_text'],
+        'text-font': ['literal', ['Open Sans Regular', 'Arial Unicode MS Regular']],
         'text-size': 11,
         'text-offset': [0, 1.5],
         'text-anchor': 'top',
-        'text-max-width': 10
+        'text-max-width': 10,
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+        'symbol-sort-key': ['get', 'created_at'],
       },
       paint: {
         'text-color': '#ffffff',
-        'text-halo-color': 'rgba(0,0,0,0.8)',
-        'text-halo-width': 1.5
+        'text-halo-color': 'rgba(0,0,0,0.85)',
+        'text-halo-width': 2
       }
     });
 
@@ -681,8 +684,8 @@ export class MapManager {
       // use_symbol: true when shape is non-circle OR has icon (triggers symbol layer)
       const useSymbol = (shape !== 'circle') || (icon !== '');
 
-      // label_text: empty when show_labels explicitly false
-      const labelText = (!tp || tp.show_labels !== false) ? (f.type || '') : '';
+      // label_text: type name, falling back to note/desc; empty when show_labels explicitly false
+      const labelText = (!tp || tp.show_labels !== false) ? (f.type || f.desc || '') : '';
 
       const geoFeature = {
         type: 'Feature',
