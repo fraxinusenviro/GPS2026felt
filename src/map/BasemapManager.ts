@@ -68,9 +68,10 @@ export class BasemapManager {
   private onDeletePDF: ((id: string) => void) | null = null;
   private onDeleteUserLayer: ((id: string) => void) | null = null;
   private onLayerStateChange: ((id: string, updates: { visible?: boolean; opacity?: number }) => void) | null = null;
-  // Sections collapsed by default; 'basemaps' starts open
+  // All sections collapsed by default; user expands what they need
   private collapsedSections = new Set<string>([
-    'pdfs', 'lidar', 'userlayers',
+    'active-layers', 'collected-data', 'feature-layers',
+    'basemaps', 'pdfs', 'lidar', 'userlayers',
     ...[...new Set(
       BASEMAP_OVERLAYS.filter(o => o.group)
         .map(o => `group-${o.group!.replace(/\s+/g, '-').toLowerCase()}`)
