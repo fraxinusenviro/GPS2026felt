@@ -955,7 +955,7 @@ export class BasemapManager {
         <div class="bm-adj-row">
           <label class="bm-adj-label">Stroke</label>
           <input type="color" class="bm-vec-color bm-vec-lc" data-iid="${layer.instanceId}" value="${currentLineHex}" title="Stroke colour" />
-          ${typeof cfg?.lineWidth === 'number' ? `
+          ${cfg ? `
           <input type="range" class="bm-adj-slider bm-vec-lw" data-iid="${layer.instanceId}"
             min="0.5" max="8" step="0.5" value="${currentLineWidth}" title="Stroke width" />
           <span class="bm-adj-val">${currentLineWidth}px</span>` : ''}
@@ -1017,9 +1017,7 @@ export class BasemapManager {
         </label>
       </div>` : '';
 
-    const hasStylePanel = isVectorLayer
-      ? (typeof cfg?.lineWidth === 'number' || cfg?.geomType === 'polygon')
-      : true;
+    const hasStylePanel = isVectorLayer ? (cfg !== undefined) : true;
 
     return `
       <div class="bm-stack-item ${isBase ? 'bm-base-item' : ''}"

@@ -246,6 +246,57 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
       },
     },
   },
+  // ---- NS Admin / Boundaries ----
+  {
+    id: 'ns-base-parks',
+    label: 'NS Parks & Protected Areas',
+    type: 'nshn-vector',
+    group: 'Nova Scotia',
+    url: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/BASE/BASE_NSTDB_10K_Delimiter_Boundaries_WM84/MapServer/4/query',
+    attribution: 'Nova Scotia Topographic Database (NSTDB) 1:10,000',
+    vector_config: {
+      endpoint: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/BASE/BASE_NSTDB_10K_Delimiter_Boundaries_WM84/MapServer/4/query',
+      geomType: 'polygon',
+      outFields: 'OBJECTID,FEAT_CODE,FEAT_DESC,NAME',
+      // National Park → dark green, Provincial Park → medium green, Protected Area → teal
+      lineColor: ['match', ['get', 'FEAT_CODE'],
+        'DLPKNA40', '#1a8040',
+        'DLPKPR40', '#2a9a50',
+        '#3aaa70',
+      ],
+      lineWidth: 1.5,
+      fillColor: ['match', ['get', 'FEAT_CODE'],
+        'DLPKNA40', '#1a8040',
+        'DLPKPR40', '#2a9a50',
+        '#3aaa70',
+      ],
+      fieldLabels: {
+        FEAT_CODE: 'Classification',
+        FEAT_DESC: 'Area Type',
+        NAME: 'Name',
+      },
+    },
+  },
+  {
+    id: 'ns-base-designated',
+    label: 'NS Designated Areas',
+    type: 'nshn-vector',
+    group: 'Nova Scotia',
+    url: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/BASE/BASE_NSTDB_10k_Designated_Areas_WM84/MapServer/1/query',
+    attribution: 'Nova Scotia Topographic Database (NSTDB) 1:10,000',
+    vector_config: {
+      endpoint: 'https://nsgiwa.novascotia.ca/arcgis/rest/services/BASE/BASE_NSTDB_10k_Designated_Areas_WM84/MapServer/1/query',
+      geomType: 'polygon',
+      outFields: 'OBJECTID,FEAT_CODE,FEAT_DESC',
+      lineColor: '#c8a830',
+      lineWidth: 0.8,
+      fillColor: '#c8a830',
+      fieldLabels: {
+        FEAT_CODE: 'Area Code',
+        FEAT_DESC: 'Area Type',
+      },
+    },
+  },
   // ---- NS Bio / Habitat ----
   {
     id: 'ns-bio-habitat',
