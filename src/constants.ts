@@ -564,9 +564,9 @@ export function buildDefaultProjectStack(): string {
   const nsprdDef = (BASEMAP_OVERLAYS as BasemapDef[]).find(o => o.id === 'ns-plan-nsprd')!;
   const dtmDef   = (BASEMAP_OVERLAYS as BasemapDef[]).find(o => o.id === 'hrdem-dtm-hillshade')!;
   const stack = [
-    { instanceId: 'base-0', defId: esriDef.id, label: esriDef.label, url: esriDef.url, type: esriDef.type, tileSize: esriDef.tile_size ?? 256, maxZoom: esriDef.max_zoom ?? 19, opacity: 1, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 0 },
-    { instanceId: `ov-${Date.now()}-1`, defId: nsprdDef.id, label: nsprdDef.label, url: nsprdDef.url, type: nsprdDef.type, vector_config: nsprdDef.vector_config, tileSize: 256, maxZoom: nsprdDef.max_zoom ?? 20, opacity: 1, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 0 },
-    { instanceId: `ov-${Date.now()}-2`, defId: dtmDef.id,   label: dtmDef.label,   url: dtmDef.url,   type: dtmDef.type,   tileSize: dtmDef.tile_size ?? 256,   maxZoom: dtmDef.max_zoom ?? 17,   opacity: 0.6, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 0 },
+    { instanceId: 'base-0', defId: esriDef.id, label: esriDef.label, url: esriDef.url, type: esriDef.type, tileSize: esriDef.tile_size ?? 256, maxZoom: esriDef.max_zoom ?? 19, opacity: 1, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1 },
+    { instanceId: `ov-${Date.now()}-1`, defId: nsprdDef.id, label: nsprdDef.label, url: nsprdDef.url, type: nsprdDef.type, vector_config: nsprdDef.vector_config, tileSize: 256, maxZoom: nsprdDef.max_zoom ?? 20, opacity: 1, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1 },
+    { instanceId: `ov-${Date.now()}-2`, defId: dtmDef.id,   label: dtmDef.label,   url: dtmDef.url,   type: dtmDef.type,   tileSize: dtmDef.tile_size ?? 256,   maxZoom: dtmDef.max_zoom ?? 17,   opacity: 0.6, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1 },
   ];
   return JSON.stringify({ stack, collapsed: [] });
 }
