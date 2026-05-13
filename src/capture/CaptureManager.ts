@@ -419,6 +419,15 @@ export class CaptureManager {
     this.updateSketchPreviewFromVertices();
   }
 
+  /** Used by reshape: filter, clear state, and return vertices without opening save dialog. */
+  consumeFreehandVertices(toleranceM: number): Array<[number, number]> {
+    if (!this.isFreehandDrawing) return [];
+    this.isFreehandDrawing = false;
+    const result = minSpacingFilter(this.sketchVertices, toleranceM);
+    this.clearSketch();
+    return result;
+  }
+
   completeFreehand(toleranceM = 5, geomType: 'LineString' | 'Polygon' = 'LineString'): void {
     if (!this.isFreehandDrawing) return;
     this.isFreehandDrawing = false;

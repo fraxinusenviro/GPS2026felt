@@ -58,16 +58,18 @@
 
       <!-- Freehand Options Pill -->
       <div id="freehand-options" class="freehand-pill hidden" aria-label="Freehand drawing options">
-        <div class="fh-geom-group">
+        <div class="fh-geom-group" id="fh-geom-group">
           <button id="fh-btn-line" class="fh-type-btn active">Line</button>
           <button id="fh-btn-polygon" class="fh-type-btn">Polygon</button>
         </div>
-        <div class="fh-divider"></div>
+        <div class="fh-divider" id="fh-geom-divider"></div>
         <div class="fh-tol-group">
           <label for="fh-tolerance" class="fh-label">Simplify</label>
           <input type="range" id="fh-tolerance" class="fh-slider" min="1" max="50" value="5" step="1">
           <span id="fh-tolerance-val" class="fh-tol-val">5 m</span>
         </div>
+        <div class="fh-divider" id="fh-reshape-divider" style="display:none"></div>
+        <span id="fh-mode-label" class="fh-mode-label" style="display:none"></span>
       </div>
 
       <!-- Floating North Arrow -->
