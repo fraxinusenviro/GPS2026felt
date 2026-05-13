@@ -266,7 +266,7 @@ export class GeometryEditor {
     };
 
     const onMove = (e: PointerEvent) => {
-      if (!isDrawing || !e.buttons) return;
+      if (!isDrawing) return;
       e.preventDefault();
       const r = canvas.getBoundingClientRect();
       const ll = map.unproject([e.clientX - r.left, e.clientY - r.top]);

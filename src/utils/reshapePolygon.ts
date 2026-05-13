@@ -60,7 +60,7 @@ export function reshapePolygonWithStroke(
 
   // arc2: ptB → ptA wrapping the other way
   const arc2: Array<[number, number]> = [ptB];
-  for (let k = 0; k <= n - iB + iA; k++) arc2.push(uniqueRing[(iB + 1 + k) % n]);
+  for (let k = 0; k < n - iB + iA; k++) arc2.push(uniqueRing[(iB + 1 + k) % n]);
   arc2.push(ptA);
 
   const strokeRev = [...strokeFwd].reverse() as Array<[number, number]>;
