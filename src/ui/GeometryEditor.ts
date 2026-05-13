@@ -251,8 +251,25 @@ export class GeometryEditor {
     const map = this.mapManager.getMap();
     map.dragPan.disable();
     const canvas = map.getCanvas();
+    // Ensure browser doesn't start native pan/zoom gestures over our draw
+    canvas.style.touchAction = 'none';
+    canvas.style.cursor = 'crosshair';
+
+    // SVG overlay: yellow dashed line shows the stroke as the user draws
+    const mapContainer = document.getElementById('map-container') ?? document.body;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:200';
+    mapContainer.appendChild(svg);
+    const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    polyline.setAttribute('stroke', '#fbbf24');
+    polyline.setAttribute('stroke-width', '3');
+    polyline.setAttribute('stroke-dasharray', '8 4');
+    polyline.setAttribute('stroke-linecap', 'round');
+    polyline.setAttribute('fill', 'none');
+    svg.appendChild(polyline);
 
     let isDrawing = false;
+    let screenPts: string[] = [];
 
     const onDown = (e: PointerEvent) => {
       if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -261,16 +278,22 @@ export class GeometryEditor {
       canvas.setPointerCapture(e.pointerId);
       isDrawing = true;
       const r = canvas.getBoundingClientRect();
-      const ll = map.unproject([e.clientX - r.left, e.clientY - r.top]);
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      const ll = map.unproject([px, py]);
       this.reshapeStroke = [[ll.lng, ll.lat]];
+      screenPts = [`${px},${py}`];
+      polyline.setAttribute('points', screenPts[0]);
     };
 
     const onMove = (e: PointerEvent) => {
       if (!isDrawing) return;
       e.preventDefault();
       const r = canvas.getBoundingClientRect();
-      const ll = map.unproject([e.clientX - r.left, e.clientY - r.top]);
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      const ll = map.unproject([px, py]);
       this.reshapeStroke.push([ll.lng, ll.lat]);
+      screenPts.push(`${px},${py}`);
+      polyline.setAttribute('points', screenPts.join(' '));
     };
 
     const onUp = (_e: PointerEvent) => {
@@ -289,6 +312,9 @@ export class GeometryEditor {
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
+      canvas.style.touchAction = '';
+      canvas.style.cursor = '';
+      svg.remove();
     };
 
     this.render();
