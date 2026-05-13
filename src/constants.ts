@@ -63,16 +63,23 @@ export const BASEMAPS: BasemapDef[] = [
 
 // ---- Default Type Presets ----
 export const DEFAULT_TYPE_PRESETS: TypePreset[] = [
-  { id: 'tree', label: 'Tree', geometry_type: 'Point', color: '#2d7a2d', icon: '', is_quick_entry: false },
-  { id: 'road', label: 'Road', geometry_type: 'LineString', color: '#c8a020', icon: '', is_quick_entry: false },
-  { id: 'stream', label: 'Stream', geometry_type: 'LineString', color: '#1a6aaa', icon: '', is_quick_entry: false },
-  { id: 'frog', label: 'Frog', geometry_type: 'Point', color: '#4ab04a', icon: '', is_quick_entry: true },
-  { id: 'building', label: 'Building', geometry_type: 'Polygon', color: '#aa4a4a', icon: '', is_quick_entry: false },
-  { id: 'wetland', label: 'Wetland', geometry_type: 'Polygon', color: '#4a8aaa', icon: '', is_quick_entry: false },
-  { id: 'invasive', label: 'Invasive Species', geometry_type: 'Point', color: '#c83030', icon: '', is_quick_entry: false },
-  { id: 'sample', label: 'Sample Site', geometry_type: 'Point', color: '#9a4acc', icon: '', is_quick_entry: false },
-  { id: 'boundary', label: 'Boundary', geometry_type: 'LineString', color: '#ff8800', icon: '', is_quick_entry: false },
-  { id: 'habitat', label: 'Habitat', geometry_type: 'Polygon', color: '#6aaa2d', icon: '', is_quick_entry: false },
+  // Points
+  { id: 'WL_BND_Pt',       label: 'WL_BND_Pt',       geometry_type: 'Point', color: '#ff8800', icon: '', is_quick_entry: false },
+  { id: 'WL_Confirmed_Pt', label: 'WL_Confirmed_Pt', geometry_type: 'Point', color: '#22c55e', icon: '', is_quick_entry: false },
+  { id: 'WC_CL_PT',        label: 'WC_CL_PT',        geometry_type: 'Point', color: '#3b82f6', icon: '', is_quick_entry: false },
+  { id: 'WC_BANK_Pt',      label: 'WC_BANK_Pt',      geometry_type: 'Point', color: '#a78bfa', icon: '', is_quick_entry: false },
+  { id: 'TRACKLOG_Pt',     label: 'TRACKLOG_Pt',     geometry_type: 'Point', color: '#facc15', icon: '', is_quick_entry: false },
+  { id: 'ROAD_Pt',         label: 'ROAD_Pt',         geometry_type: 'Point', color: '#c8a020', icon: '', is_quick_entry: false },
+  { id: 'TRAIL_Pt',        label: 'TRAIL_Pt',        geometry_type: 'Point', color: '#86efac', icon: '', is_quick_entry: false },
+  { id: 'FEC_Pt',          label: 'FEC_Pt',          geometry_type: 'Point', color: '#f87171', icon: '', is_quick_entry: false },
+  // Lines
+  { id: 'WL_BND_Line',     label: 'WL_BND_Line',     geometry_type: 'LineString', color: '#ff8800', icon: '', is_quick_entry: false },
+  { id: 'WC_CL_Line',      label: 'WC_CL_Line',      geometry_type: 'LineString', color: '#3b82f6', icon: '', is_quick_entry: false },
+  { id: 'WC_BANK_Line',    label: 'WC_BANK_Line',    geometry_type: 'LineString', color: '#a78bfa', icon: '', is_quick_entry: false },
+  { id: 'TRACKLOG_Line',   label: 'TRACKLOG_Line',   geometry_type: 'LineString', color: '#facc15', icon: '', is_quick_entry: false },
+  // Polygons
+  { id: 'WL_AREA_Poly',    label: 'WL_AREA_Poly',    geometry_type: 'Polygon', color: '#22c55e', icon: '', is_quick_entry: false },
+  { id: 'HABITAT_Poly',    label: 'HABITAT_Poly',    geometry_type: 'Polygon', color: '#6aaa2d', icon: '', is_quick_entry: false },
 ];
 
 // ---- Default Layer Presets ----
