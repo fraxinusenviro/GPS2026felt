@@ -263,6 +263,14 @@ export class MapManager {
       EventBus.emit('map-mousemove', { lngLat: e.lngLat });
     });
 
+    this.map.on('mousedown', (e) => {
+      EventBus.emit('map-mousedown', { lngLat: e.lngLat });
+    });
+
+    this.map.on('mouseup', (e) => {
+      EventBus.emit('map-mouseup', { lngLat: e.lngLat });
+    });
+
     this.map.on('click', (e) => {
       EventBus.emit('map-click', { lngLat: e.lngLat, originalEvent: e.originalEvent });
     });

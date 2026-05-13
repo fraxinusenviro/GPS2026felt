@@ -685,7 +685,10 @@ export class App {
     if (tool === 'sketch-line' || tool === 'sketch-polygon') {
       this.captureManager.completeSketch();
     } else if (tool === 'sketch-freehand') {
-      this.captureManager.completeFreehand();
+      // With press-drag-release, re-tapping the button cancels/deactivates the tool
+      this.captureManager.setTool('gps-point');
+      this.activateTool('gps-point');
+      return;
     } else if (tool === 'gps-line' || tool === 'gps-polygon') {
       const session = this.captureManager.getActiveSession();
       if (!session) {
@@ -735,8 +738,6 @@ export class App {
         void this.captureManager.saveSketchPointDirect(lngLat.lng, lngLat.lat, type, desc);
       } else if (['sketch-line', 'sketch-polygon'].includes(tool)) {
         this.captureManager.handleSketchClick(lngLat.lng, lngLat.lat);
-      } else if (tool === 'sketch-freehand') {
-        this.captureManager.handleFreehandClick(lngLat.lng, lngLat.lat);
       } else if (tool === 'select' || tool === 'edit-attrs') {
         this.captureManager.handleSelectOrDelete(lngLat.lng, lngLat.lat, false);
       } else if (tool === 'delete') {
@@ -748,6 +749,18 @@ export class App {
       const tool = this.captureManager.getCurrentTool();
       if (['sketch-line', 'sketch-polygon', 'sketch-freehand'].includes(tool)) {
         this.captureManager.handleSketchMouseMove(lngLat.lng, lngLat.lat);
+      }
+    });
+
+    EventBus.on<{ lngLat: { lat: number; lng: number } }>('map-mousedown', ({ lngLat }) => {
+      if (this.captureManager.getCurrentTool() === 'sketch-freehand') {
+        this.captureManager.startFreehandDraw(lngLat.lng, lngLat.lat);
+      }
+    });
+
+    EventBus.on<{ lngLat: { lat: number; lng: number } }>('map-mouseup', () => {
+      if (this.captureManager.getCurrentTool() === 'sketch-freehand') {
+        this.captureManager.completeFreehand();
       }
     });
   }

@@ -419,23 +419,20 @@ export class CaptureManager {
     this.updateSketchPreviewFromVertices(preview);
   }
 
-  handleFreehandClick(lng: number, lat: number): void {
-    if (!this.isFreehandDrawing) {
-      this.isFreehandDrawing = true;
-      this.sketchVertices = [[lng, lat]];
-      this.updateSketchPreviewFromVertices();
-    } else {
-      this.completeFreehand();
-    }
+  startFreehandDraw(lng: number, lat: number): void {
+    this.isFreehandDrawing = true;
+    this.sketchVertices = [[lng, lat]];
+    this.updateSketchPreviewFromVertices();
   }
 
   completeFreehand(): void {
+    if (!this.isFreehandDrawing) return;
+    this.isFreehandDrawing = false;
     if (this.sketchVertices.length < 2) {
-      EventBus.emit('toast', { message: 'Draw a path first', type: 'warning' });
+      this.clearSketch();
       return;
     }
     this.sketchVertices = douglasPeucker(this.sketchVertices, 0.00005);
-    this.isFreehandDrawing = false;
     this.promptFeatureAttributes('LineString', 'sketch');
   }
 
