@@ -1,24 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Background -->
-  <rect width="64" height="64" rx="8" fill="#111a14"/>
-  <!-- Green corner fills (triangular) -->
-  <path d="M0,0 L20,0 L0,20 Z" fill="#2d6a2d"/>
-  <path d="M64,0 L44,0 L64,20 Z" fill="#2d6a2d"/>
-  <path d="M0,64 L20,64 L0,44 Z" fill="#2d6a2d"/>
-  <path d="M64,64 L44,64 L64,44 Z" fill="#2d6a2d"/>
-  <!-- Black circle ring -->
-  <circle cx="32" cy="32" r="24" fill="none" stroke="#1a1a1a" stroke-width="4"/>
-  <!-- Fraxinus compound leaf: central rachis -->
-  <line x1="32" y1="50" x2="32" y2="15" stroke="#4ade80" stroke-width="1.8" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- Green corner fills: bottom-left and top-right only -->
+  <path d="M0,200 L0,148 L52,200 Z" fill="#2d6a2d"/>
+  <path d="M200,0 L200,52 L148,0 Z" fill="#2d6a2d"/>
+  <!-- Circle: white fill, thick black stroke -->
+  <circle cx="100" cy="100" r="88" fill="white" stroke="black" stroke-width="10"/>
+  <!-- Fraxinus compound leaf: rachis from lower-left to upper-right -->
+  <!-- Central rachis -->
+  <line x1="68" y1="158" x2="122" y2="42" stroke="#2d6a2d" stroke-width="3" stroke-linecap="round"/>
   <!-- Terminal leaflet (apex) -->
-  <ellipse cx="32" cy="13.5" rx="3" ry="5" fill="#4ade80"/>
-  <!-- Upper lateral pair -->
-  <ellipse cx="25.5" cy="21" rx="4.5" ry="2" fill="#4ade80" transform="rotate(-35,25.5,21)"/>
-  <ellipse cx="38.5" cy="21" rx="4.5" ry="2" fill="#4ade80" transform="rotate(35,38.5,21)"/>
-  <!-- Mid lateral pair -->
-  <ellipse cx="23.5" cy="29" rx="5" ry="2.2" fill="#4ade80" transform="rotate(-20,23.5,29)"/>
-  <ellipse cx="40.5" cy="29" rx="5" ry="2.2" fill="#4ade80" transform="rotate(20,40.5,29)"/>
-  <!-- Lower lateral pair -->
-  <ellipse cx="25" cy="37" rx="4.5" ry="2" fill="#4ade80" transform="rotate(-10,25,37)"/>
-  <ellipse cx="39" cy="37" rx="4.5" ry="2" fill="#4ade80" transform="rotate(10,39,37)"/>
+  <ellipse cx="124" cy="38" rx="9" ry="14" fill="#2d6a2d" transform="rotate(-30,124,38)"/>
+  <!-- Pair 1 (near top) -->
+  <ellipse cx="113" cy="57" rx="16" ry="7" fill="#2d6a2d" transform="rotate(-55,113,57)"/>
+  <ellipse cx="105" cy="53" rx="16" ry="7" fill="#2d6a2d" transform="rotate(10,105,53)"/>
+  <!-- Pair 2 -->
+  <ellipse cx="104" cy="76" rx="20" ry="8" fill="#2d6a2d" transform="rotate(-50,104,76)"/>
+  <ellipse cx="91" cy="72" rx="20" ry="8" fill="#2d6a2d" transform="rotate(12,91,72)"/>
+  <!-- Pair 3 (middle) -->
+  <ellipse cx="96" cy="97" rx="22" ry="9" fill="#2d6a2d" transform="rotate(-45,96,97)"/>
+  <ellipse cx="80" cy="92" rx="22" ry="9" fill="#2d6a2d" transform="rotate(15,80,92)"/>
+  <!-- Pair 4 -->
+  <ellipse cx="87" cy="118" rx="23" ry="9" fill="#2d6a2d" transform="rotate(-40,87,118)"/>
+  <ellipse cx="70" cy="113" rx="23" ry="9" fill="#2d6a2d" transform="rotate(18,70,113)"/>
+  <!-- Pair 5 (near base, large) -->
+  <ellipse cx="78" cy="140" rx="22" ry="9" fill="#2d6a2d" transform="rotate(-35,78,140)"/>
+  <ellipse cx="62" cy="134" rx="22" ry="9" fill="#2d6a2d" transform="rotate(22,62,134)"/>
 </svg>
