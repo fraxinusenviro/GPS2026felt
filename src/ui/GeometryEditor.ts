@@ -1,7 +1,8 @@
-import type { FieldFeature, GeoJSONGeometry } from '../types';
+import type { FieldFeature, GeoJSONGeometry, GeoJSONPolygon } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import type { MapManager } from '../map/MapManager';
+import { reshapePolygonWithStroke } from '../utils/reshapePolygon';
 
 /**
  * GeometryEditor — tap-based vertex editing for mobile and desktop.
@@ -20,6 +21,9 @@ export class GeometryEditor {
   private workingCoords: [number, number][] = [];
   private selectedIdx: number | null = null;
   private translateMode = false;
+  private reshapeMode = false;
+  private reshapeStroke: [number, number][] = [];
+  private reshapeCleanup: (() => void) | null = null;
   private container!: HTMLElement;
   private storage = StorageManager.getInstance();
 
@@ -37,6 +41,7 @@ export class GeometryEditor {
   }
 
   private startEditing(feature: FieldFeature): void {
+    if (this.reshapeMode) this.stopReshapeMode();
     this.feature = { ...feature, geometry: JSON.parse(JSON.stringify(feature.geometry)) as GeoJSONGeometry };
     this.workingCoords = this.extractCoords(feature.geometry);
     this.selectedIdx = null;
@@ -59,6 +64,7 @@ export class GeometryEditor {
 
   private handleMapClick(lng: number, lat: number): void {
     if (!this.feature) return;
+    if (this.reshapeMode) return;
     const map = this.mapManager.getMap();
     const point = map.project([lng, lat]);
 
@@ -171,6 +177,7 @@ export class GeometryEditor {
   }
 
   private renderOverlay(): void {
+    const isPolygon = this.feature?.geometry_type === 'Polygon';
     const canDelete = this.selectedIdx !== null && this.workingCoords.length > (this.feature?.geometry_type === 'LineString' ? 2 : 3);
 
     this.container.innerHTML = `
@@ -180,19 +187,26 @@ export class GeometryEditor {
           Edit Geometry
         </div>
         <div class="geo-edit-hint">
-          ${this.translateMode
-            ? '🎯 Tap map to move feature centroid'
-            : this.selectedIdx !== null
-              ? `✋ Vertex ${this.selectedIdx + 1} selected — tap map to move it`
-              : '👆 Tap a vertex (●) to select, or tap ◦ to add vertex'}
+          ${this.reshapeMode
+            ? '✏️ Draw across the polygon boundary to reshape'
+            : this.translateMode
+              ? '🎯 Tap map to move feature centroid'
+              : this.selectedIdx !== null
+                ? `✋ Vertex ${this.selectedIdx + 1} selected — tap map to move it`
+                : '👆 Tap a vertex (●) to select, or tap ◦ to add vertex'}
         </div>
         <div class="geo-edit-actions">
-          ${canDelete
+          ${canDelete && !this.reshapeMode
             ? `<button class="geo-btn danger" id="geo-del-vtx">Delete Vertex</button>`
             : ''}
-          <button class="geo-btn ${this.translateMode ? 'active' : ''}" id="geo-translate">Move All</button>
-          <button class="geo-btn" id="geo-cancel">Cancel</button>
-          <button class="geo-btn primary" id="geo-done">Done ✓</button>
+          ${isPolygon && !this.reshapeMode
+            ? `<button class="geo-btn" id="geo-reshape">Reshape</button>`
+            : ''}
+          ${this.reshapeMode
+            ? `<button class="geo-btn danger" id="geo-reshape-cancel">✕ Cancel Reshape</button>`
+            : `<button class="geo-btn ${this.translateMode ? 'active' : ''}" id="geo-translate">Move All</button>`}
+          ${!this.reshapeMode ? `<button class="geo-btn" id="geo-cancel">Cancel</button>` : ''}
+          ${!this.reshapeMode ? `<button class="geo-btn primary" id="geo-done">Done ✓</button>` : ''}
         </div>
       </div>
     `;
@@ -203,6 +217,14 @@ export class GeometryEditor {
         this.selectedIdx = null;
         this.render();
       }
+    });
+
+    this.container.querySelector('#geo-reshape')?.addEventListener('click', () => {
+      this.startReshapeMode();
+    });
+
+    this.container.querySelector('#geo-reshape-cancel')?.addEventListener('click', () => {
+      this.stopReshapeMode();
     });
 
     this.container.querySelector('#geo-translate')?.addEventListener('click', () => {
@@ -220,8 +242,99 @@ export class GeometryEditor {
     });
   }
 
+  private startReshapeMode(): void {
+    this.reshapeMode = true;
+    this.reshapeStroke = [];
+    this.selectedIdx = null;
+    this.translateMode = false;
+
+    const map = this.mapManager.getMap();
+    map.dragPan.disable();
+    const canvas = map.getCanvas();
+
+    let isDrawing = false;
+
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      canvas.setPointerCapture(e.pointerId);
+      isDrawing = true;
+      const r = canvas.getBoundingClientRect();
+      const ll = map.unproject([e.clientX - r.left, e.clientY - r.top]);
+      this.reshapeStroke = [[ll.lng, ll.lat]];
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (!isDrawing || !e.buttons) return;
+      e.preventDefault();
+      const r = canvas.getBoundingClientRect();
+      const ll = map.unproject([e.clientX - r.left, e.clientY - r.top]);
+      this.reshapeStroke.push([ll.lng, ll.lat]);
+    };
+
+    const onUp = (_e: PointerEvent) => {
+      if (!isDrawing) return;
+      isDrawing = false;
+      this.finishReshape();
+    };
+
+    canvas.addEventListener('pointerdown', onDown, { passive: false });
+    canvas.addEventListener('pointermove', onMove, { passive: false });
+    canvas.addEventListener('pointerup', onUp);
+    canvas.addEventListener('pointercancel', onUp);
+
+    this.reshapeCleanup = () => {
+      canvas.removeEventListener('pointerdown', onDown);
+      canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('pointerup', onUp);
+      canvas.removeEventListener('pointercancel', onUp);
+    };
+
+    this.render();
+  }
+
+  private stopReshapeMode(): void {
+    this.reshapeMode = false;
+    this.reshapeStroke = [];
+    this.reshapeCleanup?.();
+    this.reshapeCleanup = null;
+    this.mapManager.getMap().dragPan.enable();
+    this.render();
+  }
+
+  private finishReshape(): void {
+    if (!this.feature) { this.stopReshapeMode(); return; }
+
+    const stroke = this.reshapeStroke;
+    if (stroke.length < 2) {
+      EventBus.emit('toast', { message: 'Draw a stroke across the polygon boundary', type: 'warning' });
+      this.stopReshapeMode();
+      return;
+    }
+
+    const poly: GeoJSONPolygon = {
+      type: 'Polygon',
+      coordinates: [[...this.workingCoords, this.workingCoords[0]]]
+    };
+
+    const reshaped = reshapePolygonWithStroke(poly, stroke);
+    if (!reshaped) {
+      EventBus.emit('toast', { message: 'Stroke must cross the boundary at least twice', type: 'warning' });
+      this.stopReshapeMode();
+      return;
+    }
+
+    const newRing = reshaped.coordinates[0] as [number, number][];
+    this.workingCoords = newRing.slice(0, -1).map(c => [c[0], c[1]] as [number, number]);
+
+    EventBus.emit('toast', { message: 'Polygon reshaped — tap Done ✓ to save', type: 'success', duration: 2000 });
+    this.stopReshapeMode();
+  }
+
   private async stopEditing(save: boolean): Promise<void> {
     if (!this.feature) return;
+    if (this.reshapeMode) this.stopReshapeMode();
 
     if (save) {
       let geometry: GeoJSONGeometry;
