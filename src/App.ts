@@ -47,6 +47,7 @@ export class App {
   private toast!: Toast;
   private modal!: Modal;
   private logConsole!: LogConsole;
+  private freehandCleanup: (() => void) | null = null;
 
   private measurePanel!: MeasurePanel;
   private featureListPanel!: FeatureListPanel;
@@ -651,10 +652,11 @@ export class App {
   private activateTool(tool: ToolMode): void {
     this.captureManager.setTool(tool);
 
-    // Disable map panning while freehand drawing so touch-move captures vertices
     const map = this.mapManager.getMap();
+    this.detachFreehandPointerEvents();
     if (tool === 'sketch-freehand') {
       map.dragPan.disable();
+      this.attachFreehandPointerEvents();
     } else {
       map.dragPan.enable();
     }
@@ -747,22 +749,53 @@ export class App {
 
     EventBus.on<{ lngLat: { lat: number; lng: number } }>('map-mousemove', ({ lngLat }) => {
       const tool = this.captureManager.getCurrentTool();
-      if (['sketch-line', 'sketch-polygon', 'sketch-freehand'].includes(tool)) {
+      if (['sketch-line', 'sketch-polygon'].includes(tool)) {
         this.captureManager.handleSketchMouseMove(lngLat.lng, lngLat.lat);
       }
     });
+  }
 
-    EventBus.on<{ lngLat: { lat: number; lng: number } }>('map-mousedown', ({ lngLat }) => {
-      if (this.captureManager.getCurrentTool() === 'sketch-freehand') {
-        this.captureManager.startFreehandDraw(lngLat.lng, lngLat.lat);
-      }
-    });
+  private attachFreehandPointerEvents(): void {
+    const map = this.mapManager.getMap();
+    const canvas = map.getCanvas();
 
-    EventBus.on<{ lngLat: { lat: number; lng: number } }>('map-mouseup', () => {
-      if (this.captureManager.getCurrentTool() === 'sketch-freehand') {
-        this.captureManager.completeFreehand();
-      }
-    });
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      const r = canvas.getBoundingClientRect();
+      const ll = map.unproject([e.clientX - r.left, e.clientY - r.top]);
+      this.captureManager.startFreehandDraw(ll.lng, ll.lat);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (!e.buttons) return;
+      e.preventDefault();
+      const r = canvas.getBoundingClientRect();
+      const ll = map.unproject([e.clientX - r.left, e.clientY - r.top]);
+      this.captureManager.handleSketchMouseMove(ll.lng, ll.lat);
+    };
+
+    const onUp = (_e: PointerEvent) => {
+      this.captureManager.completeFreehand();
+    };
+
+    canvas.addEventListener('pointerdown', onDown, { passive: false });
+    canvas.addEventListener('pointermove', onMove, { passive: false });
+    canvas.addEventListener('pointerup', onUp);
+    canvas.addEventListener('pointercancel', onUp);
+
+    this.freehandCleanup = () => {
+      canvas.removeEventListener('pointerdown', onDown);
+      canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('pointerup', onUp);
+      canvas.removeEventListener('pointercancel', onUp);
+    };
+  }
+
+  private detachFreehandPointerEvents(): void {
+    this.freehandCleanup?.();
+    this.freehandCleanup = null;
   }
 
   // ============================================================
