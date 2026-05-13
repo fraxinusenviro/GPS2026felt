@@ -6,7 +6,7 @@ export type GeometryType = 'Point' | 'LineString' | 'Polygon';
 export type CaptureMethod = 'gps' | 'sketch';
 export type ToolMode =
   | 'gps-point' | 'gps-point-stream' | 'gps-line' | 'gps-polygon'
-  | 'sketch-point' | 'sketch-line' | 'sketch-polygon'
+  | 'sketch-point' | 'sketch-line' | 'sketch-polygon' | 'sketch-freehand'
   | 'select' | 'edit-attrs' | 'delete' | 'edit-geometry' | 'measure' | 'none';
 
 // ---- Feature Data Model ----

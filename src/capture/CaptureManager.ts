@@ -5,6 +5,25 @@ import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
 import type { MapManager } from '../map/MapManager';
 
+function douglasPeucker(pts: Array<[number, number]>, epsilon: number): Array<[number, number]> {
+  if (pts.length <= 2) return pts;
+  const [x1, y1] = pts[0], [x2, y2] = pts[pts.length - 1];
+  const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy);
+  let maxDist = 0, idx = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const dist = len === 0
+      ? Math.hypot(pts[i][0] - x1, pts[i][1] - y1)
+      : Math.abs(dy * pts[i][0] - dx * pts[i][1] + x2 * y1 - y2 * x1) / len;
+    if (dist > maxDist) { maxDist = dist; idx = i; }
+  }
+  if (maxDist > epsilon) {
+    const left  = douglasPeucker(pts.slice(0, idx + 1), epsilon);
+    const right = douglasPeucker(pts.slice(idx), epsilon);
+    return [...left.slice(0, -1), ...right];
+  }
+  return [pts[0], pts[pts.length - 1]];
+}
+
 export class CaptureManager {
   private session: CaptureSession | null = null;
   private gpsWatchId: number | null = null;
@@ -15,6 +34,7 @@ export class CaptureManager {
   private settings!: AppSettings;
   private storage = StorageManager.getInstance();
   private sketchVertices: Array<[number, number]> = [];
+  private isFreehandDrawing = false;
   private currentTool: ToolMode = 'gps-point';
   /** True when a streaming tool is selected but streaming has not yet started */
   private captureSetupMode = false;
@@ -46,7 +66,7 @@ export class CaptureManager {
       tool === 'select' || tool === 'edit-attrs' ? 'default' :
       tool === 'delete' ? 'crosshair' :
       tool === 'edit-geometry' ? 'crosshair' :
-      ['sketch-point','sketch-line','sketch-polygon'].includes(tool) ? 'crosshair' :
+      ['sketch-point','sketch-line','sketch-polygon','sketch-freehand'].includes(tool) ? 'crosshair' :
       'default';
   }
 
@@ -387,10 +407,36 @@ export class CaptureManager {
 
   handleSketchMouseMove(lng: number, lat: number): void {
     const tool = this.currentTool;
+    if (tool === 'sketch-freehand') {
+      if (!this.isFreehandDrawing) return;
+      this.sketchVertices.push([lng, lat]);
+      this.updateSketchPreviewFromVertices();
+      return;
+    }
     if (!['sketch-line', 'sketch-polygon'].includes(tool)) return;
     if (this.sketchVertices.length === 0) return;
     const preview: Array<[number, number]> = [...this.sketchVertices, [lng, lat]];
     this.updateSketchPreviewFromVertices(preview);
+  }
+
+  handleFreehandClick(lng: number, lat: number): void {
+    if (!this.isFreehandDrawing) {
+      this.isFreehandDrawing = true;
+      this.sketchVertices = [[lng, lat]];
+      this.updateSketchPreviewFromVertices();
+    } else {
+      this.completeFreehand();
+    }
+  }
+
+  completeFreehand(): void {
+    if (this.sketchVertices.length < 2) {
+      EventBus.emit('toast', { message: 'Draw a path first', type: 'warning' });
+      return;
+    }
+    this.sketchVertices = douglasPeucker(this.sketchVertices, 0.00005);
+    this.isFreehandDrawing = false;
+    this.promptFeatureAttributes('LineString', 'sketch');
   }
 
   private updateSketchPreviewFromVertices(vertices?: Array<[number, number]>): void {
@@ -439,6 +485,7 @@ export class CaptureManager {
 
   private clearSketch(): void {
     this.sketchVertices = [];
+    this.isFreehandDrawing = false;
     this.mapManager.clearSketchPreview();
   }
 

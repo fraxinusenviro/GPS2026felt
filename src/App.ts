@@ -383,7 +383,7 @@ export class App {
 
         // Toggle tools: tapping an already-active tool completes/stops it
         // gps-point is two-phase: first click = activate HUD, second click = drop point
-        const isToggle = ['sketch-line', 'sketch-polygon', 'gps-line', 'gps-polygon', 'gps-point-stream', 'gps-point', 'measure'].includes(tool);
+        const isToggle = ['sketch-line', 'sketch-polygon', 'sketch-freehand', 'gps-line', 'gps-polygon', 'gps-point-stream', 'gps-point', 'measure'].includes(tool);
         if (isToggle && currentTool === tool) {
           if (tool === 'measure') {
             this.measurePanel.stop();
@@ -651,6 +651,14 @@ export class App {
   private activateTool(tool: ToolMode): void {
     this.captureManager.setTool(tool);
 
+    // Disable map panning while freehand drawing so touch-move captures vertices
+    const map = this.mapManager.getMap();
+    if (tool === 'sketch-freehand') {
+      map.dragPan.disable();
+    } else {
+      map.dragPan.enable();
+    }
+
     if (tool === 'gps-point') {
       // Two-phase: first click raises the point HUD; second click (completeCurrentCapture) drops the point
       // HUD is shown via the 'tool-changed' event handler — nothing more needed here
@@ -676,6 +684,8 @@ export class App {
 
     if (tool === 'sketch-line' || tool === 'sketch-polygon') {
       this.captureManager.completeSketch();
+    } else if (tool === 'sketch-freehand') {
+      this.captureManager.completeFreehand();
     } else if (tool === 'gps-line' || tool === 'gps-polygon') {
       const session = this.captureManager.getActiveSession();
       if (!session) {
@@ -725,6 +735,8 @@ export class App {
         void this.captureManager.saveSketchPointDirect(lngLat.lng, lngLat.lat, type, desc);
       } else if (['sketch-line', 'sketch-polygon'].includes(tool)) {
         this.captureManager.handleSketchClick(lngLat.lng, lngLat.lat);
+      } else if (tool === 'sketch-freehand') {
+        this.captureManager.handleFreehandClick(lngLat.lng, lngLat.lat);
       } else if (tool === 'select' || tool === 'edit-attrs') {
         this.captureManager.handleSelectOrDelete(lngLat.lng, lngLat.lat, false);
       } else if (tool === 'delete') {
@@ -734,7 +746,7 @@ export class App {
 
     EventBus.on<{ lngLat: { lat: number; lng: number } }>('map-mousemove', ({ lngLat }) => {
       const tool = this.captureManager.getCurrentTool();
-      if (['sketch-line', 'sketch-polygon'].includes(tool)) {
+      if (['sketch-line', 'sketch-polygon', 'sketch-freehand'].includes(tool)) {
         this.captureManager.handleSketchMouseMove(lngLat.lng, lngLat.lat);
       }
     });
