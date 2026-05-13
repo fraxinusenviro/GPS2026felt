@@ -4577,3 +4577,81 @@ input[type=color] {
 .cd-type-hidden .cd-type-count {
   opacity: 0.35;
 }
+
+/* ============================================================
+   Freehand Options Pill
+   ============================================================ */
+.freehand-pill {
+  position: fixed;
+  top: calc(var(--header-height) + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-hover);
+  border-radius: 24px;
+  padding: 5px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: var(--shadow-sm);
+  touch-action: none;
+  user-select: none;
+  white-space: nowrap;
+}
+.freehand-pill.hidden { display: none; }
+
+.fh-geom-group { display: flex; gap: 4px; }
+
+.fh-type-btn {
+  padding: 3px 11px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.fh-type-btn.active {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.fh-type-btn:hover:not(.active) {
+  border-color: var(--color-border-hover);
+  color: var(--color-text-dim);
+}
+
+.fh-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+.fh-tol-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fh-label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.fh-slider {
+  width: 72px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+  touch-action: pan-x;
+}
+
+.fh-tol-val {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  min-width: 28px;
+  text-align: right;
+}
