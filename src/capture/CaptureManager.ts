@@ -425,15 +425,21 @@ export class CaptureManager {
     this.updateSketchPreviewFromVertices();
   }
 
-  completeFreehand(): void {
+  completeFreehand(toleranceM = 5, geomType: 'LineString' | 'Polygon' = 'LineString'): void {
     if (!this.isFreehandDrawing) return;
     this.isFreehandDrawing = false;
     if (this.sketchVertices.length < 2) {
       this.clearSketch();
       return;
     }
-    this.sketchVertices = douglasPeucker(this.sketchVertices, 0.00005);
-    this.promptFeatureAttributes('LineString', 'sketch');
+    this.sketchVertices = douglasPeucker(this.sketchVertices, toleranceM / 111320);
+    const minPts = geomType === 'Polygon' ? 3 : 2;
+    if (this.sketchVertices.length < minPts) {
+      this.clearSketch();
+      EventBus.emit('toast', { message: 'Draw a larger shape for a polygon', type: 'warning' });
+      return;
+    }
+    this.promptFeatureAttributes(geomType, 'sketch');
   }
 
   private updateSketchPreviewFromVertices(vertices?: Array<[number, number]>): void {

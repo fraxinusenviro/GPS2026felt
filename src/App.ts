@@ -48,6 +48,8 @@ export class App {
   private modal!: Modal;
   private logConsole!: LogConsole;
   private freehandCleanup: (() => void) | null = null;
+  private freehandGeomType: 'LineString' | 'Polygon' = 'LineString';
+  private freehandToleranceM = 5;
 
   private measurePanel!: MeasurePanel;
   private featureListPanel!: FeatureListPanel;
@@ -137,6 +139,7 @@ export class App {
     this.wireToolbar();
     this.wireMapInteractions();
     this.wireCaptureControls();
+    this.wireFreehandPill();
 
     this.gridOverlay.setVisible(this.settings.grid_visible);
 
@@ -654,11 +657,14 @@ export class App {
 
     const map = this.mapManager.getMap();
     this.detachFreehandPointerEvents();
+    const pill = document.getElementById('freehand-options');
     if (tool === 'sketch-freehand') {
       map.dragPan.disable();
       this.attachFreehandPointerEvents();
+      pill?.classList.remove('hidden');
     } else {
       map.dragPan.enable();
+      pill?.classList.add('hidden');
     }
 
     if (tool === 'gps-point') {
@@ -777,7 +783,7 @@ export class App {
     };
 
     const onUp = (_e: PointerEvent) => {
-      this.captureManager.completeFreehand();
+      this.captureManager.completeFreehand(this.freehandToleranceM, this.freehandGeomType);
     };
 
     canvas.addEventListener('pointerdown', onDown, { passive: false });
@@ -796,6 +802,30 @@ export class App {
   private detachFreehandPointerEvents(): void {
     this.freehandCleanup?.();
     this.freehandCleanup = null;
+  }
+
+  private wireFreehandPill(): void {
+    const btnLine = document.getElementById('fh-btn-line');
+    const btnPoly = document.getElementById('fh-btn-polygon');
+    const slider  = document.getElementById('fh-tolerance') as HTMLInputElement | null;
+    const valLbl  = document.getElementById('fh-tolerance-val');
+
+    btnLine?.addEventListener('click', () => {
+      this.freehandGeomType = 'LineString';
+      btnLine.classList.add('active');
+      btnPoly?.classList.remove('active');
+    });
+
+    btnPoly?.addEventListener('click', () => {
+      this.freehandGeomType = 'Polygon';
+      btnPoly.classList.add('active');
+      btnLine?.classList.remove('active');
+    });
+
+    slider?.addEventListener('input', () => {
+      this.freehandToleranceM = parseInt(slider.value, 10);
+      if (valLbl) valLbl.textContent = `${slider.value} m`;
+    });
   }
 
   // ============================================================

@@ -56,6 +56,20 @@
     <div id="map-container">
       <div id="map"></div>
 
+      <!-- Freehand Options Pill -->
+      <div id="freehand-options" class="freehand-pill hidden" aria-label="Freehand drawing options">
+        <div class="fh-geom-group">
+          <button id="fh-btn-line" class="fh-type-btn active">Line</button>
+          <button id="fh-btn-polygon" class="fh-type-btn">Polygon</button>
+        </div>
+        <div class="fh-divider"></div>
+        <div class="fh-tol-group">
+          <label for="fh-tolerance" class="fh-label">Simplify</label>
+          <input type="range" id="fh-tolerance" class="fh-slider" min="1" max="50" value="5" step="1">
+          <span id="fh-tolerance-val" class="fh-tol-val">5 m</span>
+        </div>
+      </div>
+
       <!-- Floating North Arrow -->
       <button id="north-arrow" class="north-arrow-btn" title="Reset North">
         <svg id="north-arrow-svg" viewBox="0 0 24 24" width="72" height="72" xmlns="http://www.w3.org/2000/svg">
