@@ -1,4 +1,4 @@
-import type { AppSettings, FieldFeature, ToolMode, GeometryType, GeoJSONGeometry, LayerPreset } from './types';
+import type { AppSettings, FieldFeature, ToolMode, GeometryType, GeoJSONGeometry, GeoJSONPolygon, LayerPreset } from './types';
 import { StorageManager } from './storage/StorageManager';
 import { MapManager } from './map/MapManager';
 import { BasemapManager } from './map/BasemapManager';
@@ -27,6 +27,77 @@ import { UndoManager } from './utils/UndoManager';
 import { SymbolRenderer } from './ui/SymbolRenderer';
 import * as turf from '@turf/turf';
 
+/**
+ * Classic stroke reshape: replaces one arc of a polygon's outer ring with the freehand stroke.
+ * The stroke must cross the polygon boundary at least twice. Returns the larger of the two
+ * candidate polygons (preserves more of the original), or null if reshape is not possible.
+ */
+function reshapePolygonWithStroke(
+  poly: GeoJSONPolygon,
+  stroke: Array<[number, number]>
+): GeoJSONPolygon | null {
+  if (stroke.length < 2) return null;
+  const strokeLine = turf.lineString(stroke);
+  const ring = poly.coordinates[0] as Array<[number, number]>;
+  const ringLine = turf.lineString(ring);
+
+  const intersects = turf.lineIntersect(strokeLine, ringLine);
+  if (intersects.features.length < 2) return null;
+
+  // Sort intersections by position along the stroke
+  const sorted = intersects.features.map((f: ReturnType<typeof turf.lineIntersect>['features'][number]) => ({
+    coord: f.geometry!.coordinates as [number, number],
+    loc: turf.nearestPointOnLine(strokeLine, f).properties.location ?? 0,
+  })).sort((a: { coord: [number,number]; loc: number }, b: { coord: [number,number]; loc: number }) => a.loc - b.loc);
+
+  const ptFirst = sorted[0].coord;
+  const ptLast  = sorted[sorted.length - 1].coord;
+
+  const seg = turf.lineSlice(turf.point(ptFirst), turf.point(ptLast), strokeLine);
+  const strokePts = seg.geometry.coordinates as Array<[number, number]>;
+
+  let iA = turf.nearestPointOnLine(ringLine, turf.point(ptFirst)).properties.index ?? 0;
+  let iB = turf.nearestPointOnLine(ringLine, turf.point(ptLast)).properties.index ?? 0;
+  let ptA = ptFirst, ptB = ptLast;
+  let strokeFwd = strokePts;
+
+  if (iA > iB) {
+    [iA, iB] = [iB, iA];
+    [ptA, ptB] = [ptB, ptA];
+    strokeFwd = [...strokePts].reverse() as Array<[number, number]>;
+  }
+
+  const uniqueRing = ring.slice(0, -1) as Array<[number, number]>;
+  const n = uniqueRing.length;
+
+  // arc1: ptA → ptB forward along ring
+  const arc1: Array<[number, number]> = [ptA];
+  for (let i = iA + 1; i <= iB; i++) arc1.push(uniqueRing[i]);
+  arc1.push(ptB);
+
+  // arc2: ptB → ptA wrapping the other way
+  const arc2: Array<[number, number]> = [ptB];
+  for (let k = 0; k <= n - iB + iA; k++) arc2.push(uniqueRing[(iB + 1 + k) % n]);
+  arc2.push(ptA);
+
+  const strokeRev = [...strokeFwd].reverse() as Array<[number, number]>;
+  const ring1 = [...strokeFwd, ...arc2.slice(1)];
+  const ring2 = [...arc1,  ...strokeRev.slice(1)];
+  const holes = poly.coordinates.slice(1);
+
+  let cand1: ReturnType<typeof turf.polygon> | null = null;
+  let cand2: ReturnType<typeof turf.polygon> | null = null;
+  try { cand1 = turf.polygon([ring1, ...holes]); } catch (_) { /* invalid ring */ }
+  try { cand2 = turf.polygon([ring2, ...holes]); } catch (_) { /* invalid ring */ }
+
+  if (!cand1 && !cand2) return null;
+  if (!cand1) return cand2!.geometry as GeoJSONPolygon;
+  if (!cand2) return cand1.geometry as GeoJSONPolygon;
+  return (turf.area(cand1) >= turf.area(cand2)
+    ? cand1.geometry : cand2.geometry) as GeoJSONPolygon;
+}
+
+
 export class App {
   private storage = StorageManager.getInstance();
   private mapManager = new MapManager();
@@ -50,6 +121,7 @@ export class App {
   private freehandCleanup: (() => void) | null = null;
   private freehandGeomType: 'LineString' | 'Polygon' = 'LineString';
   private freehandToleranceM = 5;
+  private selectedFeature: FieldFeature | null = null;
 
   private measurePanel!: MeasurePanel;
   private featureListPanel!: FeatureListPanel;
@@ -258,6 +330,19 @@ export class App {
     EventBus.on('features-cleared', () => {
       this.features = [];
       this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+    });
+
+    EventBus.on<{ feature: FieldFeature }>('feature-selected', ({ feature }) => {
+      this.selectedFeature = feature;
+      if (this.captureManager.getCurrentTool() === 'sketch-freehand') this.updateFreehandPillMode();
+    });
+    EventBus.on('feature-deselected', () => {
+      this.selectedFeature = null;
+      if (this.captureManager.getCurrentTool() === 'sketch-freehand') this.updateFreehandPillMode();
+    });
+    // Keep selectedFeature in sync when geometry edits happen elsewhere
+    EventBus.on<{ feature: FieldFeature }>('feature-updated', ({ feature }) => {
+      if (this.selectedFeature?.id === feature.id) this.selectedFeature = feature;
     });
 
     EventBus.on<{ tool: ToolMode }>('tool-changed', ({ tool }) => {
@@ -662,6 +747,7 @@ export class App {
       map.dragPan.disable();
       this.attachFreehandPointerEvents();
       pill?.classList.remove('hidden');
+      this.updateFreehandPillMode();
     } else {
       map.dragPan.enable();
       pill?.classList.add('hidden');
@@ -783,7 +869,11 @@ export class App {
     };
 
     const onUp = (_e: PointerEvent) => {
-      this.captureManager.completeFreehand(this.freehandToleranceM, this.freehandGeomType);
+      if (this.selectedFeature?.geometry_type === 'Polygon' && this.freehandGeomType === 'LineString') {
+        void this.performFreehandReshape();
+      } else {
+        this.captureManager.completeFreehand(this.freehandToleranceM, this.freehandGeomType);
+      }
     };
 
     canvas.addEventListener('pointerdown', onDown, { passive: false });
@@ -802,6 +892,39 @@ export class App {
   private detachFreehandPointerEvents(): void {
     this.freehandCleanup?.();
     this.freehandCleanup = null;
+  }
+
+  private async performFreehandReshape(): Promise<void> {
+    const feature = this.selectedFeature;
+    if (!feature || feature.geometry_type !== 'Polygon') return;
+    const stroke = this.captureManager.consumeFreehandVertices(this.freehandToleranceM);
+    if (stroke.length < 2) return;
+    if (feature.geometry.type !== 'Polygon') return;
+    const reshaped = reshapePolygonWithStroke(feature.geometry as GeoJSONPolygon, stroke);
+    if (!reshaped) {
+      EventBus.emit('toast', { message: 'Stroke must cross the boundary at least twice', type: 'warning' });
+      return;
+    }
+    const updated: FieldFeature = { ...feature, geometry: reshaped };
+    await this.storage.saveFeature(updated);
+    this.selectedFeature = updated;
+    EventBus.emit('feature-updated', { feature: updated });
+    EventBus.emit('toast', { message: 'Polygon reshaped', type: 'success', duration: 1800 });
+  }
+
+  private updateFreehandPillMode(): void {
+    const isReshape = this.selectedFeature?.geometry_type === 'Polygon' && this.freehandGeomType === 'LineString';
+    const geomGroup  = document.getElementById('fh-geom-group');
+    const geomDiv    = document.getElementById('fh-geom-divider');
+    const modeLabel  = document.getElementById('fh-mode-label');
+    const reshapeDiv = document.getElementById('fh-reshape-divider');
+    if (geomGroup)  geomGroup.style.display  = isReshape ? 'none' : 'flex';
+    if (geomDiv)    geomDiv.style.display    = isReshape ? 'none' : 'block';
+    if (reshapeDiv) reshapeDiv.style.display = isReshape ? 'block' : 'none';
+    if (modeLabel) {
+      modeLabel.style.display = isReshape ? 'inline' : 'none';
+      modeLabel.textContent = isReshape ? `↩ Reshape ${this.selectedFeature?.type || 'polygon'}` : '';
+    }
   }
 
   private wireFreehandPill(): void {

@@ -4655,3 +4655,10 @@ input[type=color] {
   min-width: 28px;
   text-align: right;
 }
+
+.fh-mode-label {
+  font-size: 11px;
+  color: var(--color-warn);
+  white-space: nowrap;
+  font-style: italic;
+}

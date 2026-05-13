@@ -5,23 +5,17 @@ import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
 import type { MapManager } from '../map/MapManager';
 
-function douglasPeucker(pts: Array<[number, number]>, epsilon: number): Array<[number, number]> {
+function minSpacingFilter(pts: Array<[number, number]>, minDistM: number): Array<[number, number]> {
   if (pts.length <= 2) return pts;
-  const [x1, y1] = pts[0], [x2, y2] = pts[pts.length - 1];
-  const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy);
-  let maxDist = 0, idx = 0;
+  const kept: Array<[number, number]> = [pts[0]];
   for (let i = 1; i < pts.length - 1; i++) {
-    const dist = len === 0
-      ? Math.hypot(pts[i][0] - x1, pts[i][1] - y1)
-      : Math.abs(dy * pts[i][0] - dx * pts[i][1] + x2 * y1 - y2 * x1) / len;
-    if (dist > maxDist) { maxDist = dist; idx = i; }
+    const last = kept[kept.length - 1];
+    if (haversineDistance(last[1], last[0], pts[i][1], pts[i][0]) >= minDistM) {
+      kept.push(pts[i]);
+    }
   }
-  if (maxDist > epsilon) {
-    const left  = douglasPeucker(pts.slice(0, idx + 1), epsilon);
-    const right = douglasPeucker(pts.slice(idx), epsilon);
-    return [...left.slice(0, -1), ...right];
-  }
-  return [pts[0], pts[pts.length - 1]];
+  kept.push(pts[pts.length - 1]);
+  return kept;
 }
 
 export class CaptureManager {
@@ -425,6 +419,15 @@ export class CaptureManager {
     this.updateSketchPreviewFromVertices();
   }
 
+  /** Used by reshape: filter, clear state, and return vertices without opening save dialog. */
+  consumeFreehandVertices(toleranceM: number): Array<[number, number]> {
+    if (!this.isFreehandDrawing) return [];
+    this.isFreehandDrawing = false;
+    const result = minSpacingFilter(this.sketchVertices, toleranceM);
+    this.clearSketch();
+    return result;
+  }
+
   completeFreehand(toleranceM = 5, geomType: 'LineString' | 'Polygon' = 'LineString'): void {
     if (!this.isFreehandDrawing) return;
     this.isFreehandDrawing = false;
@@ -432,7 +435,7 @@ export class CaptureManager {
       this.clearSketch();
       return;
     }
-    this.sketchVertices = douglasPeucker(this.sketchVertices, toleranceM / 111320);
+    this.sketchVertices = minSpacingFilter(this.sketchVertices, toleranceM);
     const minPts = geomType === 'Polygon' ? 3 : 2;
     if (this.sketchVertices.length < minPts) {
       this.clearSketch();
