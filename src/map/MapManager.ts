@@ -818,6 +818,14 @@ export class MapManager {
     });
   }
 
+  highlightFeatures(features: FieldFeature[]): void {
+    if (!this.initialized) return;
+    (this.map.getSource('selected-feature') as maplibregl.GeoJSONSource)?.setData({
+      type: 'FeatureCollection',
+      features: features.map(f => ({ type: 'Feature', geometry: f.geometry as never, properties: {} }))
+    });
+  }
+
   flyTo(lat: number, lon: number, zoom?: number): void {
     this.map.flyTo({ center: [lon, lat], zoom: zoom ?? this.map.getZoom(), duration: 800 });
   }

@@ -70,6 +70,12 @@
         </div>
       </div>
 
+      <div id="lasso-hud" class="lasso-hud hidden">
+        <span id="lasso-count" class="lasso-count">0 selected</span>
+        <button id="lasso-delete" class="lasso-action danger">Delete</button>
+        <button id="lasso-dismiss" class="lasso-action">✕</button>
+      </div>
+
       <!-- Floating North Arrow -->
       <button id="north-arrow" class="north-arrow-btn" title="Reset North">
         <svg id="north-arrow-svg" viewBox="0 0 24 24" width="72" height="72" xmlns="http://www.w3.org/2000/svg">
@@ -129,6 +135,9 @@
           <div class="toolbar-group">
             <button id="btn-select" class="tool-btn" data-tool="select" title="Select / Edit Feature">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M220.49,207.8,207.8,220.49a12,12,0,0,1-17,0l-56.57-56.57L115,214.08l-.13.33A15.84,15.84,0,0,1,100.26,224l-.78,0a15.82,15.82,0,0,1-14.41-11L32.8,52.92A15.95,15.95,0,0,1,52.92,32.8L213,85.07a16,16,0,0,1,1.41,29.8l-.33.13-50.16,19.27,56.57,56.56A12,12,0,0,1,220.49,207.8Z"/></svg>
+            </button>
+            <button id="btn-lasso-select" class="tool-btn" data-tool="lasso-select" title="Lasso Select Features">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M204.16,168l-28.28-28.28A92,92,0,1,0,83.88,204.12l28.28,28.28a8,8,0,0,0,11.32-11.31L95.2,192.8a92.27,92.27,0,0,0,60.84-26.86l28.81,28.81a8,8,0,1,0,11.31-11.31ZM36,120A76,76,0,1,1,112,196,76.08,76.08,0,0,1,36,120Z"/></svg>
             </button>
             <button id="btn-edit-attrs" class="tool-btn" data-tool="edit-attrs" title="Edit Attributes">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M224,128v80a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V48A16,16,0,0,1,48,32h80a8,8,0,0,1,0,16H48V208H208V128a8,8,0,0,1,16,0Zm5.66-58.34-96,96A8,8,0,0,1,128,168H96a8,8,0,0,1-8-8V128a8,8,0,0,1,2.34-5.66l96-96a8,8,0,0,1,11.32,0l32,32A8,8,0,0,1,229.66,69.66Zm-17-5.66L192,43.31,179.31,56,200,76.69Z"/></svg>

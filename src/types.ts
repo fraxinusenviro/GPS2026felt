@@ -7,7 +7,7 @@ export type CaptureMethod = 'gps' | 'sketch';
 export type ToolMode =
   | 'gps-point' | 'gps-point-stream' | 'gps-line' | 'gps-polygon'
   | 'sketch-point' | 'sketch-line' | 'sketch-polygon' | 'sketch-freehand'
-  | 'select' | 'edit-attrs' | 'delete' | 'edit-geometry' | 'measure' | 'none';
+  | 'select' | 'edit-attrs' | 'delete' | 'edit-geometry' | 'lasso-select' | 'measure' | 'none';
 
 // ---- Feature Data Model ----
 export interface FieldFeature {
