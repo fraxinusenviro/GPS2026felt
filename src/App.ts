@@ -50,6 +50,8 @@ export class App {
   private freehandCleanup: (() => void) | null = null;
   private freehandGeomType: 'LineString' | 'Polygon' = 'LineString';
   private freehandToleranceM = 5;
+  private lassoCleanup: (() => void) | null = null;
+  private lassoSelection: FieldFeature[] = [];
 
   private measurePanel!: MeasurePanel;
   private featureListPanel!: FeatureListPanel;
@@ -140,6 +142,7 @@ export class App {
     this.wireMapInteractions();
     this.wireCaptureControls();
     this.wireFreehandPill();
+    this.wireLassoHud();
 
     this.gridOverlay.setVisible(this.settings.grid_visible);
 
@@ -387,7 +390,7 @@ export class App {
 
         // Toggle tools: tapping an already-active tool completes/stops it
         // gps-point is two-phase: first click = activate HUD, second click = drop point
-        const isToggle = ['sketch-line', 'sketch-polygon', 'sketch-freehand', 'gps-line', 'gps-polygon', 'gps-point-stream', 'gps-point', 'measure'].includes(tool);
+        const isToggle = ['sketch-line', 'sketch-polygon', 'sketch-freehand', 'lasso-select', 'gps-line', 'gps-polygon', 'gps-point-stream', 'gps-point', 'measure'].includes(tool);
         if (isToggle && currentTool === tool) {
           if (tool === 'measure') {
             this.measurePanel.stop();
@@ -662,9 +665,13 @@ export class App {
       map.dragPan.disable();
       this.attachFreehandPointerEvents();
       pill?.classList.remove('hidden');
+    } else if (tool === 'lasso-select') {
+      map.dragPan.disable();
+      this.attachLassoPointerEvents();
     } else {
       map.dragPan.enable();
       pill?.classList.add('hidden');
+      this.clearLassoSelection();
     }
 
     if (tool === 'gps-point') {
@@ -694,6 +701,11 @@ export class App {
       this.captureManager.completeSketch();
     } else if (tool === 'sketch-freehand') {
       // With press-drag-release, re-tapping the button cancels/deactivates the tool
+      this.captureManager.setTool('gps-point');
+      this.activateTool('gps-point');
+      return;
+    } else if (tool === 'lasso-select') {
+      this.clearLassoSelection();
       this.captureManager.setTool('gps-point');
       this.activateTool('gps-point');
       return;
@@ -825,6 +837,145 @@ export class App {
     slider?.addEventListener('input', () => {
       this.freehandToleranceM = parseInt(slider.value, 10);
       if (valLbl) valLbl.textContent = `${slider.value} m`;
+    });
+  }
+
+  private attachLassoPointerEvents(): void {
+    const map = this.mapManager.getMap();
+    const canvas = map.getCanvas();
+    canvas.style.touchAction = 'none';
+    canvas.style.cursor = 'crosshair';
+
+    const mapContainer = document.getElementById('map-container') ?? document.body;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:200';
+    mapContainer.appendChild(svg);
+    const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    polygon.setAttribute('stroke', '#00eaff');
+    polygon.setAttribute('stroke-width', '2');
+    polygon.setAttribute('stroke-dasharray', '6 3');
+    polygon.setAttribute('fill', 'rgba(0,234,255,0.08)');
+    svg.appendChild(polygon);
+
+    let isDrawing = false;
+    const geoStroke: [number, number][] = [];
+    const screenPts: string[] = [];
+
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      isDrawing = true;
+      geoStroke.length = 0;
+      screenPts.length = 0;
+      const r = canvas.getBoundingClientRect();
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      const ll = map.unproject([px, py]);
+      geoStroke.push([ll.lng, ll.lat]);
+      screenPts.push(`${px},${py}`);
+      polygon.setAttribute('points', screenPts[0]);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (!isDrawing) return;
+      e.preventDefault();
+      const r = canvas.getBoundingClientRect();
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      const ll = map.unproject([px, py]);
+      geoStroke.push([ll.lng, ll.lat]);
+      screenPts.push(`${px},${py}`);
+      polygon.setAttribute('points', screenPts.join(' '));
+    };
+
+    const onUp = (_e: PointerEvent) => {
+      if (!isDrawing) return;
+      isDrawing = false;
+      svg.remove();
+      this.performLassoSelect([...geoStroke]);
+    };
+
+    canvas.addEventListener('pointerdown', onDown, { passive: false });
+    canvas.addEventListener('pointermove', onMove, { passive: false });
+    canvas.addEventListener('pointerup', onUp);
+    canvas.addEventListener('pointercancel', onUp);
+
+    this.lassoCleanup = () => {
+      canvas.removeEventListener('pointerdown', onDown);
+      canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('pointerup', onUp);
+      canvas.removeEventListener('pointercancel', onUp);
+      canvas.style.touchAction = '';
+      canvas.style.cursor = '';
+      svg.remove();
+    };
+  }
+
+  private detachLassoPointerEvents(): void {
+    this.lassoCleanup?.();
+    this.lassoCleanup = null;
+  }
+
+  private performLassoSelect(stroke: [number, number][]): void {
+    if (stroke.length < 3) {
+      EventBus.emit('toast', { message: 'Draw a closed area to select features', type: 'info', duration: 2000 });
+      return;
+    }
+    // Re-attach pointer events for next draw
+    this.detachLassoPointerEvents();
+    this.attachLassoPointerEvents();
+
+    let lassoPoly: ReturnType<typeof turf.polygon>;
+    try {
+      lassoPoly = turf.polygon([[...stroke, stroke[0]]]);
+    } catch (_) {
+      EventBus.emit('toast', { message: 'Invalid lasso shape', type: 'warning' });
+      return;
+    }
+
+    const selected: FieldFeature[] = [];
+    for (const feature of this.features) {
+      try {
+        if (turf.booleanIntersects(lassoPoly, feature.geometry as Parameters<typeof turf.booleanIntersects>[1])) {
+          selected.push(feature);
+        }
+      } catch (_) { /* skip invalid geometry */ }
+    }
+
+    this.lassoSelection = selected;
+    this.mapManager.highlightFeatures(selected);
+
+    const hud = document.getElementById('lasso-hud');
+    const countEl = document.getElementById('lasso-count');
+    if (countEl) countEl.textContent = `${selected.length} selected`;
+    if (selected.length > 0) {
+      hud?.classList.remove('hidden');
+    } else {
+      hud?.classList.add('hidden');
+      EventBus.emit('toast', { message: 'No features in selection', type: 'info', duration: 1500 });
+    }
+  }
+
+  private clearLassoSelection(): void {
+    this.lassoSelection = [];
+    this.mapManager.highlightFeatures([]);
+    document.getElementById('lasso-hud')?.classList.add('hidden');
+    this.detachLassoPointerEvents();
+  }
+
+  private wireLassoHud(): void {
+    document.getElementById('lasso-delete')?.addEventListener('click', async () => {
+      const toDelete = [...this.lassoSelection];
+      if (toDelete.length === 0) return;
+      this.clearLassoSelection();
+      for (const feature of toDelete) {
+        await this.storage.deleteFeature(feature.id);
+        EventBus.emit('feature-deleted', { id: feature.id });
+      }
+      EventBus.emit('toast', { message: `${toDelete.length} feature${toDelete.length !== 1 ? 's' : ''} deleted`, type: 'success', duration: 2000 });
+    });
+
+    document.getElementById('lasso-dismiss')?.addEventListener('click', () => {
+      this.clearLassoSelection();
     });
   }
 
