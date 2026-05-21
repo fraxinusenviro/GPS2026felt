@@ -233,7 +233,8 @@ export class MapManager {
       center: [-63.755, 44.562], // Default to NS, Canada
       zoom: 13,
       maxZoom: 23,
-      attributionControl: false
+      attributionControl: false,
+      preserveDrawingBuffer: true, // required for canvas.toDataURL() in Layout Mode
     });
 
     // Add attribution in a non-intrusive way
