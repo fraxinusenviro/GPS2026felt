@@ -616,7 +616,7 @@ export class App {
     });
 
     document.getElementById('btn-layout-mode')?.addEventListener('click', () => {
-      this.layoutMode.open();
+      this.layoutMode.startExtentSelection();
     });
 
     document.getElementById('btn-feature-list')?.addEventListener('click', () => {
