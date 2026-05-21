@@ -17,6 +17,7 @@
     "@types/sql.js": "^1.4.9",
     "geotiff": "^3.0.5",
     "idb": "^8.0.0",
+    "jspdf": "^4.2.1",
     "jszip": "^3.10.1",
     "maplibre-gl": "^4.5.2",
     "pdfjs-dist": "^4.4.168",
