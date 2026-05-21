@@ -1,6 +1,5 @@
 import { EventBus } from '../utils/EventBus';
-
-const TEMPLATE_URL = `${import.meta.env.BASE_URL}titleblock_template_transparent.png`;
+import TEMPLATE_URL from '../assets/titleblock_template_transparent.png';
 
 interface FieldDef {
   id: string;
@@ -101,7 +100,10 @@ export class LayoutMode {
         this.templateMissing = true;
         tmplImg.style.display = 'none';
         const notice = this.overlay?.querySelector<HTMLElement>('#lm-tmpl-notice');
-        if (notice) notice.style.display = 'block';
+        if (notice) {
+          notice.style.display = 'block';
+          notice.textContent = `Template image failed to load from: ${TEMPLATE_URL}`;
+        }
       };
       tmplImg.src = TEMPLATE_URL; // set AFTER onerror so the event is never missed
     }
