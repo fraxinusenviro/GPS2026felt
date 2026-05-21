@@ -1,5 +1,7 @@
 import { EventBus } from '../utils/EventBus';
 
+const TEMPLATE_URL = `${import.meta.env.BASE_URL}titleblock_template_transparent.png`;
+
 interface FieldDef {
   id: string;
   left: number;    // % of sheet width
@@ -92,7 +94,7 @@ export class LayoutMode {
     this.overlay.innerHTML = this.buildHTML();
     document.body.appendChild(this.overlay);
     this.wireEvents();
-    // Probe for template image
+    // Set template src AFTER onerror is attached so we never miss a load failure
     const tmplImg = this.overlay.querySelector<HTMLImageElement>('#lm-template');
     if (tmplImg) {
       tmplImg.onerror = () => {
@@ -101,6 +103,7 @@ export class LayoutMode {
         const notice = this.overlay?.querySelector<HTMLElement>('#lm-tmpl-notice');
         if (notice) notice.style.display = 'block';
       };
+      tmplImg.src = TEMPLATE_URL; // set AFTER onerror so the event is never missed
     }
   }
 
@@ -181,7 +184,7 @@ export class LayoutMode {
             ? `<img id="lm-map-snapshot" src="${this.mapSnapshot}" alt="" />`
             : `<div id="lm-map-placeholder"><span>Map snapshot unavailable<br><small>Enable preserveDrawingBuffer in map settings</small></span></div>`
           }
-          <img id="lm-template" src="/titleblock_template_transparent.png" alt="" />
+          <img id="lm-template" alt="" />
           <div id="lm-fields-layer">
             ${FIELDS.map(f => this.buildFieldEl(f)).join('\n')}
           </div>
@@ -353,7 +356,7 @@ export class LayoutMode {
     // 2) Title block template
     if (!this.templateMissing) {
       try {
-        const tmpl = await loadImage('/titleblock_template_transparent.png');
+        const tmpl = await loadImage(TEMPLATE_URL);
         ctx.drawImage(tmpl, 0, 0, EW, EH);
       } catch { /* no template found */ }
     }
