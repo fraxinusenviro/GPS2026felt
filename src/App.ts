@@ -25,6 +25,7 @@ import { FeatureListPanel } from './ui/FeatureListPanel';
 import { StatsPanel } from './ui/StatsPanel';
 import { UndoManager } from './utils/UndoManager';
 import { SymbolRenderer } from './ui/SymbolRenderer';
+import { LayoutMode } from './ui/LayoutMode';
 import * as turf from '@turf/turf';
 
 export class App {
@@ -58,6 +59,7 @@ export class App {
   private statsPanel!: StatsPanel;
   private undoManager = UndoManager.getInstance();
   private symbolRenderer!: SymbolRenderer;
+  private layoutMode!: LayoutMode;
 
   private settings!: AppSettings;
   private features: FieldFeature[] = [];
@@ -80,6 +82,7 @@ export class App {
 
     // SymbolRenderer must be created after map init (needs the map instance)
     this.symbolRenderer = new SymbolRenderer(this.mapManager.getMap());
+    this.layoutMode = new LayoutMode(() => this.mapManager.getCanvas());
 
     this.basemapManager = new BasemapManager(this.mapManager);
     this.basemapManager.init(this.settings.basemap_id);
@@ -610,6 +613,10 @@ export class App {
 
     document.getElementById('btn-screenshot')?.addEventListener('click', () => {
       this.captureMapScreenshot();
+    });
+
+    document.getElementById('btn-layout-mode')?.addEventListener('click', () => {
+      this.layoutMode.open();
     });
 
     document.getElementById('btn-feature-list')?.addEventListener('click', () => {
