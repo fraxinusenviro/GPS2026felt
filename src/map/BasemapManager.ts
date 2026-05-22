@@ -9,6 +9,7 @@ import { StylePicker } from '../ui/StylePicker';
 import { renderSwatchDataUrl } from '../ui/SymbolRenderer';
 
 const BM_STACK_KEY = 'fm2026_bm_stack';
+const BM_STACK_PROJECT_KEY = 'fm2026_bm_stack_project';
 
 interface StackLayer {
   instanceId: string;
@@ -100,6 +101,8 @@ export class BasemapManager {
   private onTypePresetChange: ((preset: TypePreset) => void) | null = null;
   private stylePicker = new StylePicker();
 
+  private currentProjectId: string = '';
+
   constructor(private mapManager: MapManager) {}
 
   // ---- State persistence ----
@@ -108,10 +111,15 @@ export class BasemapManager {
     try {
       // Only persist layers whose defId matches a known definition (not promoted user layers)
       const knownIds = new Set(ALL_DEFS().map(d => d.id));
-      localStorage.setItem(BM_STACK_KEY, JSON.stringify({
+      const data = JSON.stringify({
         stack: this.stack.filter(l => knownIds.has(l.defId)),
         collapsed: [...this.collapsedSections],
-      }));
+      });
+      localStorage.setItem(BM_STACK_KEY, data);
+      // Record which project this stack belongs to so reload can detect it
+      if (this.currentProjectId) {
+        localStorage.setItem(BM_STACK_PROJECT_KEY, this.currentProjectId);
+      }
     } catch { /* ignore QuotaExceededError */ }
   }
 
@@ -123,11 +131,40 @@ export class BasemapManager {
       if (!Array.isArray(parsed.stack) || parsed.stack.length === 0) return false;
       this.stack = parsed.stack;
       if (Array.isArray(parsed.collapsed)) {
-        // Merge: default-collapsed sections always start collapsed regardless of saved state
-        this.collapsedSections = new Set([...this.collapsedSections, ...parsed.collapsed]);
+        this.collapsedSections = new Set(parsed.collapsed);
       }
       return true;
     } catch { return false; }
+  }
+
+  /**
+   * Called on app startup. Restores from localStorage if it contains data for
+   * this project (most-recent session state). Falls back to the project's stored
+   * JSON from IndexedDB only when localStorage is empty or belongs to a different
+   * project, preventing stale IndexedDB data from overwriting recent changes.
+   */
+  initForProject(projectId: string, fallbackStackJson?: string): void {
+    this.currentProjectId = projectId;
+    try {
+      const raw = localStorage.getItem(BM_STACK_KEY);
+      const lsProjectId = localStorage.getItem(BM_STACK_PROJECT_KEY);
+      if (raw && lsProjectId === projectId) {
+        const parsed = JSON.parse(raw) as { stack?: StackLayer[]; collapsed?: string[] };
+        if (Array.isArray(parsed.stack) && parsed.stack.length > 0) {
+          this.stack = parsed.stack;
+          if (Array.isArray(parsed.collapsed)) {
+            this.collapsedSections = new Set(parsed.collapsed);
+          }
+          this.rebuildMap();
+          return;
+        }
+      }
+    } catch { /* fall through to project JSON */ }
+
+    // No usable localStorage data for this project; use the stored project stack
+    if (fallbackStackJson) {
+      this.setActiveProjectStack(fallbackStackJson);
+    }
   }
 
   /** Returns the current stack serialized to JSON (for project persistence). */
@@ -141,14 +178,15 @@ export class BasemapManager {
     } catch { return '{}'; }
   }
 
-  /** Replaces the active stack from a project's stored JSON (without touching localStorage). */
-  setActiveProjectStack(stackJson: string): void {
+  /** Replaces the active stack from a project's stored JSON and mirrors to localStorage. */
+  setActiveProjectStack(stackJson: string, projectId?: string): void {
     try {
       const parsed = JSON.parse(stackJson) as { stack?: StackLayer[]; collapsed?: string[] };
       if (Array.isArray(parsed.stack) && parsed.stack.length > 0) {
+        if (projectId) this.currentProjectId = projectId;
         this.stack = parsed.stack;
         if (Array.isArray(parsed.collapsed)) {
-          this.collapsedSections = new Set([...this.collapsedSections, ...parsed.collapsed]);
+          this.collapsedSections = new Set(parsed.collapsed);
         }
         this.rebuildMap();
         this.saveStack(); // mirror to localStorage for live buffer
