@@ -2,6 +2,8 @@ import { EventBus } from '../utils/EventBus';
 import TEMPLATE_URL from '../assets/titleblock_template_transparent.png';
 import { LayoutExtentSelector, type CropBox } from './LayoutExtentSelector';
 
+// ── Interfaces ────────────────────────────────────────────────
+
 interface FieldDef {
   id: string;
   left: number;
@@ -37,8 +39,35 @@ interface LayoutSavedState {
   annotations: Array<AnnoState & { html: string }>;
 }
 
-const LS_KEY = 'fraxinus_layout_state';
+export interface MapState {
+  zoom: number;
+  lat: number;
+  lng: number;
+  bearing: number;
+  canvasW: number;
+  canvasH: number;
+}
 
+interface ExportSettings {
+  dpi: number;
+  paperSize: string;
+  landscape: boolean;
+}
+
+// ── Constants ─────────────────────────────────────────────────
+
+const LS_KEY     = 'fraxinus_layout_state';
+const LS_EXP_KEY = 'fraxinus_layout_export_settings';
+
+const PAPER_SIZES: Record<string, { w: number; h: number; label: string }> = {
+  tabloid: { w: 11,    h: 17,    label: '11×17 (Tabloid)' },
+  letter:  { w: 8.5,  h: 11,    label: 'Letter (8.5×11)' },
+  legal:   { w: 8.5,  h: 14,    label: 'Legal (8.5×14)' },
+  a4:      { w: 8.27, h: 11.69, label: 'A4' },
+  a3:      { w: 11.69,h: 16.54, label: 'A3' },
+};
+
+// Map viewport within the sheet (percentage of canvas dimensions)
 const MAP_VP = { left: 0.78125, top: 1.40154, width: 85.25391, height: 97.47722 };
 
 const FIELDS: FieldDef[] = [
@@ -56,6 +85,8 @@ const FIELDS: FieldDef[] = [
 
 const DEFAULT_STYLE: FieldStyle = { fontWeight: '400', fontSize: 11, color: '#1a1a1a', textAlign: 'left' };
 
+// ── Class ────────────────────────────────────────────────────
+
 export class LayoutMode {
   private overlay: HTMLElement | null = null;
   private isActive = false;
@@ -65,6 +96,7 @@ export class LayoutMode {
   private templateMissing = false;
   private escHandler: ((e: KeyboardEvent) => void) | null = null;
   private cropBox: CropBox | null = null;
+  private mapState: MapState | null = null;
 
   // Zoom / pan state
   private scale = 1.0;
@@ -77,7 +109,17 @@ export class LayoutMode {
   private annotations = new Map<string, AnnoState>();
   private annoCounter = 0;
 
-  constructor(private getMapCanvas: () => HTMLCanvasElement) {
+  // Export settings
+  private exportSettings: ExportSettings = { dpi: 200, paperSize: 'tabloid', landscape: true };
+  private showScaleBar = false;
+  private showNorthArrow = false;
+  private useVectorLayout = false;
+
+  constructor(
+    private getMapCanvas: () => HTMLCanvasElement,
+    private getMapStateFn?: () => MapState,
+    private getHighResSnapshot?: () => Promise<string>,
+  ) {
     for (const f of FIELDS) {
       this.fieldStyles.set(f.id, {
         fontWeight: f.defaultWeight,
@@ -86,6 +128,7 @@ export class LayoutMode {
         textAlign: f.defaultAlign,
       });
     }
+    this.loadExportSettings();
   }
 
   // ── Public entry points ───────────────────────────────────────
@@ -128,6 +171,11 @@ export class LayoutMode {
     this.isActive = true;
     this.cropBox = crop;
 
+    // Capture map state for scale bar / north arrow
+    if (this.getMapStateFn) {
+      try { this.mapState = this.getMapStateFn(); } catch { this.mapState = null; }
+    }
+
     try {
       this.mapSnapshot = this.getMapCanvas().toDataURL('image/png');
     } catch {
@@ -160,7 +208,9 @@ export class LayoutMode {
       tmplImg.src = TEMPLATE_URL;
     }
 
-    // Measure sheet after first paint, then fit + restore saved state
+    // Hide raster template when in vector layout mode
+    if (this.useVectorLayout && tmplImg) tmplImg.style.display = 'none';
+
     requestAnimationFrame(() => {
       const sheet = this.overlay?.querySelector<HTMLElement>('#lm-sheet');
       if (sheet) {
@@ -169,21 +219,27 @@ export class LayoutMode {
         this.fitSheet();
       }
       this.restoreState();
+      this.updateVectorOverlay();
     });
   }
 
   private buildHTML(): string {
+    const ps = PAPER_SIZES;
+    const paperOpts = Object.entries(ps)
+      .map(([k, v]) => `<option value="${k}" ${k === this.exportSettings.paperSize ? 'selected' : ''}>${v.label}</option>`)
+      .join('');
+
     return `
       <div id="lm-toolbar">
         <div class="lm-tb-section">
           <span class="lm-title-badge">
             <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><rect x="2" y="2" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="13" y="2" width="5" height="16" rx="0" fill="currentColor" opacity=".25"/><rect x="5" y="5" width="6" height="1.2" rx=".5"/><rect x="5" y="8" width="4" height="1.2" rx=".5"/></svg>
-            Layout Mode
+            Layout
           </span>
         </div>
 
         <div class="lm-tb-section lm-field-section">
-          <span class="lm-tb-dimmed" id="lm-field-name">Click a field to select</span>
+          <span class="lm-tb-dimmed" id="lm-field-name">Click a field</span>
         </div>
 
         <div class="lm-tb-section lm-style-section" id="lm-style-controls">
@@ -235,10 +291,45 @@ export class LayoutMode {
           <button class="lm-icon-btn" id="lm-zoom-in" title="Zoom In">+</button>
         </div>
 
+        <div class="lm-tb-section lm-export-settings-section">
+          <div class="lm-ctrl-group">
+            <label class="lm-ctrl-label">Paper</label>
+            <select id="lm-paper-size" class="lm-select">${paperOpts}</select>
+          </div>
+          <div class="lm-ctrl-group">
+            <label class="lm-ctrl-label">DPI</label>
+            <input type="number" id="lm-dpi" class="lm-select lm-dpi-input"
+              value="${this.exportSettings.dpi}" min="72" max="600" step="50" title="Export resolution (DPI)" />
+          </div>
+          <div class="lm-ctrl-group">
+            <label class="lm-ctrl-label">Orient</label>
+            <button class="lm-icon-btn lm-orient-btn ${this.exportSettings.landscape ? 'lm-btn-active' : ''}" id="lm-orient" title="Toggle landscape/portrait">
+              ${this.exportSettings.landscape ? 'Land' : 'Port'}
+            </button>
+          </div>
+        </div>
+
+        <div class="lm-tb-section lm-map-options-section">
+          <div class="lm-ctrl-group">
+            <label class="lm-ctrl-label">Map Options</label>
+            <div class="lm-align-row">
+              <button class="lm-icon-btn lm-toggle-btn ${this.showScaleBar ? 'lm-btn-active' : ''}" id="lm-toggle-scalebar" title="Toggle scale bar">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><rect x="1" y="7" width="14" height="2" rx=".5"/><rect x="1" y="5" width="2" height="6" rx=".5"/><rect x="13" y="5" width="2" height="6" rx=".5"/><rect x="7" y="6" width="2" height="4" rx=".5"/></svg>
+              </button>
+              <button class="lm-icon-btn lm-toggle-btn ${this.showNorthArrow ? 'lm-btn-active' : ''}" id="lm-toggle-northarrow" title="Toggle north arrow">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><path d="M8 2l3 9-3-2-3 2z"/><path d="M8 14V9" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+              </button>
+              <button class="lm-icon-btn lm-toggle-btn ${this.useVectorLayout ? 'lm-btn-active' : ''}" id="lm-toggle-vector" title="Toggle vector layout (SVG title block)">
+                <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><rect x="1" y="1" width="14" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="10" y="1" width="5" height="14" fill="currentColor" opacity=".2"/><line x1="10" y1="1" x2="10" y2="15" stroke="currentColor" stroke-width="1"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div class="lm-tb-section lm-actions-section">
           <button class="lm-action-btn lm-anno-btn" id="lm-add-anno" title="Add free text annotation">
             <svg viewBox="0 0 18 18" fill="currentColor" width="13" height="13"><path d="M3 14l2-5L12 2l3 3-7 7-5 2zm2-5l3 3"/></svg>
-            + Text
+            Text
           </button>
           <button class="lm-action-btn lm-export-btn" id="lm-export-png">
             <svg viewBox="0 0 18 18" fill="currentColor" width="14" height="14"><path d="M9 1a8 8 0 1 0 0 16A8 8 0 0 0 9 1zm0 2a6 6 0 1 1 0 12A6 6 0 0 1 9 3zm-.5 3v3.3H6l3 3.7 3-3.7H9.5V6h-1z"/></svg>
@@ -247,6 +338,10 @@ export class LayoutMode {
           <button class="lm-action-btn lm-export-btn" id="lm-export-pdf">
             <svg viewBox="0 0 18 18" fill="currentColor" width="14" height="14"><path d="M4 2h7l3 3v11H4V2zm7 0v3h3M7 9h4M7 12h4M7 6h2"/></svg>
             PDF
+          </button>
+          <button class="lm-action-btn lm-export-btn lm-svg-btn" id="lm-export-svg" title="Export as vector SVG">
+            <svg viewBox="0 0 18 18" fill="currentColor" width="14" height="14"><rect x="2" y="2" width="14" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5 11l3-6 3 6" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="5.5" y1="9.5" x2="10.5" y2="9.5" stroke="currentColor" stroke-width="1"/></svg>
+            SVG
           </button>
           <button class="lm-action-btn lm-close-btn" id="lm-close" title="Exit Layout Mode (Esc)">✕ Exit</button>
         </div>
@@ -258,7 +353,8 @@ export class LayoutMode {
             ? `<img id="lm-map-snapshot" src="${this.mapSnapshot}" alt="" />`
             : `<div id="lm-map-placeholder"><span>Map snapshot unavailable<br><small>Enable preserveDrawingBuffer in map settings</small></span></div>`
           }
-          <img id="lm-template" alt="" />
+          <img id="lm-template" alt="" style="${this.useVectorLayout ? 'display:none;' : ''}" />
+          <div id="lm-vector-overlay" style="display:${this.useVectorLayout ? 'block' : 'none'};position:absolute;inset:0;pointer-events:none;"></div>
           <div id="lm-fields-layer">
             ${FIELDS.map(f => this.buildFieldEl(f)).join('\n')}
           </div>
@@ -340,47 +436,152 @@ export class LayoutMode {
     ov.querySelector('#lm-zoom-out')?.addEventListener('click', () => this.zoomBy(1 / 1.2));
     ov.querySelector('#lm-zoom-fit')?.addEventListener('click', () => this.fitSheet());
 
+    // Paper size
+    const paperSel = ov.querySelector<HTMLSelectElement>('#lm-paper-size');
+    paperSel?.addEventListener('change', () => {
+      this.exportSettings.paperSize = paperSel.value;
+      this.saveExportSettings();
+    });
+
+    // DPI
+    const dpiInput = ov.querySelector<HTMLInputElement>('#lm-dpi');
+    dpiInput?.addEventListener('change', () => {
+      const v = parseInt(dpiInput.value, 10);
+      if (v >= 72 && v <= 600) {
+        this.exportSettings.dpi = v;
+        this.saveExportSettings();
+      }
+    });
+
+    // Orientation
+    ov.querySelector('#lm-orient')?.addEventListener('click', () => {
+      this.exportSettings.landscape = !this.exportSettings.landscape;
+      this.saveExportSettings();
+      const btn = ov.querySelector<HTMLElement>('#lm-orient');
+      if (btn) {
+        btn.textContent = this.exportSettings.landscape ? 'Land' : 'Port';
+        btn.classList.toggle('lm-btn-active', this.exportSettings.landscape);
+      }
+    });
+
+    // Scale bar toggle
+    ov.querySelector('#lm-toggle-scalebar')?.addEventListener('click', () => {
+      this.showScaleBar = !this.showScaleBar;
+      ov.querySelector('#lm-toggle-scalebar')?.classList.toggle('lm-btn-active', this.showScaleBar);
+      this.saveExportSettings();
+    });
+
+    // North arrow toggle
+    ov.querySelector('#lm-toggle-northarrow')?.addEventListener('click', () => {
+      this.showNorthArrow = !this.showNorthArrow;
+      ov.querySelector('#lm-toggle-northarrow')?.classList.toggle('lm-btn-active', this.showNorthArrow);
+      this.saveExportSettings();
+    });
+
+    // Vector layout toggle
+    ov.querySelector('#lm-toggle-vector')?.addEventListener('click', () => {
+      this.useVectorLayout = !this.useVectorLayout;
+      ov.querySelector('#lm-toggle-vector')?.classList.toggle('lm-btn-active', this.useVectorLayout);
+      const tmpl = ov.querySelector<HTMLElement>('#lm-template');
+      if (tmpl) tmpl.style.display = this.useVectorLayout ? 'none' : '';
+      const vecOv = ov.querySelector<HTMLElement>('#lm-vector-overlay');
+      if (vecOv) vecOv.style.display = this.useVectorLayout ? 'block' : 'none';
+      this.updateVectorOverlay();
+      this.saveExportSettings();
+    });
+
     // Annotation add
     ov.querySelector('#lm-add-anno')?.addEventListener('click', () => this.addAnnotationAtCenter());
 
     // Exports
     ov.querySelector('#lm-export-png')?.addEventListener('click', () => void this.exportPNG());
     ov.querySelector('#lm-export-pdf')?.addEventListener('click', () => void this.exportPDF());
+    ov.querySelector('#lm-export-svg')?.addEventListener('click', () => void this.exportSVG());
 
-    // Workspace wheel zoom + drag pan
+    // Workspace pan + pinch zoom
     const workspace = ov.querySelector<HTMLElement>('#lm-workspace')!;
     this.wireWorkspacePan(workspace);
+  }
+
+  private wireWorkspacePan(workspace: HTMLElement): void {
+    const activePointers = new Map<number, { x: number; y: number }>();
+    let panStartX = 0, panStartY = 0;
+    let panOriginX = 0, panOriginY = 0;
+    let pinchOriginScale = 1;
+    let pinchOriginDist = 0;
+
+    const pointerDist = () => {
+      const pts = [...activePointers.values()];
+      if (pts.length < 2) return 0;
+      return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    };
+
+    workspace.addEventListener('pointerdown', (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('.lm-field, .lm-anno-content, .lm-anno-resize, .lm-anno-delete')) return;
+      e.preventDefault();
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      workspace.setPointerCapture(e.pointerId);
+
+      if (activePointers.size === 1) {
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        panOriginX = this.panX;
+        panOriginY = this.panY;
+        workspace.classList.add('is-panning');
+      } else if (activePointers.size === 2) {
+        // Switch to pinch mode
+        pinchOriginScale = this.scale;
+        pinchOriginDist = pointerDist();
+        workspace.classList.remove('is-panning');
+        workspace.classList.add('is-pinching');
+      }
+    });
+
+    workspace.addEventListener('pointermove', (e: PointerEvent) => {
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (activePointers.size === 1) {
+        this.panX = panOriginX + (e.clientX - panStartX);
+        this.panY = panOriginY + (e.clientY - panStartY);
+        this.applyTransform();
+      } else if (activePointers.size === 2) {
+        const d = pointerDist();
+        if (pinchOriginDist > 0) {
+          this.scale = Math.max(0.15, Math.min(4.0, pinchOriginScale * (d / pinchOriginDist)));
+          this.applyTransform();
+        }
+      }
+    });
+
+    const onRelease = (e: PointerEvent) => {
+      activePointers.delete(e.pointerId);
+      if (activePointers.size === 0) {
+        workspace.classList.remove('is-panning', 'is-pinching');
+      } else if (activePointers.size === 1) {
+        // Remaining finger becomes new pan anchor
+        const [id, pos] = [...activePointers.entries()][0];
+        panStartX = pos.x;
+        panStartY = pos.y;
+        panOriginX = this.panX;
+        panOriginY = this.panY;
+        workspace.classList.remove('is-pinching');
+        workspace.classList.add('is-panning');
+        void id;
+      }
+    };
+
+    workspace.addEventListener('pointerup', onRelease);
+    workspace.addEventListener('pointercancel', onRelease);
+
+    // Desktop wheel zoom
     workspace.addEventListener('wheel', (e: WheelEvent) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 0.9;
       this.scale = Math.max(0.15, Math.min(4.0, this.scale * factor));
       this.applyTransform();
     }, { passive: false });
-  }
-
-  private wireWorkspacePan(workspace: HTMLElement): void {
-    let panning = false;
-    let startX = 0, startY = 0, origPX = 0, origPY = 0;
-
-    workspace.addEventListener('pointerdown', (e: PointerEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.closest('.lm-field, .lm-anno, .lm-anno-content, .lm-anno-resize, .lm-anno-delete, #lm-zoom-in, #lm-zoom-out, #lm-zoom-fit')) return;
-      panning = true;
-      startX = e.clientX; startY = e.clientY;
-      origPX = this.panX; origPY = this.panY;
-      workspace.classList.add('is-panning');
-      workspace.setPointerCapture(e.pointerId);
-    });
-    workspace.addEventListener('pointermove', (e: PointerEvent) => {
-      if (!panning) return;
-      this.panX = origPX + (e.clientX - startX);
-      this.panY = origPY + (e.clientY - startY);
-      this.applyTransform();
-    });
-    workspace.addEventListener('pointerup', () => {
-      panning = false;
-      workspace.classList.remove('is-panning');
-    });
   }
 
   // ── Zoom / pan ─────────────────────────────────────────────────
@@ -406,6 +607,18 @@ export class LayoutMode {
   private zoomBy(factor: number): void {
     this.scale = Math.max(0.15, Math.min(4.0, this.scale * factor));
     this.applyTransform();
+  }
+
+  // ── Vector overlay ────────────────────────────────────────────
+
+  private updateVectorOverlay(): void {
+    const vecOv = this.overlay?.querySelector<HTMLElement>('#lm-vector-overlay');
+    if (!vecOv || !this.useVectorLayout) return;
+    const sheet = this.overlay?.querySelector<HTMLElement>('#lm-sheet');
+    if (!sheet) return;
+    const W = sheet.offsetWidth || 1746;
+    const H = sheet.offsetHeight || 1240;
+    vecOv.innerHTML = this.buildTitleBlockSVGPreview(W, H);
   }
 
   // ── Field selection + style ───────────────────────────────────
@@ -492,7 +705,6 @@ export class LayoutMode {
 
     const sr = sheet.getBoundingClientRect();
     const wr = ws.getBoundingClientRect();
-    // Centre of the visible workspace in sheet px (accounting for scale)
     const cx = ((wr.left + wr.width  / 2) - sr.left) / this.scale;
     const cy = ((wr.top  + wr.height / 2) - sr.top)  / this.scale;
 
@@ -533,7 +745,6 @@ export class LayoutMode {
       <div class="lm-anno-resize"></div>
     `;
 
-    // Focus → select
     el.querySelector('.lm-anno-content')?.addEventListener('focus', () => this.selectField(anno.id));
     el.querySelector('.lm-anno-content')?.addEventListener('blur',  () => this.saveState());
     el.querySelector('.lm-anno-content')?.addEventListener('keydown', (e: Event) => {
@@ -541,13 +752,9 @@ export class LayoutMode {
       if (ke.key === 'Enter' && !ke.shiftKey) { ke.preventDefault(); document.execCommand('insertLineBreak'); }
     });
 
-    // Delete button
     el.querySelector('.lm-anno-delete')?.addEventListener('click', () => this.deleteAnnotation(anno.id));
 
-    // Drag to move
     this.wireAnnoDrag(el, anno);
-
-    // Resize handle
     this.wireAnnoResize(el.querySelector<HTMLElement>('.lm-anno-resize')!, el, anno);
 
     layer.appendChild(el);
@@ -601,7 +808,7 @@ export class LayoutMode {
       this.selectedFieldId = null;
       const nameEl = this.overlay?.querySelector('#lm-field-name');
       if (nameEl) {
-        nameEl.textContent = 'Click a field to select';
+        nameEl.textContent = 'Click a field';
         nameEl.classList.add('lm-tb-dimmed');
         nameEl.classList.remove('lm-tb-field-active');
       }
@@ -660,10 +867,47 @@ export class LayoutMode {
     } catch { /* corrupt storage */ }
   }
 
+  private saveExportSettings(): void {
+    try {
+      localStorage.setItem(LS_EXP_KEY, JSON.stringify({
+        ...this.exportSettings,
+        showScaleBar: this.showScaleBar,
+        showNorthArrow: this.showNorthArrow,
+        useVectorLayout: this.useVectorLayout,
+      }));
+    } catch { /* ok */ }
+  }
+
+  private loadExportSettings(): void {
+    try {
+      const raw = localStorage.getItem(LS_EXP_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved.dpi)        this.exportSettings.dpi        = saved.dpi;
+      if (saved.paperSize)  this.exportSettings.paperSize  = saved.paperSize;
+      if ('landscape' in saved) this.exportSettings.landscape = saved.landscape;
+      if ('showScaleBar'   in saved) this.showScaleBar    = saved.showScaleBar;
+      if ('showNorthArrow' in saved) this.showNorthArrow  = saved.showNorthArrow;
+      if ('useVectorLayout' in saved) this.useVectorLayout = saved.useVectorLayout;
+    } catch { /* ok */ }
+  }
+
+  // ── Export dimensions ─────────────────────────────────────────
+
+  private getExportDimensions(): { EW: number; EH: number } {
+    const ps = PAPER_SIZES[this.exportSettings.paperSize] ?? PAPER_SIZES.tabloid;
+    let w = Math.round(ps.w * this.exportSettings.dpi);
+    let h = Math.round(ps.h * this.exportSettings.dpi);
+    if (this.exportSettings.landscape) {
+      return { EW: Math.max(w, h), EH: Math.min(w, h) };
+    }
+    return { EW: Math.min(w, h), EH: Math.max(w, h) };
+  }
+
   // ── Export ────────────────────────────────────────────────────
 
-  private async buildExportCanvas(): Promise<HTMLCanvasElement> {
-    const EW = 2048, EH = 1427;
+  private async buildExportCanvas(mapSrc?: string): Promise<HTMLCanvasElement> {
+    const { EW, EH } = this.getExportDimensions();
     try { await document.fonts.load(`700 14px 'Oswald'`); } catch { /* ok */ }
 
     const out = document.createElement('canvas');
@@ -672,14 +916,15 @@ export class LayoutMode {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, EW, EH);
 
-    // 1) Map snapshot with crop or auto-letterbox
-    if (this.mapSnapshot) {
-      const img = await loadImage(this.mapSnapshot);
-      const mx = EW * MAP_VP.left   / 100;
-      const my = EH * MAP_VP.top    / 100;
-      const mw = EW * MAP_VP.width  / 100;
-      const mh = EH * MAP_VP.height / 100;
+    const snapshot = mapSrc ?? this.mapSnapshot;
+    const mx = EW * MAP_VP.left   / 100;
+    const my = EH * MAP_VP.top    / 100;
+    const mw = EW * MAP_VP.width  / 100;
+    const mh = EH * MAP_VP.height / 100;
 
+    // 1) Map snapshot with crop or auto-letterbox
+    if (snapshot) {
+      const img = await loadImage(snapshot);
       if (this.cropBox) {
         const dpr = window.devicePixelRatio || 1;
         ctx.drawImage(img,
@@ -687,7 +932,6 @@ export class LayoutMode {
           this.cropBox.w * dpr, this.cropBox.h * dpr,
           mx, my, mw, mh);
       } else {
-        // Auto letterbox-crop to avoid squish
         const tgtAR = mw / mh;
         const imgAR = img.naturalWidth / img.naturalHeight;
         let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
@@ -697,15 +941,23 @@ export class LayoutMode {
       }
     }
 
-    // 2) Template overlay
-    if (!this.templateMissing) {
+    // 2) Scale bar (over map)
+    if (this.showScaleBar) this.drawScaleBar(ctx, mx, my, mw, mh);
+
+    // 3) North arrow (over map)
+    if (this.showNorthArrow) this.drawNorthArrow(ctx, mx, my, mw, mh);
+
+    // 4) Template overlay (raster mode) or vector title block
+    if (this.useVectorLayout) {
+      this.drawVectorTitleBlock(ctx, EW, EH);
+    } else if (!this.templateMissing) {
       try {
         const tmpl = await loadImage(TEMPLATE_URL);
         ctx.drawImage(tmpl, 0, 0, EW, EH);
       } catch { /* no template */ }
     }
 
-    // 3) Text fields
+    // 5) Text fields
     const scaleX = this.sheetBaseW ? EW / this.sheetBaseW : 1;
     const scaleY = this.sheetBaseH ? EH / this.sheetBaseH : 1;
 
@@ -721,7 +973,7 @@ export class LayoutMode {
       this.drawTextBlock(ctx, rawText, s, x, y, w, h);
     }
 
-    // 4) Annotations
+    // 6) Annotations
     for (const [, anno] of this.annotations) {
       const content = this.overlay?.querySelector<HTMLElement>(`#lm-a-${anno.id} .lm-anno-content`);
       const rawText = content?.innerText?.trim() ?? '';
@@ -733,6 +985,252 @@ export class LayoutMode {
 
     return out;
   }
+
+  // ── Scale bar ─────────────────────────────────────────────────
+
+  private drawScaleBar(ctx: CanvasRenderingContext2D, mx: number, my: number, mw: number, mh: number): void {
+    if (!this.mapState) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const { zoom, lat, canvasW } = this.mapState;
+    const containerW = canvasW / dpr;
+
+    // Meters per CSS pixel at this zoom and latitude
+    const metersPerContainerPx = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+    // Meters per export pixel in the map frame
+    const displayedCssW = this.cropBox ? this.cropBox.w : containerW;
+    const metersPerExportPx = metersPerContainerPx * displayedCssW / mw;
+
+    // Choose a round bar distance (~20% of frame width)
+    const targetMeters = mw * 0.18 * metersPerExportPx;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(targetMeters, 1))));
+    const multiples = [1, 2, 5, 10];
+    let niceMeters = magnitude;
+    for (const m of multiples) {
+      if (magnitude * m <= targetMeters * 1.4) niceMeters = magnitude * m;
+    }
+
+    const barPx = niceMeters / metersPerExportPx;
+    const label = niceMeters >= 1000 ? `${niceMeters / 1000} km` : `${Math.round(niceMeters)} m`;
+
+    const barX = mx + 14;
+    const barY = my + mh - 32;
+    const barH = 7;
+
+    // White backing
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    roundRect(ctx, barX - 6, barY - 18, barPx + 20, barH + 26, 3);
+    ctx.fill();
+
+    // Alternating segments
+    ctx.fillStyle = '#333';
+    ctx.fillRect(barX, barY, barPx / 2, barH);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(barX + barPx / 2, barY, barPx / 2, barH);
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barPx, barH);
+
+    // End ticks
+    ctx.beginPath();
+    ctx.moveTo(barX, barY - 3); ctx.lineTo(barX, barY + barH + 3);
+    ctx.moveTo(barX + barPx / 2, barY + 1); ctx.lineTo(barX + barPx / 2, barY + barH - 1);
+    ctx.moveTo(barX + barPx, barY - 3); ctx.lineTo(barX + barPx, barY + barH + 3);
+    ctx.stroke();
+
+    // Labels
+    ctx.fillStyle = '#222';
+    ctx.font = `bold ${Math.max(9, mw * 0.008)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('0', barX, barY - 1);
+    ctx.fillText(label, barX + barPx, barY - 1);
+    ctx.restore();
+  }
+
+  // ── North arrow ────────────────────────────────────────────────
+
+  private drawNorthArrow(ctx: CanvasRenderingContext2D, mx: number, my: number, mw: number, _mh: number): void {
+    const bearing = this.mapState?.bearing ?? 0;
+    const r = Math.max(18, mw * 0.018);
+    const cx = mx + mw - r - 14;
+    const cy = my + r + 14;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate((bearing * Math.PI) / 180);
+
+    // Background circle
+    ctx.beginPath();
+    ctx.arc(0, 0, r + 3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fill();
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // North half (dark)
+    ctx.beginPath();
+    ctx.moveTo(0, -r);
+    ctx.lineTo(r * 0.38, 0);
+    ctx.lineTo(0, -r * 0.18);
+    ctx.closePath();
+    ctx.fillStyle = '#222';
+    ctx.fill();
+
+    // South half (white with outline)
+    ctx.beginPath();
+    ctx.moveTo(0, r);
+    ctx.lineTo(r * 0.38, 0);
+    ctx.lineTo(0, -r * 0.18);
+    ctx.closePath();
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+
+    ctx.restore();
+
+    // "N" label above arrow (not rotated)
+    ctx.save();
+    const fontSize = Math.max(9, r * 0.7);
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.fillStyle = '#222';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('N', cx, cy - r - 4);
+    ctx.restore();
+  }
+
+  // ── Vector title block (canvas draw) ─────────────────────────
+
+  private drawVectorTitleBlock(ctx: CanvasRenderingContext2D, EW: number, EH: number): void {
+    const divX = EW * (MAP_VP.left + MAP_VP.width) / 100;
+    const tbW  = EW - divX;
+
+    ctx.save();
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    ctx.fillStyle = '#f8f8f8';
+
+    // Right sidebar background
+    ctx.fillRect(divX, 0, tbW, EH);
+
+    // Outer page border
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, EW - 2, EH - 2);
+
+    // Vertical divider
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(divX, 0); ctx.lineTo(divX, EH);
+    ctx.stroke();
+
+    ctx.lineWidth = 0.75;
+    ctx.strokeStyle = '#555';
+
+    const hLine = (pct: number) => {
+      const y = EH * pct / 100;
+      ctx.beginPath();
+      ctx.moveTo(divX, y); ctx.lineTo(EW, y);
+      ctx.stroke();
+    };
+
+    // Horizontal dividers
+    hLine(12);    // top of legend
+    hLine(46);    // bottom of legend
+    hLine(52.9);  // top of title
+    hLine(62.1);  // bottom of title
+    hLine(62.85); // info rows start
+    hLine(64.4);
+    hLine(65.95);
+    hLine(67.5);
+    hLine(69.05);
+    hLine(70.5);  // end of info rows
+    hLine(83.1);  // notes
+    hLine(91.3);  // end of notes
+    hLine(93.0);  // params
+
+    // Vertical sub-divider in info rows (label | value | figure)
+    const infoL = 90.43, figL = 93.25;
+    const rowTop = EH * 62.85 / 100, rowBot = EH * 70.5 / 100;
+    ctx.beginPath();
+    ctx.moveTo(EW * infoL / 100, rowTop); ctx.lineTo(EW * infoL / 100, rowBot);
+    ctx.moveTo(EW * figL  / 100, rowTop); ctx.lineTo(EW * figL  / 100, rowBot);
+    ctx.stroke();
+
+    // Label text for info rows
+    const labelStyle: FieldStyle = { fontWeight: '400', fontSize: Math.max(7, EH * 0.008), color: '#666', textAlign: 'left' };
+    const infoLabels = [
+      { label: 'Project', pct: 62.85 },
+      { label: 'Drawn',   pct: 64.40 },
+      { label: 'Checked', pct: 65.95 },
+      { label: 'Approved',pct: 67.50 },
+      { label: 'Date',    pct: 69.05 },
+    ];
+    for (const row of infoLabels) {
+      const ry = EH * row.pct / 100;
+      const rh = EH * 1.45 / 100;
+      this.drawTextBlock(ctx, row.label, labelStyle, divX + 2, ry + 1, EW * (infoL - MAP_VP.left - MAP_VP.width) / 100 - 4, rh);
+    }
+
+    // Section labels
+    const secStyle: FieldStyle = { fontWeight: '300', fontSize: Math.max(7, EH * 0.007), color: '#888', textAlign: 'left' };
+    this.drawTextBlock(ctx, 'LEGEND / MAP NOTES', secStyle, divX + 3, EH * 12 / 100 + 2, tbW - 6, EH * 0.02);
+    this.drawTextBlock(ctx, 'MAP TITLE', secStyle, divX + 3, EH * 52.9 / 100 + 2, tbW - 6, EH * 0.02);
+    this.drawTextBlock(ctx, 'NOTES', secStyle, divX + 3, EH * 83.1 / 100 + 2, tbW - 6, EH * 0.02);
+    this.drawTextBlock(ctx, 'MAP PARAMETERS', secStyle, divX + 3, EH * 93 / 100 + 2, tbW - 6, EH * 0.02);
+
+    ctx.restore();
+  }
+
+  // ── Vector title block (SVG preview) ─────────────────────────
+
+  private buildTitleBlockSVGPreview(W: number, H: number): string {
+    const divX = W * (MAP_VP.left + MAP_VP.width) / 100;
+    const tbW  = W - divX;
+    const parts: string[] = [];
+
+    parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="pointer-events:none">`);
+    parts.push(`<rect x="${divX}" y="0" width="${tbW}" height="${H}" fill="#f8f8f8" stroke="none"/>`);
+    parts.push(`<rect x="1" y="1" width="${W - 2}" height="${H - 2}" fill="none" stroke="#222" stroke-width="2"/>`);
+    parts.push(`<line x1="${divX}" y1="0" x2="${divX}" y2="${H}" stroke="#333" stroke-width="1.5"/>`);
+
+    const lines = [12, 46, 52.9, 62.1, 62.85, 64.4, 65.95, 67.5, 69.05, 70.5, 83.1, 91.3, 93.0];
+    for (const pct of lines) {
+      const y = H * pct / 100;
+      parts.push(`<line x1="${divX}" y1="${y}" x2="${W}" y2="${y}" stroke="#555" stroke-width="0.75"/>`);
+    }
+
+    const infoL = 90.43, figL = 93.25;
+    const rowT = H * 62.85 / 100, rowB = H * 70.5 / 100;
+    parts.push(`<line x1="${W * infoL / 100}" y1="${rowT}" x2="${W * infoL / 100}" y2="${rowB}" stroke="#555" stroke-width="0.75"/>`);
+    parts.push(`<line x1="${W * figL  / 100}" y1="${rowT}" x2="${W * figL  / 100}" y2="${rowB}" stroke="#555" stroke-width="0.75"/>`);
+
+    const labelRows = [
+      { t: 'Project', p: 62.85 }, { t: 'Drawn', p: 64.4 }, { t: 'Checked', p: 65.95 },
+      { t: 'Approved', p: 67.5 }, { t: 'Date', p: 69.05 },
+    ];
+    for (const r of labelRows) {
+      parts.push(`<text x="${divX + 3}" y="${H * r.p / 100 + H * 0.009}" font-size="${Math.max(6, H * 0.007)}" fill="#888" font-family="sans-serif">${r.t}</text>`);
+    }
+
+    const secs = [
+      { t: 'LEGEND / MAP NOTES', p: 12 }, { t: 'MAP TITLE', p: 52.9 },
+      { t: 'NOTES', p: 83.1 }, { t: 'MAP PARAMETERS', p: 93 },
+    ];
+    for (const s of secs) {
+      parts.push(`<text x="${divX + 3}" y="${H * s.p / 100 + H * 0.013}" font-size="${Math.max(5, H * 0.007)}" fill="#aaa" font-family="sans-serif" letter-spacing="0.05em">${s.t}</text>`);
+    }
+
+    parts.push('</svg>');
+    return parts.join('');
+  }
+
+  // ── Text rendering ────────────────────────────────────────────
 
   private drawTextBlock(ctx: CanvasRenderingContext2D, text: string, s: FieldStyle,
                         x: number, y: number, w: number, h: number): void {
@@ -767,35 +1265,274 @@ export class LayoutMode {
     ctx.restore();
   }
 
+  // ── PNG Export ────────────────────────────────────────────────
+
   async exportPNG(): Promise<void> {
     EventBus.emit('toast', { message: 'Generating PNG…', type: 'info', duration: 1500 });
     try {
-      const canvas = await this.buildExportCanvas();
+      let highRes: string | undefined;
+      if (this.getHighResSnapshot) {
+        try {
+          highRes = await this.getHighResSnapshot();
+        } catch { /* fall back to existing snapshot */ }
+      }
+      const canvas = await this.buildExportCanvas(highRes);
+      const { EW, EH } = this.getExportDimensions();
+      const ps = PAPER_SIZES[this.exportSettings.paperSize] ?? PAPER_SIZES.tabloid;
       const a = document.createElement('a');
       a.download = `fraxinus_layout_${datestamp()}.png`;
       a.href = canvas.toDataURL('image/png');
       a.click();
-      EventBus.emit('toast', { message: 'Layout exported as PNG', type: 'success', duration: 2500 });
+      EventBus.emit('toast', {
+        message: `PNG exported (${EW}×${EH}px, ${this.exportSettings.dpi} DPI, ${ps.label})`,
+        type: 'success', duration: 3000,
+      });
     } catch (err) {
       EventBus.emit('toast', { message: `Export failed: ${(err as Error).message}`, type: 'error' });
     }
   }
 
+  // ── PDF Export ────────────────────────────────────────────────
+
   async exportPDF(): Promise<void> {
     EventBus.emit('toast', { message: 'Generating PDF…', type: 'info', duration: 2000 });
     try {
-      const canvas = await this.buildExportCanvas();
+      let highRes: string | undefined;
+      if (this.getHighResSnapshot) {
+        try { highRes = await this.getHighResSnapshot(); } catch { /* ok */ }
+      }
+      const canvas = await this.buildExportCanvas(highRes);
       const imgData = canvas.toDataURL('image/jpeg', 0.92);
       const { default: jsPDF } = await import('jspdf');
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-      const pw = doc.internal.pageSize.getWidth();
-      const ph = doc.internal.pageSize.getHeight();
+
+      const ps = PAPER_SIZES[this.exportSettings.paperSize] ?? PAPER_SIZES.tabloid;
+      // jsPDF units in mm (1 inch = 25.4 mm)
+      const wMM = ps.w * 25.4;
+      const hMM = ps.h * 25.4;
+      const [pw, ph] = this.exportSettings.landscape
+        ? [Math.max(wMM, hMM), Math.min(wMM, hMM)]
+        : [Math.min(wMM, hMM), Math.max(wMM, hMM)];
+
+      const doc = new jsPDF({ orientation: this.exportSettings.landscape ? 'landscape' : 'portrait', unit: 'mm', format: [pw, ph] });
       doc.addImage(imgData, 'JPEG', 0, 0, pw, ph);
       doc.save(`fraxinus_layout_${datestamp()}.pdf`);
-      EventBus.emit('toast', { message: 'PDF downloaded', type: 'success', duration: 2500 });
+      EventBus.emit('toast', { message: `PDF downloaded (${ps.label}, ${this.exportSettings.dpi} DPI)`, type: 'success', duration: 3000 });
     } catch (err) {
       EventBus.emit('toast', { message: `PDF failed: ${(err as Error).message}`, type: 'error' });
     }
+  }
+
+  // ── SVG Export ────────────────────────────────────────────────
+
+  async exportSVG(): Promise<void> {
+    EventBus.emit('toast', { message: 'Generating SVG…', type: 'info', duration: 1500 });
+    try {
+      const { EW, EH } = this.getExportDimensions();
+      const svg = await this.buildExportSVG(EW, EH);
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.download = `fraxinus_layout_${datestamp()}.svg`;
+      a.href     = url;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      EventBus.emit('toast', { message: 'SVG exported (vector title block)', type: 'success', duration: 3000 });
+    } catch (err) {
+      EventBus.emit('toast', { message: `SVG failed: ${(err as Error).message}`, type: 'error' });
+    }
+  }
+
+  private async buildExportSVG(EW: number, EH: number): Promise<string> {
+    const mx = EW * MAP_VP.left   / 100;
+    const my = EH * MAP_VP.top    / 100;
+    const mw = EW * MAP_VP.width  / 100;
+    const mh = EH * MAP_VP.height / 100;
+
+    const scaleX = this.sheetBaseW ? EW / this.sheetBaseW : 1;
+    const scaleY = this.sheetBaseH ? EH / this.sheetBaseH : 1;
+
+    const parts: string[] = [
+      `<?xml version="1.0" encoding="UTF-8"?>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"`,
+      `  width="${EW}" height="${EH}" viewBox="0 0 ${EW} ${EH}">`,
+      `<rect width="${EW}" height="${EH}" fill="white"/>`,
+    ];
+
+    // Map raster image
+    if (this.mapSnapshot) {
+      let clip = '';
+      if (this.cropBox) {
+        const dpr = window.devicePixelRatio || 1;
+        const img = await loadImage(this.mapSnapshot);
+        const iw = img.naturalWidth, ih = img.naturalHeight;
+        // Build a cropped PNG via canvas
+        const c = document.createElement('canvas');
+        c.width = Math.round(this.cropBox.w * dpr);
+        c.height = Math.round(this.cropBox.h * dpr);
+        const cctx = c.getContext('2d')!;
+        cctx.drawImage(img,
+          this.cropBox.x * dpr, this.cropBox.y * dpr,
+          this.cropBox.w * dpr, this.cropBox.h * dpr,
+          0, 0, c.width, c.height);
+        const cropped = c.toDataURL('image/png');
+        parts.push(`<image x="${mx}" y="${my}" width="${mw}" height="${mh}" href="${cropped}" preserveAspectRatio="xMidYMid slice"/>`);
+        void iw; void ih; void clip;
+      } else {
+        parts.push(`<image x="${mx}" y="${my}" width="${mw}" height="${mh}" href="${this.mapSnapshot}" preserveAspectRatio="xMidYMid slice"/>`);
+      }
+    }
+
+    // Map border
+    parts.push(`<rect x="${mx}" y="${my}" width="${mw}" height="${mh}" fill="none" stroke="#333" stroke-width="1"/>`);
+
+    // Scale bar (SVG)
+    if (this.showScaleBar && this.mapState) {
+      parts.push(this.buildScaleBarSVG(mx, my, mw, mh));
+    }
+
+    // North arrow (SVG)
+    if (this.showNorthArrow) {
+      parts.push(this.buildNorthArrowSVG(mx, my, mw, mh));
+    }
+
+    // Vector title block
+    parts.push(this.buildTitleBlockSVGExport(EW, EH));
+
+    // Text fields
+    for (const f of FIELDS) {
+      const el = this.overlay?.querySelector<HTMLElement>(`#lm-f-${f.id}`);
+      const text = el?.innerText?.trim() ?? '';
+      if (!text) continue;
+      const s = this.fieldStyles.get(f.id)!;
+      const x = EW * f.left   / 100;
+      const y = EH * f.top    / 100;
+      const w = EW * f.width  / 100;
+      const h = EH * f.height / 100;
+      parts.push(this.textToSVGGroup(text, s, x, y, w, h));
+    }
+
+    // Annotations
+    for (const [, anno] of this.annotations) {
+      const content = this.overlay?.querySelector<HTMLElement>(`#lm-a-${anno.id} .lm-anno-content`);
+      const text = content?.innerText?.trim() ?? '';
+      if (!text) continue;
+      parts.push(this.textToSVGGroup(text, anno.style,
+        anno.x * scaleX, anno.y * scaleY,
+        anno.w * scaleX, anno.h * scaleY));
+    }
+
+    parts.push('</svg>');
+    return parts.join('\n');
+  }
+
+  private buildTitleBlockSVGExport(EW: number, EH: number): string {
+    const divX = EW * (MAP_VP.left + MAP_VP.width) / 100;
+    const tbW  = EW - divX;
+    const parts: string[] = [`<g id="title-block">`];
+
+    parts.push(`<rect x="${divX}" y="0" width="${tbW}" height="${EH}" fill="#f8f8f8"/>`);
+    parts.push(`<rect x="1" y="1" width="${EW - 2}" height="${EH - 2}" fill="none" stroke="#222" stroke-width="2"/>`);
+    parts.push(`<line x1="${divX}" y1="0" x2="${divX}" y2="${EH}" stroke="#333" stroke-width="1.5"/>`);
+
+    const hLines = [12, 46, 52.9, 62.1, 62.85, 64.4, 65.95, 67.5, 69.05, 70.5, 83.1, 91.3, 93.0];
+    for (const p of hLines) {
+      const y = EH * p / 100;
+      parts.push(`<line x1="${divX}" y1="${y}" x2="${EW}" y2="${y}" stroke="#555" stroke-width="0.75"/>`);
+    }
+
+    const infoL = 90.43, figL = 93.25;
+    const rowT = EH * 62.85 / 100, rowB = EH * 70.5 / 100;
+    parts.push(`<line x1="${EW * infoL / 100}" y1="${rowT}" x2="${EW * infoL / 100}" y2="${rowB}" stroke="#555" stroke-width="0.75"/>`);
+    parts.push(`<line x1="${EW * figL  / 100}" y1="${rowT}" x2="${EW * figL  / 100}" y2="${rowB}" stroke="#555" stroke-width="0.75"/>`);
+
+    const fs = Math.max(7, EH * 0.008);
+    const labelRows = [
+      { t: 'Project #', p: 62.85 }, { t: 'Drawn',   p: 64.4  },
+      { t: 'Checked',   p: 65.95 }, { t: 'Approved', p: 67.5 }, { t: 'Date', p: 69.05 },
+    ];
+    for (const r of labelRows) {
+      const y = EH * r.p / 100 + fs + 1;
+      parts.push(`<text x="${divX + 3}" y="${y}" font-size="${fs}" fill="#777" font-family="sans-serif">${xmlEsc(r.t)}</text>`);
+    }
+
+    const secs = [
+      { t: 'LEGEND / MAP NOTES', p: 12 }, { t: 'MAP TITLE', p: 52.9 },
+      { t: 'NOTES', p: 83.1 }, { t: 'MAP PARAMETERS', p: 93 },
+    ];
+    for (const s of secs) {
+      const y = EH * s.p / 100 + fs + 1;
+      parts.push(`<text x="${divX + 4}" y="${y}" font-size="${Math.max(6, fs * 0.85)}" fill="#aaa" font-family="sans-serif" letter-spacing="0.04em">${xmlEsc(s.t)}</text>`);
+    }
+
+    parts.push('</g>');
+    return parts.join('\n');
+  }
+
+  private textToSVGGroup(text: string, s: FieldStyle, x: number, y: number, w: number, h: number): string {
+    const pad = 4;
+    const lineH = s.fontSize * 1.35;
+    const lines = wrapTextSimple(text, w - pad * 2, s.fontSize);
+    const anchor = s.textAlign === 'center' ? 'middle' : s.textAlign === 'right' ? 'end' : 'start';
+    const tx = s.textAlign === 'center' ? x + w / 2 : s.textAlign === 'right' ? x + w - pad : x + pad;
+
+    const svgLines: string[] = [];
+    let ty = y + pad + s.fontSize;
+    for (const line of lines) {
+      if (ty > y + h) break;
+      svgLines.push(
+        `<text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" ` +
+        `font-family="Oswald,sans-serif" font-size="${s.fontSize}" ` +
+        `font-weight="${s.fontWeight}" fill="${s.color}" text-anchor="${anchor}">${xmlEsc(line)}</text>`
+      );
+      ty += lineH;
+    }
+    return svgLines.join('\n');
+  }
+
+  private buildScaleBarSVG(mx: number, my: number, mw: number, mh: number): string {
+    if (!this.mapState) return '';
+    const dpr = window.devicePixelRatio || 1;
+    const { zoom, lat, canvasW } = this.mapState;
+    const containerW = canvasW / dpr;
+    const metersPerContainerPx = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+    const displayedCssW = this.cropBox ? this.cropBox.w : containerW;
+    const metersPerExportPx = metersPerContainerPx * displayedCssW / mw;
+    const targetMeters = mw * 0.18 * metersPerExportPx;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(targetMeters, 1))));
+    let niceMeters = magnitude;
+    for (const m of [1, 2, 5, 10]) {
+      if (magnitude * m <= targetMeters * 1.4) niceMeters = magnitude * m;
+    }
+    const barPx = niceMeters / metersPerExportPx;
+    const label = niceMeters >= 1000 ? `${niceMeters / 1000} km` : `${Math.round(niceMeters)} m`;
+    const bx = mx + 14, by = my + mh - 32, bh = 7;
+    const fs = Math.max(9, mw * 0.008);
+    return `<g id="scale-bar">
+  <rect x="${bx - 6}" y="${by - 18}" width="${barPx + 20}" height="${bh + 26}" rx="3" fill="rgba(255,255,255,0.88)"/>
+  <rect x="${bx}" y="${by}" width="${barPx / 2}" height="${bh}" fill="#333"/>
+  <rect x="${bx + barPx / 2}" y="${by}" width="${barPx / 2}" height="${bh}" fill="white" stroke="#333" stroke-width="1"/>
+  <rect x="${bx}" y="${by}" width="${barPx}" height="${bh}" fill="none" stroke="#333" stroke-width="1"/>
+  <line x1="${bx}" y1="${by - 3}" x2="${bx}" y2="${by + bh + 3}" stroke="#333" stroke-width="1"/>
+  <line x1="${bx + barPx}" y1="${by - 3}" x2="${bx + barPx}" y2="${by + bh + 3}" stroke="#333" stroke-width="1"/>
+  <text x="${bx}" y="${by - 2}" font-size="${fs}" fill="#222" font-family="sans-serif" font-weight="bold" text-anchor="middle">0</text>
+  <text x="${bx + barPx}" y="${by - 2}" font-size="${fs}" fill="#222" font-family="sans-serif" font-weight="bold" text-anchor="middle">${xmlEsc(label)}</text>
+</g>`;
+  }
+
+  private buildNorthArrowSVG(mx: number, my: number, mw: number, _mh: number): string {
+    const bearing = this.mapState?.bearing ?? 0;
+    const r = Math.max(18, mw * 0.018);
+    const cx = mx + mw - r - 14;
+    const cy = my + r + 14;
+    const fs = Math.max(9, r * 0.7);
+    return `<g id="north-arrow" transform="translate(${cx},${cy})">
+  <circle r="${r + 3}" fill="rgba(255,255,255,0.9)" stroke="#555" stroke-width="1"/>
+  <g transform="rotate(${bearing})">
+    <path d="M0,${-r} L${r * 0.38},0 L0,${-r * 0.18} Z" fill="#222"/>
+    <path d="M0,${r} L${r * 0.38},0 L0,${-r * 0.18} Z" fill="white" stroke="#555" stroke-width="0.8"/>
+  </g>
+  <text y="${-r - 4}" font-size="${fs}" fill="#222" font-family="sans-serif" font-weight="bold" text-anchor="middle">N</text>
+</g>`;
   }
 }
 
@@ -813,4 +1550,41 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 function datestamp(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function xmlEsc(s: string): string {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function wrapTextSimple(text: string, maxW: number, fontSize: number): string[] {
+  // Approximate character width for sans-serif
+  const avgCharW = fontSize * 0.55;
+  const maxChars = Math.max(1, Math.floor(maxW / avgCharW));
+  const result: string[] = [];
+  for (const line of text.split('\n')) {
+    const words = line.split(/\s+/).filter(Boolean);
+    if (!words.length) { result.push(''); continue; }
+    let cur = '';
+    for (const w of words) {
+      const test = cur ? `${cur} ${w}` : w;
+      if (test.length > maxChars && cur) { result.push(cur); cur = w; }
+      else cur = test;
+    }
+    if (cur) result.push(cur);
+  }
+  return result;
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
 }

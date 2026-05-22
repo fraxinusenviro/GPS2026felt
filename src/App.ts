@@ -82,7 +82,39 @@ export class App {
 
     // SymbolRenderer must be created after map init (needs the map instance)
     this.symbolRenderer = new SymbolRenderer(this.mapManager.getMap());
-    this.layoutMode = new LayoutMode(() => this.mapManager.getCanvas());
+    this.layoutMode = new LayoutMode(
+      () => this.mapManager.getCanvas(),
+      () => ({
+        zoom:    this.mapManager.getZoom(),
+        lat:     this.mapManager.getCenter().lat,
+        lng:     this.mapManager.getCenter().lng,
+        bearing: this.mapManager.getBearing(),
+        canvasW: this.mapManager.getCanvas().width,
+        canvasH: this.mapManager.getCanvas().height,
+      }),
+      async () => {
+        // Capture at zoom+1 for higher-resolution tiles, then restore
+        const map = this.mapManager.getMap();
+        const origZoom = map.getZoom();
+        const targetZoom = Math.min(origZoom + 1, 22);
+        await new Promise<void>(resolve => {
+          const onIdle = () => { map.off('idle', onIdle); resolve(); };
+          map.on('idle', onIdle);
+          map.setZoom(targetZoom);
+          // Timeout fallback in case idle never fires
+          setTimeout(resolve, 2500);
+        });
+        const dataUrl = this.mapManager.getCanvas().toDataURL('image/png');
+        // Restore original zoom
+        await new Promise<void>(resolve => {
+          const onIdle = () => { map.off('idle', onIdle); resolve(); };
+          map.on('idle', onIdle);
+          map.setZoom(origZoom);
+          setTimeout(resolve, 1500);
+        });
+        return dataUrl;
+      },
+    );
 
     this.basemapManager = new BasemapManager(this.mapManager);
     this.basemapManager.init(this.settings.basemap_id);
