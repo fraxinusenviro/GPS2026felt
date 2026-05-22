@@ -5059,9 +5059,59 @@ input[type=color] {
 
 /* ── Workspace pan/zoom ── */
 
-#lm-workspace { overflow: hidden; cursor: grab; }
-#lm-workspace.is-panning { cursor: grabbing; }
+#lm-workspace {
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;   /* prevent native scroll/zoom so pointer events handle it */
+  -webkit-user-select: none;
+  user-select: none;
+}
+#lm-workspace.is-panning  { cursor: grabbing; }
+#lm-workspace.is-pinching { cursor: zoom-in; }
 #lm-sheet { transform-origin: center center; will-change: transform; }
+
+/* ── Export settings toolbar section ── */
+
+.lm-export-settings-section { gap: 8px; }
+
+.lm-dpi-input {
+  width: 56px;
+  -moz-appearance: textfield;
+}
+.lm-dpi-input::-webkit-inner-spin-button,
+.lm-dpi-input::-webkit-outer-spin-button { opacity: 0.5; }
+
+.lm-orient-btn { width: auto; padding: 0 5px; font-size: 10px; }
+
+/* ── Map options toolbar section ── */
+
+.lm-map-options-section { gap: 6px; }
+.lm-toggle-btn { position: relative; }
+.lm-svg-btn { border-color: rgba(147,197,253,0.4); color: #93c5fd; }
+.lm-svg-btn:hover { background: rgba(147,197,253,0.12); }
+
+/* ── Mobile / small screen overrides ── */
+
+@media (max-width: 700px) {
+  #lm-toolbar {
+    height: auto;
+    min-height: 48px;
+    flex-wrap: nowrap;
+    padding: 6px 8px;
+    gap: 0;
+  }
+  .lm-tb-section {
+    padding: 0 6px;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .lm-field-section { min-width: 80px; }
+  .lm-style-section { gap: 6px; }
+  .lm-icon-btn { width: 30px; height: 30px; font-size: 14px; }
+  .lm-action-btn { height: 32px; padding: 4px 8px; font-size: 11px; }
+  .lm-select { font-size: 11px; height: 28px; }
+  .lm-dpi-input { width: 48px; }
+}
 
 /* ── Annotations ── */
 
