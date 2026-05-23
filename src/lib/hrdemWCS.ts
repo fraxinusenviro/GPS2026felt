@@ -1,48 +1,22 @@
 /**
- * NRCan HRDEM WCS 2.0.1 fetch module.
+ * NRCan HRDEM elevation fetch via OGC API - Coverages.
  *
- * Endpoint: https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic
- * Coverage:  dtm  (Digital Terrain Model, ~1 m native resolution)
+ * The datacube.services.geo.ca `wrapper/ogc` endpoint follows OGC API -
+ * Coverages (19-087), NOT traditional WCS 2.0.1.  The correct request is a
+ * GET to  /{collection}/coverage  with `subset` and `f` parameters.
  *
- * CORS note: NRCan's datacube services expose CORS headers for browser requests.
- * If requests fail with a CORS error in your deployment, replace WCS_BASE_URL
- * with a proxy that forwards to the real endpoint, e.g.:
- *   export const WCS_BASE_URL = '/api/wcs-proxy';
- * The proxy should append '?url=<encoded>' or forward the query string as-is.
+ * CORS: NRCan's datacube exposes CORS headers.  If fetches fail in your
+ * deployment, set OGC_BASE_URL to a server-side proxy:
+ *   export const OGC_BASE_URL = '/api/nrcan-elevation';
  */
 
 import { fromArrayBuffer } from 'geotiff';
 
-export const WCS_BASE_URL =
+const OGC_BASE_URL =
   'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic';
 
-/** Coverage ID — must match a coverage listed in the WCS GetCapabilities response. */
-const COVERAGE_ID = 'elevation-hrdem-mosaic';
-
-/** Maximum pixel dimension for a single WCS request (both axes). */
+/** Maximum pixel dimension for a single coverage request (both axes). */
 const MAX_PIXELS = 1024;
-
-/** Run once at startup: fetch GetCapabilities and log available coverage IDs. */
-export async function probeCapabilities(): Promise<void> {
-  const url = `${WCS_BASE_URL}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCapabilities`;
-  try {
-    const resp = await fetch(url);
-    const text = await resp.text();
-    // Extract CoverageId elements from the XML
-    const ids = [...text.matchAll(/<\w+:?CoverageId[^>]*>([^<]+)<\/\w+:?CoverageId>/g)]
-      .map(m => m[1]);
-    if (ids.length) {
-      console.log('[HRDEM] Available coverage IDs:', ids);
-    } else {
-      console.log('[HRDEM] GetCapabilities response (first 1000 chars):', text.slice(0, 1000));
-    }
-  } catch (e) {
-    console.warn('[HRDEM] GetCapabilities probe failed:', e);
-  }
-}
-
-// Trigger the probe once on module load so the IDs appear in the console
-void probeCapabilities();
 
 /** Decoded elevation grid plus metadata. */
 export interface HRDEMResult {
@@ -62,6 +36,19 @@ export interface HRDEMResult {
   validCount: number;
 }
 
+/** Run once at startup — logs the OGC API conformance and available collections. */
+export async function probeCapabilities(): Promise<void> {
+  try {
+    const resp = await fetch(`${OGC_BASE_URL}?f=application/json`);
+    const text = await resp.text();
+    console.log('[HRDEM] OGC API landing page:', text.slice(0, 800));
+  } catch (e) {
+    console.warn('[HRDEM] Probe failed:', e);
+  }
+}
+
+void probeCapabilities();
+
 /**
  * Fetch and decode an HRDEM DTM coverage for the given geographic bounding box.
  */
@@ -77,12 +64,12 @@ export async function fetchHRDEM(
   const reqW = Math.max(1, Math.round(targetWidth  * scale));
   const reqH = Math.max(1, Math.round(targetHeight * scale));
 
-  const url = `${WCS_BASE_URL}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage` +
-    `&COVERAGEID=${COVERAGE_ID}&FORMAT=image/tiff` +
-    `&SUBSETTINGCRS=http://www.opengis.net/def/crs/EPSG/0/4326` +
-    `&OUTPUTCRS=http://www.opengis.net/def/crs/EPSG/0/4326` +
-    `&SUBSET=Lat(${south},${north})&SUBSET=Long(${west},${east})` +
-    `&WIDTH=${reqW}&HEIGHT=${reqH}`;
+  // OGC API - Coverages: GET /{collection}/coverage
+  // subset uses axis(low:high) notation; scale-size controls output resolution
+  const url = `${OGC_BASE_URL}/coverage?` +
+    `subset=Lat(${south}:${north})&subset=Lon(${west}:${east})` +
+    `&scale-size=${reqW},${reqH}` +
+    `&f=image%2Ftiff`;
 
   console.log('[HRDEM] Requesting:', url);
 
@@ -94,7 +81,7 @@ export async function fetchHRDEM(
 
     if (!resp.ok) {
       const body = await resp.text();
-      throw new Error(`WCS HTTP ${resp.status}. Body: ${body.slice(0, 300)}`);
+      throw new Error(`HTTP ${resp.status}. Body: ${body.slice(0, 300)}`);
     }
 
     if (!ct.includes('tiff') && !ct.includes('geotiff') && !ct.includes('octet-stream')) {
@@ -136,7 +123,6 @@ async function decodeElevationTIFF(buf: ArrayBuffer): Promise<HRDEMResult> {
   const rawBand = rasters[0] as Float32Array | Int16Array | Int32Array | Uint16Array;
   const grid = rawBand instanceof Float32Array ? rawBand : Float32Array.from(rawBand);
 
-  // Collect valid values for statistics and percentile stretch
   const valid: number[] = [];
   let zeroCount = 0;
   for (let i = 0; i < grid.length; i++) {
