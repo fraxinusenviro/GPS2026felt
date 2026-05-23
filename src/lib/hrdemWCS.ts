@@ -116,9 +116,8 @@ async function decodeElevationTIFF(buf: ArrayBuffer): Promise<HRDEMResult> {
   const [west, south, east, north] = image.getBoundingBox() as
     [number, number, number, number];
 
-  // GDAL nodata tag (GeoTIFF tag 42113)
-  const nodataStr = image.getGDALNoData();
-  const nodata = nodataStr !== null ? parseFloat(nodataStr) : null;
+  // GDAL nodata tag — geotiff v3 returns number | null directly
+  const nodata = image.getGDALNoData();
 
   // Read the first band (elevation values)
   const rasters = await image.readRasters({ interleave: false });
