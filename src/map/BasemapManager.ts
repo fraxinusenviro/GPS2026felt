@@ -4,6 +4,7 @@ import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCac
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
+import { HRDEMLayer } from './HRDEMLayer';
 import { EventBus } from '../utils/EventBus';
 import { StylePicker } from '../ui/StylePicker';
 import { renderSwatchDataUrl } from '../ui/SymbolRenderer';
@@ -81,6 +82,7 @@ export class BasemapManager {
 
   private nsprdLayer: NSPRDVectorLayer | null = null;
   private nshnLayers = new Map<string, NSHNVectorLayer>();
+  private hrdemLayers = new Map<string, HRDEMLayer>();
 
   private identifyActive = false;
   private identifyClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
@@ -630,6 +632,17 @@ export class BasemapManager {
     const hasNsprd = overlays.some(l => this.getLayerType(l) === 'nsprd-vector');
     if (!hasNsprd) this.nsprdLayer?.deactivate();
 
+    // Deactivate HRDEM layers that are no longer in the stack
+    const activeHrdemIds = new Set(
+      overlays.filter(l => this.getLayerType(l) === 'hrdem-wcs').map(e => e.instanceId)
+    );
+    for (const [iid, layer] of this.hrdemLayers) {
+      if (!activeHrdemIds.has(iid)) {
+        layer.deactivate();
+        this.hrdemLayers.delete(iid);
+      }
+    }
+
     // Process all overlay types in unified bottom-to-top order so map layer positions
     // match the UI stack exactly (last activated ends up closest to user features)
     for (const l of overlays) {
@@ -658,6 +671,11 @@ export class BasemapManager {
         }
         this.nshnLayers.get(l.instanceId)!.activate(l.instanceId, l.opacity, l.visible);
         this.applyVectorStyleOverrides(l);
+      } else if (ltype === 'hrdem-wcs') {
+        if (!this.hrdemLayers.has(l.instanceId)) {
+          this.hrdemLayers.set(l.instanceId, new HRDEMLayer(this.mapManager));
+        }
+        this.hrdemLayers.get(l.instanceId)!.activate(l.instanceId, l.opacity, l.visible);
       }
     }
   }
@@ -1208,6 +1226,7 @@ export class BasemapManager {
         if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'nsprd-vector') this.nsprdLayer?.setOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
+        else if (ltype === 'hrdem-wcs') this.hrdemLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else this.mapManager.setBasemapOverlayOpacity(iid, layer.visible ? opacity : 0);
         this.saveStack();
       });
@@ -1226,6 +1245,7 @@ export class BasemapManager {
         if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? layer.opacity : 0);
         else if (ltype2 === 'nsprd-vector') this.nsprdLayer?.setVisible(layer.visible);
         else if (ltype2 === 'nshn-vector') this.nshnLayers.get(iid)?.setVisible(layer.visible);
+        else if (ltype2 === 'hrdem-wcs') this.hrdemLayers.get(iid)?.setVisible(layer.visible);
         else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
         this.saveStack();
       });

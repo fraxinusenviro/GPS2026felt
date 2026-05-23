@@ -175,7 +175,7 @@ export interface VectorLayerConfig {
 export interface BasemapDef {
   id: string;
   label: string;
-  type: 'raster' | 'vector' | 'nsprd-vector' | 'nshn-vector';
+  type: 'raster' | 'vector' | 'nsprd-vector' | 'nshn-vector' | 'hrdem-wcs';
   url: string;          // tile URL template or style URL
   attribution: string;
   min_zoom?: number;
