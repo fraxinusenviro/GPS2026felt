@@ -36,12 +36,17 @@ export interface HRDEMResult {
   validCount: number;
 }
 
-/** Run once at startup — logs the OGC API conformance and available collections. */
+/** Run once at startup — logs available WCS coverage IDs via GetCapabilities. */
 export async function probeCapabilities(): Promise<void> {
   try {
-    const resp = await fetch(`${OGC_BASE_URL}?f=application/json`);
+    const resp = await fetch(`${OGC_BASE_URL}?service=WCS&version=2.0.1&request=GetCapabilities`);
     const text = await resp.text();
-    console.log('[HRDEM] OGC API landing page:', text.slice(0, 800));
+    const ids = [...text.matchAll(/<[\w:]*CoverageId[^>]*>([^<]+)<\/[\w:]*CoverageId>/g)].map(m => m[1]);
+    if (ids.length) {
+      console.log('[HRDEM] Available coverage IDs:', ids);
+    } else {
+      console.log('[HRDEM] GetCapabilities response (first 1200 chars):', text.slice(0, 1200));
+    }
   } catch (e) {
     console.warn('[HRDEM] Probe failed:', e);
   }
@@ -64,9 +69,9 @@ export async function fetchHRDEM(
   const reqW = Math.max(1, Math.round(targetWidth  * scale));
   const reqH = Math.max(1, Math.round(targetHeight * scale));
 
-  // NRCan wrapper/ogc requires service + request OGC params even under the REST path
   const url = `${OGC_BASE_URL}?` +
     `service=WCS&version=2.0.1&request=GetCoverage` +
+    `&COVERAGEID=elevation-hrdem-mosaic` +
     `&subset=Lat(${south}:${north})&subset=Lon(${west}:${east})` +
     `&scale-size=${reqW},${reqH}` +
     `&f=image%2Ftiff`;
