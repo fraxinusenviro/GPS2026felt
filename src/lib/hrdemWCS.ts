@@ -64,9 +64,9 @@ export async function fetchHRDEM(
   const reqW = Math.max(1, Math.round(targetWidth  * scale));
   const reqH = Math.max(1, Math.round(targetHeight * scale));
 
-  // NRCan wrapper/ogc API: elevation-hrdem-mosaic is a top-level layer;
-  // query it directly with subset params (no subservice path segment).
+  // NRCan wrapper/ogc requires service + request OGC params even under the REST path
   const url = `${OGC_BASE_URL}?` +
+    `service=WCS&version=2.0.1&request=GetCoverage` +
     `subset=Lat(${south}:${north})&subset=Lon(${west}:${east})` +
     `&scale-size=${reqW},${reqH}` +
     `&f=image%2Ftiff`;
