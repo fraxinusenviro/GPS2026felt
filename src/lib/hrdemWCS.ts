@@ -27,8 +27,12 @@ export interface HRDEMResult {
   /** [west, south, east, north] in EPSG:4326. */
   bbox: [number, number, number, number];
   nodata: number | null;
+  /** Absolute min/max of valid pixels (for reference). */
   elevMin: number;
   elevMax: number;
+  /** 2nd–98th percentile stretch range — use these for colour mapping. */
+  stretchMin: number;
+  stretchMax: number;
 }
 
 /**
@@ -126,17 +130,30 @@ async function decodeElevationTIFF(buf: ArrayBuffer): Promise<HRDEMResult> {
     ? rawBand
     : Float32Array.from(rawBand);
 
-  // Compute finite min/max, skipping nodata
-  let elevMin =  Infinity;
-  let elevMax = -Infinity;
+  // Collect valid values for min/max and percentile stretch
+  const valid: number[] = [];
   for (let i = 0; i < grid.length; i++) {
     const v = grid[i];
     if (!isFinite(v)) continue;
     if (nodata !== null && Math.abs(v - nodata) < 0.001) continue;
-    if (v < elevMin) elevMin = v;
-    if (v > elevMax) elevMax = v;
+    valid.push(v);
   }
-  if (!isFinite(elevMin)) { elevMin = 0; elevMax = 1; }
 
-  return { grid, width, height, bbox: [west, south, east, north], nodata, elevMin, elevMax };
+  let elevMin = 0, elevMax = 1, stretchMin = 0, stretchMax = 1;
+  if (valid.length > 0) {
+    valid.sort((a, b) => a - b);
+    const n = valid.length;
+    elevMin = valid[0];
+    elevMax = valid[n - 1];
+    // 2nd–98th percentile — clips ocean-at-zero and outlier peaks
+    stretchMin = valid[Math.floor(n * 0.02)];
+    stretchMax = valid[Math.min(n - 1, Math.ceil(n * 0.98) - 1)];
+    // Guard: ensure a non-trivial range so a totally flat tile still renders
+    if (stretchMax - stretchMin < 1) {
+      stretchMin = elevMin;
+      stretchMax = elevMax > elevMin ? elevMax : elevMin + 1;
+    }
+  }
+
+  return { grid, width, height, bbox: [west, south, east, north], nodata, elevMin, elevMax, stretchMin, stretchMax };
 }
