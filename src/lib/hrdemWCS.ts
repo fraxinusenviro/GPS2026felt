@@ -33,17 +33,12 @@ export interface HRDEMResult {
   /** 2nd–98th percentile stretch range — use these for colour mapping. */
   stretchMin: number;
   stretchMax: number;
+  /** Count of valid (non-nodata) pixels returned. */
+  validCount: number;
 }
 
 /**
  * Fetch and decode an HRDEM DTM coverage for the given geographic bounding box.
- *
- * @param west         Western longitude  (EPSG:4326)
- * @param south        Southern latitude
- * @param east         Eastern longitude
- * @param north        Northern latitude
- * @param targetWidth  Desired pixel width  (capped internally to MAX_PIXELS)
- * @param targetHeight Desired pixel height (capped internally to MAX_PIXELS)
  */
 export async function fetchHRDEM(
   west: number,
@@ -53,49 +48,42 @@ export async function fetchHRDEM(
   targetWidth: number,
   targetHeight: number,
 ): Promise<HRDEMResult> {
-  // Scale down so neither axis exceeds MAX_PIXELS
   const scale = Math.min(1, MAX_PIXELS / Math.max(targetWidth, targetHeight, 1));
   const reqW = Math.max(1, Math.round(targetWidth  * scale));
   const reqH = Math.max(1, Math.round(targetHeight * scale));
 
-  // WCS 2.0.1 GetCoverage
-  // EPSG:4326 axis order: Lat (N/S) first, then Long (E/W).
-  // Many servers also accept the reverse order; 'Lat' / 'Long' aliases are widely supported.
-  // WIDTH/HEIGHT are a vendor extension accepted by GeoServer, MapServer, and NRCan's wrapper.
-  const base = `${WCS_BASE_URL}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage` +
+  const url = `${WCS_BASE_URL}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage` +
     `&COVERAGEID=dtm&FORMAT=image/tiff` +
     `&SUBSETTINGCRS=http://www.opengis.net/def/crs/EPSG/0/4326` +
     `&OUTPUTCRS=http://www.opengis.net/def/crs/EPSG/0/4326` +
-    // Two SUBSET params — URLSearchParams collapses duplicate keys, so build manually
     `&SUBSET=Lat(${south},${north})&SUBSET=Long(${west},${east})` +
     `&WIDTH=${reqW}&HEIGHT=${reqH}`;
 
+  console.log('[HRDEM] Requesting:', url);
+
   let arrayBuffer: ArrayBuffer;
   try {
-    const resp = await fetch(base);
-    if (!resp.ok) {
-      throw new Error(`WCS HTTP ${resp.status} ${resp.statusText}`);
-    }
+    const resp = await fetch(url);
     const ct = resp.headers.get('content-type') ?? '';
-    if (!ct.includes('tiff') && !ct.includes('geotiff') && !ct.includes('octet-stream')) {
-      // Service returned an error document (e.g. XML exception report)
+    console.log(`[HRDEM] Response: HTTP ${resp.status}, content-type: "${ct}"`);
+
+    if (!resp.ok) {
       const body = await resp.text();
-      throw new Error(
-        `WCS returned unexpected content-type "${ct}".\n` +
-        `Response body (first 400 chars): ${body.slice(0, 400)}`,
-      );
+      throw new Error(`WCS HTTP ${resp.status}. Body: ${body.slice(0, 300)}`);
     }
+
+    if (!ct.includes('tiff') && !ct.includes('geotiff') && !ct.includes('octet-stream')) {
+      const body = await resp.text();
+      throw new Error(`Unexpected content-type "${ct}". Body: ${body.slice(0, 300)}`);
+    }
+
     arrayBuffer = await resp.arrayBuffer();
+    console.log(`[HRDEM] Received ${(arrayBuffer.byteLength / 1024).toFixed(1)} KB`);
   } catch (err) {
     if (err instanceof TypeError) {
-      // TypeError from fetch() typically means a network or CORS failure
-      console.error(
-        '[HRDEM] Network/CORS error fetching WCS endpoint.\n' +
-        `  URL: ${base}\n` +
-        '  If this is a CORS error, set WCS_BASE_URL to a server-side proxy.\n' +
-        '  Example: export const WCS_BASE_URL = \'/api/nrcan-wcs\';',
-        err,
-      );
+      console.error('[HRDEM] Network/CORS error — URL:', url, err);
+    } else {
+      console.error('[HRDEM] Fetch error:', err);
     }
     throw err;
   }
@@ -116,27 +104,22 @@ async function decodeElevationTIFF(buf: ArrayBuffer): Promise<HRDEMResult> {
   const width  = image.getWidth();
   const height = image.getHeight();
 
-  // BoundingBox from GeoTIFF metadata: [west, south, east, north] in native CRS
-  const [west, south, east, north] = image.getBoundingBox() as
-    [number, number, number, number];
-
-  // GDAL nodata tag — geotiff v3 returns number | null directly
+  const [west, south, east, north] = image.getBoundingBox() as [number, number, number, number];
   const nodata = image.getGDALNoData();
 
-  // Read the first band (elevation values)
   const rasters = await image.readRasters({ interleave: false });
   const rawBand = rasters[0] as Float32Array | Int16Array | Int32Array | Uint16Array;
-  const grid = rawBand instanceof Float32Array
-    ? rawBand
-    : Float32Array.from(rawBand);
+  const grid = rawBand instanceof Float32Array ? rawBand : Float32Array.from(rawBand);
 
-  // Collect valid values for min/max and percentile stretch
+  // Collect valid values for statistics and percentile stretch
   const valid: number[] = [];
+  let zeroCount = 0;
   for (let i = 0; i < grid.length; i++) {
     const v = grid[i];
     if (!isFinite(v)) continue;
     if (nodata !== null && Math.abs(v - nodata) < 0.001) continue;
     valid.push(v);
+    if (v === 0) zeroCount++;
   }
 
   let elevMin = 0, elevMax = 1, stretchMin = 0, stretchMax = 1;
@@ -145,15 +128,20 @@ async function decodeElevationTIFF(buf: ArrayBuffer): Promise<HRDEMResult> {
     const n = valid.length;
     elevMin = valid[0];
     elevMax = valid[n - 1];
-    // 2nd–98th percentile — clips ocean-at-zero and outlier peaks
     stretchMin = valid[Math.floor(n * 0.02)];
     stretchMax = valid[Math.min(n - 1, Math.ceil(n * 0.98) - 1)];
-    // Guard: ensure a non-trivial range so a totally flat tile still renders
     if (stretchMax - stretchMin < 1) {
       stretchMin = elevMin;
       stretchMax = elevMax > elevMin ? elevMax : elevMin + 1;
     }
   }
 
-  return { grid, width, height, bbox: [west, south, east, north], nodata, elevMin, elevMax, stretchMin, stretchMax };
+  console.log(
+    `[HRDEM] Decoded ${width}×${height} px | nodata=${nodata} | ` +
+    `valid=${valid.length}/${grid.length} (${zeroCount} at 0m) | ` +
+    `elev ${elevMin.toFixed(1)}–${elevMax.toFixed(1)} m | ` +
+    `stretch ${stretchMin.toFixed(1)}–${stretchMax.toFixed(1)} m`
+  );
+
+  return { grid, width, height, bbox: [west, south, east, north], nodata, elevMin, elevMax, stretchMin, stretchMax, validCount: valid.length };
 }
