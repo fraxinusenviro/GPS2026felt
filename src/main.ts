@@ -1,6 +1,10 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './styles/main.css';
 import { App } from './App';
+import { SwUpdate } from './utils/SwUpdate';
+
+// Track SW updates before registering so controllerchange is never missed
+SwUpdate.init();
 
 // Register service worker — use relative path so it works on any deploy subpath
 if ('serviceWorker' in navigator) {

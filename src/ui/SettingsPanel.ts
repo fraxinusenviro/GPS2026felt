@@ -1,6 +1,7 @@
 import type { AppSettings } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
+import { SwUpdate } from '../utils/SwUpdate';
 import type { PresetManager } from './PresetManager';
 
 export class SettingsPanel {
@@ -136,13 +137,19 @@ export class SettingsPanel {
             <div id="s-feature-count" class="settings-hint"></div>
           </div>
 
-          <!-- About -->
+          <!-- About / Version -->
           <div class="settings-section settings-about">
             <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm-4,48a12,12,0,1,1-12,12A12,12,0,0,1,124,72Zm12,112a16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40a8,8,0,0,1,0,16Z"/></svg>About</h4>
-            <p>Fraxinus Field Mapper v1.0</p>
+            <p>Fraxinus Field Mapper v${__APP_VERSION__}</p>
             <p>Offline-first GPS data collector PWA</p>
             <p>Storage: IndexedDB (persistent across sessions)</p>
             <p class="settings-hint" style="margin-top:4px;font-size:0.8em">Build: ${new Date(__APP_BUILD_DATE__).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</p>
+            <div id="s-sw-status" style="margin-top:8px">
+              ${SwUpdate.hasUpdate
+                ? `<button id="s-sw-reload" class="btn-primary" style="width:100%;background:#f59e0b;border-color:#f59e0b;color:#000">↺ Update available — tap to reload</button>`
+                : `<span style="font-size:0.8em;color:var(--color-text-muted,#6b7280)">✓ App is up to date</span>`
+              }
+            </div>
           </div>
 
           <div class="settings-actions">
@@ -186,6 +193,18 @@ export class SettingsPanel {
         this.close();
       }
     });
+
+    // Wire update-reload button (may already be rendered if update arrived before panel opened)
+    this.panel.querySelector('#s-sw-reload')?.addEventListener('click', () => SwUpdate.reload());
+
+    // If an update arrives while the panel is open, swap the status row live
+    const onSwUpdate = () => {
+      const statusEl = this.panel.querySelector('#s-sw-status');
+      if (!statusEl) return;
+      statusEl.innerHTML = `<button id="s-sw-reload" class="btn-primary" style="width:100%;background:#f59e0b;border-color:#f59e0b;color:#000">↺ Update available — tap to reload</button>`;
+      statusEl.querySelector('#s-sw-reload')?.addEventListener('click', () => SwUpdate.reload());
+    };
+    window.addEventListener('sw-update-ready', onSwUpdate, { once: true });
   }
 
   private async save(): Promise<void> {
