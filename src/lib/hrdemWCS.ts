@@ -64,9 +64,9 @@ export async function fetchHRDEM(
   const reqW = Math.max(1, Math.round(targetWidth  * scale));
   const reqH = Math.max(1, Math.round(targetHeight * scale));
 
-  // NRCan wrapper/ogc API: GET /{collection}/{subservice}
-  // The only accepted subservice for elevation-hrdem-mosaic is "cdem-cdsm"
-  const url = `${OGC_BASE_URL}/cdem-cdsm?` +
+  // NRCan wrapper/ogc API: elevation-hrdem-mosaic is a top-level layer;
+  // query it directly with subset params (no subservice path segment).
+  const url = `${OGC_BASE_URL}?` +
     `subset=Lat(${south}:${north})&subset=Lon(${west}:${east})` +
     `&scale-size=${reqW},${reqH}` +
     `&f=image%2Ftiff`;
