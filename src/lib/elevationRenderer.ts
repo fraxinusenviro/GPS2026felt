@@ -41,6 +41,81 @@ export const DEFAULT_HYPSOMETRIC: ColorRamp = {
 };
 
 // ---------------------------------------------------------------------------
+// Named ramp catalogue
+// ---------------------------------------------------------------------------
+
+export const HRDEM_RAMPS: Record<string, { label: string; ramp: ColorRamp }> = {
+  hypsometric: {
+    label: 'Hypsometric',
+    ramp: DEFAULT_HYPSOMETRIC,
+  },
+  terrain: {
+    label: 'Terrain',
+    ramp: { stops: [
+      { t: 0.00, r:  51, g: 102, b:   0 },  // dark green
+      { t: 0.35, r: 180, g: 160, b:  90 },  // tan
+      { t: 0.65, r: 150, g: 100, b:  55 },  // brown
+      { t: 0.85, r: 180, g: 170, b: 160 },  // grey rock
+      { t: 1.00, r: 255, g: 255, b: 255 },  // snow
+    ]},
+  },
+  greyscale: {
+    label: 'Greyscale',
+    ramp: { stops: [
+      { t: 0, r:   0, g:   0, b:   0 },
+      { t: 1, r: 255, g: 255, b: 255 },
+    ]},
+  },
+  greyscale_r: {
+    label: 'Greyscale (R)',
+    ramp: { stops: [
+      { t: 0, r: 255, g: 255, b: 255 },
+      { t: 1, r:   0, g:   0, b:   0 },
+    ]},
+  },
+  viridis: {
+    label: 'Viridis',
+    ramp: { stops: [
+      { t: 0.00, r:  68, g:   1, b:  84 },
+      { t: 0.25, r:  59, g:  82, b: 139 },
+      { t: 0.50, r:  33, g: 145, b: 140 },
+      { t: 0.75, r:  94, g: 201, b:  98 },
+      { t: 1.00, r: 253, g: 231, b:  37 },
+    ]},
+  },
+  plasma: {
+    label: 'Plasma',
+    ramp: { stops: [
+      { t: 0.00, r:  13, g:   8, b: 135 },
+      { t: 0.25, r: 156, g:  23, b: 158 },
+      { t: 0.50, r: 237, g: 121, b:  83 },
+      { t: 0.75, r: 246, g: 207, b:  32 },
+      { t: 1.00, r: 240, g: 249, b:  33 },
+    ]},
+  },
+  inferno: {
+    label: 'Inferno',
+    ramp: { stops: [
+      { t: 0.00, r:   0, g:   0, b:   4 },
+      { t: 0.25, r:  87, g:  16, b: 110 },
+      { t: 0.50, r: 188, g:  55, b:  84 },
+      { t: 0.75, r: 249, g: 142, b:   9 },
+      { t: 1.00, r: 252, g: 255, b: 164 },
+    ]},
+  },
+  rdylbu: {
+    label: 'RdYlBu',
+    ramp: { stops: [
+      { t: 0.00, r: 165, g:   0, b:  38 },
+      { t: 0.25, r: 244, g: 109, b:  67 },
+      { t: 0.50, r: 255, g: 255, b: 191 },
+      { t: 0.75, r: 116, g: 173, b: 209 },
+      { t: 1.00, r:  49, g:  54, b: 149 },
+    ]},
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -82,10 +157,28 @@ export function sampleRamp(ramp: ColorRamp, t: number): [number, number, number]
 }
 
 /**
+ * Return a new ColorRamp with the colour order reversed (t positions stay).
+ * Low elevations get the high-end colour and vice-versa.
+ */
+export function invertRamp(ramp: ColorRamp): ColorRamp {
+  const n = ramp.stops.length;
+  return {
+    stops: ramp.stops.map((s, i) => ({
+      t: s.t,
+      r: ramp.stops[n - 1 - i].r,
+      g: ramp.stops[n - 1 - i].g,
+      b: ramp.stops[n - 1 - i].b,
+    })),
+  };
+}
+
+/**
  * Render an elevation grid onto an HTMLCanvasElement.
  *
  * The canvas is resized to match the grid dimensions.
  * Nodata, NaN, and ±Infinity pixels are written as fully transparent.
+ * Colour stretch is always min→max of the values present in this tile
+ * (i.e. per-view dynamic range expansion).
  *
  * @param canvas  Target canvas (will be resized to grid width × height)
  * @param result  Decoded HRDEM data from fetchHRDEM()
@@ -138,3 +231,15 @@ export function rampToGradient(ramp: ColorRamp): string {
     .join(', ');
   return `linear-gradient(to top, ${stops})`;
 }
+
+/**
+ * Build a CSS linear-gradient string from a colour ramp (left → right).
+ * Used for horizontal preview swatches in the UI.
+ */
+export function rampToHorizontalGradient(ramp: ColorRamp): string {
+  const stops = ramp.stops
+    .map(s => `rgb(${s.r},${s.g},${s.b}) ${(s.t * 100).toFixed(0)}%`)
+    .join(', ');
+  return `linear-gradient(to right, ${stops})`;
+}
+

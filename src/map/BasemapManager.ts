@@ -5,6 +5,7 @@ import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
 import { HRDEMLayer } from './HRDEMLayer';
+import { HRDEM_RAMPS, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
 import { EventBus } from '../utils/EventBus';
 import { StylePicker } from '../ui/StylePicker';
 import { renderSwatchDataUrl } from '../ui/SymbolRenderer';
@@ -34,6 +35,8 @@ interface StackLayer {
   cogRampId?: string; // 'original' | key of COG_RAMPS
   cogRampInvert?: boolean;
   cogSmooth?: boolean;
+  hrdemRampId?: string;    // key of HRDEM_RAMPS, default 'hypsometric'
+  hrdemRampInvert?: boolean;
 }
 
 interface UserLayerInfo {
@@ -525,6 +528,13 @@ export class BasemapManager {
     this.mapManager.setCogSmooth(cogUrl, layer.cogSmooth ?? false);
   }
 
+  // ---- HRDEM ramp helpers ----
+
+  private resolveHrdemRamp(layer: StackLayer): ColorRamp {
+    const entry = HRDEM_RAMPS[layer.hrdemRampId ?? 'hypsometric'] ?? HRDEM_RAMPS['hypsometric'];
+    return layer.hrdemRampInvert ? invertRamp(entry.ramp) : entry.ramp;
+  }
+
   private refreshRasterOverlays(): void {
     const overlays = this.stack.slice(0, this.stack.length - 1).reverse();
     this.mapManager.clearAllRasterOverlays();
@@ -675,7 +685,7 @@ export class BasemapManager {
         if (!this.hrdemLayers.has(l.instanceId)) {
           this.hrdemLayers.set(l.instanceId, new HRDEMLayer(this.mapManager));
         }
-        this.hrdemLayers.get(l.instanceId)!.activate(l.instanceId, l.opacity, l.visible);
+        this.hrdemLayers.get(l.instanceId)!.activate(l.instanceId, l.opacity, l.visible, this.resolveHrdemRamp(l));
       }
     }
   }
@@ -1046,6 +1056,36 @@ export class BasemapManager {
         </div>` : ''}
       </div>` : '';
 
+    const isHrdem = ltype === 'hrdem-wcs';
+    const hrdemRampId = layer.hrdemRampId ?? 'hypsometric';
+    const hrdemInvert = layer.hrdemRampInvert ?? false;
+    const hrdemRampEntry = HRDEM_RAMPS[hrdemRampId] ?? HRDEM_RAMPS['hypsometric'];
+    const hrdemGradient = rampToHorizontalGradient(hrdemInvert ? invertRamp(hrdemRampEntry.ramp) : hrdemRampEntry.ramp);
+    const hrdemAdjPanel = isHrdem ? `
+      <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
+        <div class="bm-adj-row">
+          <label class="bm-adj-label">Ramp</label>
+          <select class="bm-hrdem-ramp" data-iid="${layer.instanceId}" style="flex:1;min-width:0;font-size:11px;background:var(--bg-2,#1a2a1a);color:var(--fg-1,#ccc);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px">
+            ${Object.entries(HRDEM_RAMPS).map(([k, r]) => `<option value="${k}"${hrdemRampId === k ? ' selected' : ''}>${r.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="bm-adj-row">
+          <label class="bm-adj-label"></label>
+          <div class="bm-hrdem-ramp-preview" data-iid="${layer.instanceId}" style="flex:1;height:10px;border-radius:3px;border:1px solid var(--border,#444);background:${hrdemGradient}"></div>
+        </div>
+        <div class="bm-adj-row">
+          <label class="bm-adj-label"></label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
+            <input type="checkbox" class="bm-hrdem-invert" data-iid="${layer.instanceId}"${hrdemInvert ? ' checked' : ''} />
+            Invert ramp
+          </label>
+        </div>
+        <div class="bm-adj-row" style="font-size:10px;color:var(--fg-2,#888);opacity:0.7;padding-top:2px">
+          <label class="bm-adj-label"></label>
+          <span>Stretch: auto min–max per view</span>
+        </div>
+      </div>` : '';
+
     const isCog = layer.url.startsWith('cog://');
     const cogRampId = layer.cogRampId ?? 'original';
     const cogRampInvert = layer.cogRampInvert ?? false;
@@ -1094,6 +1134,7 @@ export class BasemapManager {
       </div>` : '';
 
     const hasStylePanel = isVectorLayer ? (cfg !== undefined) : true;
+    const adjTitle = isVectorLayer ? 'Style options' : isHrdem ? 'Elevation style' : 'Image adjustments';
 
     return `
       <div class="bm-stack-item ${isBase ? 'bm-base-item' : ''}"
@@ -1108,10 +1149,10 @@ export class BasemapManager {
             min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity" />
           <span class="bm-opacity-val">${Math.round(layer.opacity * 100)}%</span>
           <button class="bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
-          ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${isVectorLayer ? 'Style options' : 'Image adjustments'}">${adjSvg}</button>` : ''}
+          ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
-        ${isVectorLayer ? vecStylePanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
+        ${isVectorLayer ? vecStylePanel : isHrdem ? hrdemAdjPanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
           ${cogRampRow}
           <div class="bm-adj-row">
             <label class="bm-adj-label">Hue</label>
@@ -1361,6 +1402,39 @@ export class BasemapManager {
         layer.cogSmooth = chk.checked;
         this.applyCogSmooth(layer);
         this.refreshRasterOverlays();
+        this.saveStack();
+      });
+    });
+
+    // HRDEM ramp picker
+    const updateHrdemPreview = (iid: string, layer: StackLayer) => {
+      const entry = HRDEM_RAMPS[layer.hrdemRampId ?? 'hypsometric'] ?? HRDEM_RAMPS['hypsometric'];
+      const ramp = layer.hrdemRampInvert ? invertRamp(entry.ramp) : entry.ramp;
+      const gradient = rampToHorizontalGradient(ramp);
+      const preview = container.querySelector<HTMLElement>(`.bm-hrdem-ramp-preview[data-iid="${iid}"]`);
+      if (preview) preview.style.background = gradient;
+    };
+
+    container.querySelectorAll<HTMLSelectElement>('.bm-hrdem-ramp').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const iid = sel.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemRampId = sel.value;
+        updateHrdemPreview(iid, layer);
+        this.hrdemLayers.get(iid)?.setRamp(this.resolveHrdemRamp(layer));
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-invert').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const iid = chk.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemRampInvert = chk.checked;
+        updateHrdemPreview(iid, layer);
+        this.hrdemLayers.get(iid)?.setRamp(this.resolveHrdemRamp(layer));
         this.saveStack();
       });
     });
