@@ -17,6 +17,7 @@ import { fetchHRDEM } from '../lib/hrdemWCS';
 import {
   renderElevation,
   rampToGradient,
+  invertRamp,
   DEFAULT_HYPSOMETRIC,
   type ColorRamp,
 } from '../lib/elevationRenderer';
@@ -62,7 +63,8 @@ export class HRDEMLayer {
    * Always tears down existing map layers first so that the layer is
    * re-inserted at the correct position within the unified overlay order.
    */
-  activate(instanceId: string, opacity: number, visible: boolean): void {
+  activate(instanceId: string, opacity: number, visible: boolean, ramp?: ColorRamp): void {
+    if (ramp) this.ramp = ramp;
     // Remove old map artefacts if present (ensures correct ordering after rebuildMap)
     this.removeMapLayers();
 
@@ -136,8 +138,8 @@ export class HRDEMLayer {
     if (visible) this.scheduleFetch();
   }
 
-  setRamp(ramp: ColorRamp): void {
-    this.ramp = ramp;
+  setRamp(ramp: ColorRamp, invert = false): void {
+    this.ramp = invert ? invertRamp(ramp) : ramp;
     this.scheduleFetch();
   }
 
