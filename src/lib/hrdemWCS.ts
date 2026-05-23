@@ -67,7 +67,7 @@ export async function fetchHRDEM(
   // NRCan wrapper/ogc requires service + request OGC params even under the REST path
   const url = `${OGC_BASE_URL}?` +
     `service=WCS&version=2.0.1&request=GetCoverage` +
-    `subset=Lat(${south}:${north})&subset=Lon(${west}:${east})` +
+    `&subset=Lat(${south}:${north})&subset=Lon(${west}:${east})` +
     `&scale-size=${reqW},${reqH}` +
     `&f=image%2Ftiff`;
 
