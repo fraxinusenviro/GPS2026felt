@@ -64,9 +64,9 @@ export async function fetchHRDEM(
   const reqW = Math.max(1, Math.round(targetWidth  * scale));
   const reqH = Math.max(1, Math.round(targetHeight * scale));
 
-  // OGC API - Coverages: GET /{collection}/coverage
-  // subset uses axis(low:high) notation; scale-size controls output resolution
-  const url = `${OGC_BASE_URL}/coverage?` +
+  // NRCan wrapper/ogc API: GET /{collection}/{subservice}
+  // The only accepted subservice for elevation-hrdem-mosaic is "cdem-cdsm"
+  const url = `${OGC_BASE_URL}/cdem-cdsm?` +
     `subset=Lat(${south}:${north})&subset=Lon(${west}:${east})` +
     `&scale-size=${reqW},${reqH}` +
     `&f=image%2Ftiff`;
