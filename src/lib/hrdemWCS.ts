@@ -36,22 +36,16 @@ export interface HRDEMResult {
   validCount: number;
 }
 
-/** Run once at startup — probes the endpoint to log layer/coverage info. */
+/** Run once at startup — logs available WCS 1.1.1 coverage identifiers. */
 export async function probeCapabilities(): Promise<void> {
-  // Try WCS GetCapabilities on the collection URL
   try {
-    const r1 = await fetch(`${OGC_BASE_URL}?service=WCS&version=2.0.1&request=GetCapabilities`);
-    const t1 = await r1.text();
-    console.log(`[HRDEM] WCS GetCapabilities HTTP ${r1.status}:`, t1.slice(0, 1200));
-  } catch (e) { console.warn('[HRDEM] WCS probe failed:', e); }
-
-  // Also probe the root wrapper endpoint for available collections/layers
-  try {
-    const rootUrl = 'https://datacube.services.geo.ca/wrapper/ogc';
-    const r2 = await fetch(`${rootUrl}?service=WCS&version=2.0.1&request=GetCapabilities`);
-    const t2 = await r2.text();
-    console.log(`[HRDEM] Root WCS GetCapabilities HTTP ${r2.status}:`, t2.slice(0, 1200));
-  } catch (e) { console.warn('[HRDEM] Root probe failed:', e); }
+    const resp = await fetch(`${OGC_BASE_URL}?service=WCS&version=1.1.1&request=GetCapabilities`);
+    const text = await resp.text();
+    // Extract Identifier elements from WCS 1.1.x capabilities XML
+    const ids = [...text.matchAll(/<[\w:]*Identifier[^>]*>([^<]+)<\/[\w:]*Identifier>/g)].map(m => m[1].trim());
+    console.log(`[HRDEM] WCS 1.1.1 GetCapabilities HTTP ${resp.status}, identifiers:`, ids.length ? ids : '(none found)');
+    if (!ids.length) console.log('[HRDEM] Capabilities (first 2000 chars):', text.slice(0, 2000));
+  } catch (e) { console.warn('[HRDEM] Probe failed:', e); }
 }
 
 void probeCapabilities();
@@ -71,12 +65,17 @@ export async function fetchHRDEM(
   const reqW = Math.max(1, Math.round(targetWidth  * scale));
   const reqH = Math.max(1, Math.round(targetHeight * scale));
 
+  // WCS 1.1.1: BoundingBox uses south,west,north,east order for EPSG:4326
+  // identifier = the coverage id (confirmed via GetCapabilities probe above)
   const url = `${OGC_BASE_URL}?` +
-    `service=WCS&version=2.0.1&request=GetCoverage` +
-    `&layers=elevation-hrdem-mosaic` +
-    `&subset=Lat(${south}:${north})&subset=Lon(${west}:${east})` +
-    `&scale-size=${reqW},${reqH}` +
-    `&f=image%2Ftiff`;
+    `service=WCS&version=1.1.1&request=GetCoverage` +
+    `&identifier=DTM` +
+    `&BoundingBox=${south},${west},${north},${east},urn:ogc:def:crs:EPSG::4326` +
+    `&format=image/tiff` +
+    `&GridCS=urn:ogc:def:cs:OGC:0.0:Grid2dSquareCS` +
+    `&GridType=urn:ogc:def:method:WCS:1.1:2dSimpleGrid` +
+    `&GridOrigin=${west},${north}` +
+    `&GridOffsets=${(east - west) / reqW},${-(north - south) / reqH}`;
 
   console.log('[HRDEM] Requesting:', url);
 
