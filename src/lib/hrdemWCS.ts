@@ -1,13 +1,19 @@
 /**
- * NRCan HRDEM elevation fetch via OGC API - Coverages.
+ * NRCan HRDEM elevation fetch via WCS 1.1.1.
  *
- * The datacube.services.geo.ca `wrapper/ogc` endpoint follows OGC API -
- * Coverages (19-087), NOT traditional WCS 2.0.1.  The correct request is a
- * GET to  /{collection}/coverage  with `subset` and `f` parameters.
+ * Endpoint: datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic
+ * Protocol: WCS 1.1.1 (confirmed via GetCapabilities)
+ * Coverages: dtm (bare earth) | dsm (surface incl. veg/structures)
+ * CRS: EPSG:4326 for browser requests (native is EPSG:3979)
  *
- * CORS: NRCan's datacube exposes CORS headers.  If fetches fail in your
- * deployment, set OGC_BASE_URL to a server-side proxy:
- *   export const OGC_BASE_URL = '/api/nrcan-elevation';
+ * WCS 1.1.1 quirks vs 2.0:
+ *   - IDENTIFIER (not COVERAGEID)
+ *   - BOUNDINGBOX = south,west,north,east,CRS  (lat/lon axis order of EPSG:4326)
+ *   - GRIDOFFSETS drives output resolution (lonStep,latStep)
+ *   - Response is multipart/related — binary GeoTIFF must be extracted from envelope
+ *
+ * CORS: NRCan exposes CORS headers. If fetches fail, proxy via:
+ *   const OGC_BASE_URL = '/api/nrcan-elevation';
  */
 
 import { fromArrayBuffer } from 'geotiff';
@@ -39,11 +45,11 @@ export interface HRDEMResult {
 /** Run once at startup — logs available WCS 1.1.1 coverage identifiers. */
 export async function probeCapabilities(): Promise<void> {
   try {
-    const resp = await fetch(`${OGC_BASE_URL}?service=WCS&version=1.1.1&request=GetCapabilities`);
+    const resp = await fetch(`${OGC_BASE_URL}?SERVICE=WCS&VERSION=1.1.1&REQUEST=GetCapabilities`);
     const text = await resp.text();
-    // Extract Identifier elements from WCS 1.1.x capabilities XML
-    const ids = [...text.matchAll(/<[\w:]*Identifier[^>]*>([^<]+)<\/[\w:]*Identifier>/g)].map(m => m[1].trim());
-    console.log(`[HRDEM] WCS 1.1.1 GetCapabilities HTTP ${resp.status}, identifiers:`, ids.length ? ids : '(none found)');
+    const ids = [...text.matchAll(/<[\w:]*Identifier[^>]*>([^<]+)<\/[\w:]*Identifier>/g)]
+      .map(m => m[1].trim());
+    console.log(`[HRDEM] WCS 1.1.1 identifiers (HTTP ${resp.status}):`, ids.length ? ids : '(none found)');
     if (!ids.length) console.log('[HRDEM] Capabilities (first 2000 chars):', text.slice(0, 2000));
   } catch (e) { console.warn('[HRDEM] Probe failed:', e); }
 }
@@ -65,17 +71,20 @@ export async function fetchHRDEM(
   const reqW = Math.max(1, Math.round(targetWidth  * scale));
   const reqH = Math.max(1, Math.round(targetHeight * scale));
 
-  // WCS 1.1.1: BoundingBox uses south,west,north,east order for EPSG:4326
-  // identifier = the coverage id (confirmed via GetCapabilities probe above)
+  // GRIDOFFSETS: lonStep (positive = east), latStep (negative = south from north origin)
+  const lonStep =  ((east  - west)  / reqW).toFixed(8);
+  const latStep = -((north - south) / reqH);
+
+  // BOUNDINGBOX: south,west,north,east,CRS  (EPSG:4326 lat-first axis order)
   const url = `${OGC_BASE_URL}?` +
-    `service=WCS&version=1.1.1&request=GetCoverage` +
-    `&identifier=DTM` +
-    `&BoundingBox=${south},${west},${north},${east},urn:ogc:def:crs:EPSG::4326` +
-    `&format=image/tiff` +
-    `&GridCS=urn:ogc:def:cs:OGC:0.0:Grid2dSquareCS` +
-    `&GridType=urn:ogc:def:method:WCS:1.1:2dSimpleGrid` +
-    `&GridOrigin=${west},${north}` +
-    `&GridOffsets=${(east - west) / reqW},${-(north - south) / reqH}`;
+    `SERVICE=WCS&VERSION=1.1.1&REQUEST=GetCoverage` +
+    `&IDENTIFIER=dtm` +
+    `&BOUNDINGBOX=${south},${west},${north},${east},urn:ogc:def:crs:EPSG::4326` +
+    `&GRIDBASECRS=urn:ogc:def:crs:EPSG::4326` +
+    `&GRIDCS=urn:ogc:def:crs:OGC::CS0002` +
+    `&GRIDTYPE=urn:ogc:def:method:WCS:1.1:2dSimpleGrid` +
+    `&GRIDOFFSETS=${lonStep},${latStep.toFixed(8)}` +
+    `&FORMAT=image/geotiff`;
 
   console.log('[HRDEM] Requesting:', url);
 
@@ -90,13 +99,12 @@ export async function fetchHRDEM(
       throw new Error(`HTTP ${resp.status}. Body: ${body.slice(0, 300)}`);
     }
 
-    if (!ct.includes('tiff') && !ct.includes('geotiff') && !ct.includes('octet-stream')) {
-      const body = await resp.text();
-      throw new Error(`Unexpected content-type "${ct}". Body: ${body.slice(0, 300)}`);
-    }
+    const raw = await resp.arrayBuffer();
+    console.log(`[HRDEM] Received ${(raw.byteLength / 1024).toFixed(1)} KB`);
 
-    arrayBuffer = await resp.arrayBuffer();
-    console.log(`[HRDEM] Received ${(arrayBuffer.byteLength / 1024).toFixed(1)} KB`);
+    // WCS 1.1.1 wraps the GeoTIFF in a multipart/related envelope
+    arrayBuffer = ct.includes('multipart') ? extractMultipartBinary(raw, ct) : raw;
+
   } catch (err) {
     if (err instanceof TypeError) {
       console.error('[HRDEM] Network/CORS error — URL:', url, err);
@@ -107,6 +115,50 @@ export async function fetchHRDEM(
   }
 
   return decodeElevationTIFF(arrayBuffer);
+}
+
+/**
+ * Strip the multipart/related MIME envelope from a WCS 1.1.1 response and
+ * return the ArrayBuffer of the binary image part.
+ */
+function extractMultipartBinary(buf: ArrayBuffer, contentType: string): ArrayBuffer {
+  const boundaryMatch = contentType.match(/boundary=["']?([^"';\s]+)["']?/i);
+  if (!boundaryMatch) {
+    console.warn('[HRDEM] No boundary in multipart Content-Type; attempting raw decode');
+    return buf;
+  }
+
+  const boundary = '--' + boundaryMatch[1];
+  // latin-1 decode preserves all byte values as char codes — safe for binary scanning
+  const str = new TextDecoder('latin-1').decode(buf);
+
+  let searchFrom = 0;
+  while (searchFrom < str.length) {
+    const partStart = str.indexOf(boundary, searchFrom);
+    if (partStart === -1) break;
+
+    const lineEnd = str.indexOf('\r\n', partStart);
+    if (lineEnd === -1) break;
+
+    const headersStart = lineEnd + 2;
+    const headersEnd   = str.indexOf('\r\n\r\n', headersStart);
+    if (headersEnd === -1) break;
+
+    const headers   = str.slice(headersStart, headersEnd).toLowerCase();
+    const dataStart = headersEnd + 4;
+
+    if (headers.includes('image/') || headers.includes('octet-stream')) {
+      const nextBoundary = str.indexOf('\r\n' + boundary, dataStart);
+      const dataEnd = nextBoundary !== -1 ? nextBoundary : str.length;
+      console.log(`[HRDEM] Extracted GeoTIFF from multipart: ${((dataEnd - dataStart) / 1024).toFixed(1)} KB`);
+      return buf.slice(dataStart, dataEnd);
+    }
+
+    searchFrom = headersEnd + 4;
+  }
+
+  console.warn('[HRDEM] No image/* part found in multipart; attempting raw decode');
+  return buf;
 }
 
 /** Decode a raw GeoTIFF ArrayBuffer into a Float32 elevation grid. */
@@ -157,7 +209,7 @@ async function decodeElevationTIFF(buf: ArrayBuffer): Promise<HRDEMResult> {
     `[HRDEM] Decoded ${width}×${height} px | nodata=${nodata} | ` +
     `valid=${valid.length}/${grid.length} (${zeroCount} at 0m) | ` +
     `elev ${elevMin.toFixed(1)}–${elevMax.toFixed(1)} m | ` +
-    `stretch ${stretchMin.toFixed(1)}–${stretchMax.toFixed(1)} m`
+    `stretch ${stretchMin.toFixed(1)}–${stretchMax.toFixed(1)} m`,
   );
 
   return { grid, width, height, bbox: [west, south, east, north], nodata, elevMin, elevMax, stretchMin, stretchMax, validCount: valid.length };
