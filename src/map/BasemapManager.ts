@@ -37,6 +37,7 @@ interface StackLayer {
   cogSmooth?: boolean;
   hrdemRampId?: string;    // key of HRDEM_RAMPS, default 'terrain'
   hrdemRampInvert?: boolean;
+  hrdemRasterVisible?:   boolean; // default true
   hrdemContourEnabled?:  boolean; // default false
   hrdemContourInterval?: number;  // default 10 (metres)
   hrdemContourColor?:    string;  // default '#ffffff'
@@ -690,6 +691,7 @@ export class BasemapManager {
         }
         const hrdemInst = this.hrdemLayers.get(l.instanceId)!;
         hrdemInst.activate(l.instanceId, l.opacity, l.visible, this.resolveHrdemRamp(l));
+        hrdemInst.setRasterVisible(l.hrdemRasterVisible ?? true);
         hrdemInst.setContour(
           l.hrdemContourEnabled  ?? false,
           l.hrdemContourInterval ?? 10,
@@ -1066,8 +1068,9 @@ export class BasemapManager {
       </div>` : '';
 
     const isHrdem = ltype === 'hrdem-wcs';
-    const hrdemRampId       = layer.hrdemRampId       ?? 'terrain';
-    const hrdemInvert       = layer.hrdemRampInvert   ?? false;
+    const hrdemRampId       = layer.hrdemRampId          ?? 'terrain';
+    const hrdemInvert       = layer.hrdemRampInvert      ?? false;
+    const hrdemRasterVis    = layer.hrdemRasterVisible   ?? true;
     const hrdemContourEn    = layer.hrdemContourEnabled  ?? false;
     const hrdemContourIvl   = layer.hrdemContourInterval ?? 10;
     const hrdemContourCol   = layer.hrdemContourColor    ?? '#ffffff';
@@ -1096,6 +1099,13 @@ export class BasemapManager {
         <div class="bm-adj-row" style="font-size:10px;color:var(--fg-2,#888);opacity:0.7;padding-top:2px">
           <label class="bm-adj-label"></label>
           <span>Stretch: auto min–max per view</span>
+        </div>
+        <div class="bm-adj-row">
+          <label class="bm-adj-label"></label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
+            <input type="checkbox" class="bm-hrdem-raster-vis" data-iid="${layer.instanceId}"${hrdemRasterVis ? ' checked' : ''} />
+            Show raster
+          </label>
         </div>
         <div class="bm-adj-row" style="margin-top:6px;border-top:1px solid var(--border,#444);padding-top:5px">
           <label class="bm-adj-label" style="font-size:9px;text-transform:uppercase;letter-spacing:.05em;opacity:.55">Contours</label>
@@ -1471,6 +1481,17 @@ export class BasemapManager {
         layer.hrdemRampInvert = chk.checked;
         updateHrdemPreview(iid, layer);
         this.hrdemLayers.get(iid)?.setRamp(this.resolveHrdemRamp(layer));
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-raster-vis').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const iid = chk.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemRasterVisible = chk.checked;
+        this.hrdemLayers.get(iid)?.setRasterVisible(chk.checked);
         this.saveStack();
       });
     });

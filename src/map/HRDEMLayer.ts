@@ -51,6 +51,10 @@ export class HRDEMLayer {
   // Tracks the opacity the caller wants; used to restore after the zoom-guard zeroes it
   private intendedOpacity = 1;
 
+  // Visibility state — tracked internally so each sublayer can be controlled independently
+  private layerVisible  = true;  // main eye-icon toggle
+  private rasterVisible = true;  // "Show raster" checkbox in adj panel
+
   // Contour state
   private contourEnabled  = false;
   private contourInterval = 10;
@@ -85,6 +89,7 @@ export class HRDEMLayer {
    */
   activate(instanceId: string, opacity: number, visible: boolean, ramp?: ColorRamp): void {
     if (ramp) this.ramp = ramp;
+    this.layerVisible    = visible;
     this.intendedOpacity = visible ? opacity : 0;
     // Remove old map artefacts if present (ensures correct ordering after rebuildMap)
     this.removeMapLayers();
@@ -118,7 +123,7 @@ export class HRDEMLayer {
       LAYER_IDS.USER_ACCURACY,
     );
 
-    if (!visible) {
+    if (!this.effectiveRasterVisible()) {
       map.setLayoutProperty(this.layerId, 'visibility', 'none');
     }
 
@@ -130,7 +135,7 @@ export class HRDEMLayer {
         id:     this.contourLayerId,
         type:   'line',
         source: this.contourSrcId,
-        layout: { visibility: this.contourEnabled ? 'visible' : 'none' },
+        layout: { visibility: this.effectiveContourVisible() ? 'visible' : 'none' },
         paint: {
           'line-color':   this.contourColor,
           'line-width':   1.2,
@@ -176,16 +181,15 @@ export class HRDEMLayer {
   }
 
   setVisible(visible: boolean): void {
-    const map = this.mapManager.getMap();
-    if (map.getLayer(this.layerId)) {
-      map.setLayoutProperty(this.layerId, 'visibility', visible ? 'visible' : 'none');
-    }
-    // Contour visibility follows its own toggle, but also respects the main visible flag
-    if (map.getLayer(this.contourLayerId)) {
-      const show = visible && this.contourEnabled;
-      map.setLayoutProperty(this.contourLayerId, 'visibility', show ? 'visible' : 'none');
-    }
+    this.layerVisible = visible;
+    this.applyVisibilities();
     if (visible) this.scheduleFetch();
+  }
+
+  setRasterVisible(visible: boolean): void {
+    this.rasterVisible = visible;
+    this.applyVisibilities();
+    if (visible && this.layerVisible) this.scheduleFetch();
   }
 
   setRamp(ramp: ColorRamp, invert = false): void {
@@ -208,18 +212,15 @@ export class HRDEMLayer {
     this.contourColor    = color;
 
     const map = this.mapManager.getMap();
-
     if (map.getLayer(this.contourLayerId)) {
       map.setPaintProperty(this.contourLayerId, 'line-color', color);
-      const rasterVisible = map.getLayoutProperty(this.layerId, 'visibility') !== 'none';
-      map.setLayoutProperty(
-        this.contourLayerId, 'visibility',
-        enabled && rasterVisible ? 'visible' : 'none',
-      );
     }
+    this.applyVisibilities();
 
     if (enabled && this.lastResult) {
       this.updateContourSource(this.lastResult);
+      // Fetch fresh data if the raster was hidden (no prior fetch in that state)
+      if (!this.rasterVisible) this.scheduleFetch();
     } else if (!enabled) {
       const src = map.getSource(this.contourSrcId) as maplibregl.GeoJSONSource | undefined;
       if (src) src.setData(EMPTY_FC);
@@ -236,6 +237,21 @@ export class HRDEMLayer {
   // --------------------------------------------------------------------------
   // Internal
   // --------------------------------------------------------------------------
+
+  private effectiveRasterVisible():  boolean { return this.layerVisible && this.rasterVisible; }
+  private effectiveContourVisible(): boolean { return this.layerVisible && this.contourEnabled; }
+
+  private applyVisibilities(): void {
+    const map = this.mapManager.getMap();
+    if (map.getLayer(this.layerId)) {
+      map.setLayoutProperty(this.layerId, 'visibility',
+        this.effectiveRasterVisible() ? 'visible' : 'none');
+    }
+    if (map.getLayer(this.contourLayerId)) {
+      map.setLayoutProperty(this.contourLayerId, 'visibility',
+        this.effectiveContourVisible() ? 'visible' : 'none');
+    }
+  }
 
   private updateContourSource(result: HRDEMResult): void {
     const map = this.mapManager.getMap();
@@ -280,19 +296,15 @@ export class HRDEMLayer {
 
     // Skip at small scales — HRDEM 1 m data is meaningless below zoom 10
     if (map.getZoom() < MIN_ZOOM) {
-      if (map.getLayer(this.layerId)) {
-        map.setPaintProperty(this.layerId, 'raster-opacity', 0);
-      }
-      if (map.getLayer(this.contourLayerId)) {
-        map.setLayoutProperty(this.contourLayerId, 'visibility', 'none');
-      }
+      if (map.getLayer(this.layerId))        map.setPaintProperty(this.layerId, 'raster-opacity', 0);
+      if (map.getLayer(this.contourLayerId)) map.setLayoutProperty(this.contourLayerId, 'visibility', 'none');
       this.updateLegend(null);
       return;
     }
 
-    // Skip if raster layer is hidden (contours also depend on data being visible)
-    const vis = map.getLayoutProperty(this.layerId, 'visibility');
-    if (vis === 'none') return;
+    // Skip if nothing would be shown — but allow fetch when raster is off if contours are on
+    if (!this.layerVisible) return;
+    if (!this.rasterVisible && !this.contourEnabled) return;
 
     const bounds = map.getBounds();
     const west  = bounds.getWest();
