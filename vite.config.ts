@@ -1,11 +1,15 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { readFileSync } from 'fs';
+
+const pkg = JSON.parse(readFileSync('./package.json', 'utf-8')) as { version: string };
 
 export default defineConfig({
   // Use './' so all asset URLs are relative — works on any subpath (GitHub Pages, etc.)
   base: './',
   define: {
     __APP_BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+    __APP_VERSION__: JSON.stringify(pkg.version),
   },
   plugins: [
     VitePWA({
