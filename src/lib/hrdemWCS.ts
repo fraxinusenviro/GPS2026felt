@@ -16,8 +16,33 @@ import { fromArrayBuffer } from 'geotiff';
 export const WCS_BASE_URL =
   'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic';
 
+/** Coverage ID — must match a coverage listed in the WCS GetCapabilities response. */
+const COVERAGE_ID = 'elevation-hrdem-mosaic';
+
 /** Maximum pixel dimension for a single WCS request (both axes). */
 const MAX_PIXELS = 1024;
+
+/** Run once at startup: fetch GetCapabilities and log available coverage IDs. */
+export async function probeCapabilities(): Promise<void> {
+  const url = `${WCS_BASE_URL}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCapabilities`;
+  try {
+    const resp = await fetch(url);
+    const text = await resp.text();
+    // Extract CoverageId elements from the XML
+    const ids = [...text.matchAll(/<\w+:?CoverageId[^>]*>([^<]+)<\/\w+:?CoverageId>/g)]
+      .map(m => m[1]);
+    if (ids.length) {
+      console.log('[HRDEM] Available coverage IDs:', ids);
+    } else {
+      console.log('[HRDEM] GetCapabilities response (first 1000 chars):', text.slice(0, 1000));
+    }
+  } catch (e) {
+    console.warn('[HRDEM] GetCapabilities probe failed:', e);
+  }
+}
+
+// Trigger the probe once on module load so the IDs appear in the console
+void probeCapabilities();
 
 /** Decoded elevation grid plus metadata. */
 export interface HRDEMResult {
@@ -53,7 +78,7 @@ export async function fetchHRDEM(
   const reqH = Math.max(1, Math.round(targetHeight * scale));
 
   const url = `${WCS_BASE_URL}?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage` +
-    `&COVERAGEID=dtm&FORMAT=image/tiff` +
+    `&COVERAGEID=${COVERAGE_ID}&FORMAT=image/tiff` +
     `&SUBSETTINGCRS=http://www.opengis.net/def/crs/EPSG/0/4326` +
     `&OUTPUTCRS=http://www.opengis.net/def/crs/EPSG/0/4326` +
     `&SUBSET=Lat(${south},${north})&SUBSET=Long(${west},${east})` +
