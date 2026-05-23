@@ -71,9 +71,10 @@ export async function fetchHRDEM(
   const reqW = Math.max(1, Math.round(targetWidth  * scale));
   const reqH = Math.max(1, Math.round(targetHeight * scale));
 
-  // GRIDOFFSETS: lonStep (positive = east), latStep (negative = south from north origin)
+  // EPSG:4326 axis order: Latitude (axis 1), Longitude (axis 2)
+  // GRIDOFFSETS = axis1Step, axis2Step = latStep (negative=south), lonStep (positive=east)
+  const latStep = -((north - south) / reqH).toFixed(8);
   const lonStep =  ((east  - west)  / reqW).toFixed(8);
-  const latStep = -((north - south) / reqH);
 
   // BOUNDINGBOX: south,west,north,east,CRS  (EPSG:4326 lat-first axis order)
   const url = `${OGC_BASE_URL}?` +
@@ -83,7 +84,7 @@ export async function fetchHRDEM(
     `&GRIDBASECRS=urn:ogc:def:crs:EPSG::4326` +
     `&GRIDCS=urn:ogc:def:crs:OGC::CS0002` +
     `&GRIDTYPE=urn:ogc:def:method:WCS:1.1:2dSimpleGrid` +
-    `&GRIDOFFSETS=${lonStep},${latStep.toFixed(8)}` +
+    `&GRIDOFFSETS=${latStep},${lonStep}` +
     `&FORMAT=image/geotiff`;
 
   console.log('[HRDEM] Requesting:', url);
