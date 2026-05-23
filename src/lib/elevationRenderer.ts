@@ -175,10 +175,10 @@ export function invertRamp(ramp: ColorRamp): ColorRamp {
 /**
  * Render an elevation grid onto an HTMLCanvasElement.
  *
- * The canvas is resized to match the grid dimensions.
+ * Colour is mapped using the 2nd–98th percentile stretch range stored in
+ * `result.stretchMin` / `result.stretchMax`, so ocean-at-zero or outlier
+ * peaks don't collapse the entire land relief into one colour.
  * Nodata, NaN, and ±Infinity pixels are written as fully transparent.
- * Colour stretch is always min→max of the values present in this tile
- * (i.e. per-view dynamic range expansion).
  *
  * @param canvas  Target canvas (will be resized to grid width × height)
  * @param result  Decoded HRDEM data from fetchHRDEM()
@@ -190,14 +190,14 @@ export function renderElevation(
   result: HRDEMResult,
   ramp: ColorRamp = DEFAULT_HYPSOMETRIC,
 ): HTMLCanvasElement {
-  const { grid, width, height, nodata, elevMin, elevMax } = result;
+  const { grid, width, height, nodata, stretchMin, stretchMax } = result;
   canvas.width  = width;
   canvas.height = height;
 
   const ctx = canvas.getContext('2d')!;
   const imageData = ctx.createImageData(width, height);
   const pixels    = imageData.data;
-  const range     = elevMax - elevMin;
+  const range     = stretchMax - stretchMin;
 
   for (let i = 0; i < grid.length; i++) {
     const v  = grid[i];
@@ -209,7 +209,7 @@ export function renderElevation(
       continue;
     }
 
-    const t = range > 0 ? Math.max(0, Math.min(1, (v - elevMin) / range)) : 0.5;
+    const t = range > 0 ? Math.max(0, Math.min(1, (v - stretchMin) / range)) : 0.5;
     const [r, g, b] = sampleRamp(ramp, t);
     pixels[px]     = r;
     pixels[px + 1] = g;

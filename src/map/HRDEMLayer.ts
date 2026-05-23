@@ -286,14 +286,14 @@ export class HRDEMLayer {
     this.legendEl = null;
   }
 
-  private updateLegend(result: { elevMin: number; elevMax: number } | null): void {
+  private updateLegend(result: { stretchMin: number; stretchMax: number } | null): void {
     if (this.legendEl) this.legendEl.innerHTML = this.buildLegendHTML(result);
   }
 
-  private buildLegendHTML(result: { elevMin: number; elevMax: number } | null): string {
+  private buildLegendHTML(result: { stretchMin: number; stretchMax: number } | null): string {
     const grad = rampToGradient(this.ramp);
-    const minLbl = result ? `${result.elevMin.toFixed(0)} m` : '—';
-    const maxLbl = result ? `${result.elevMax.toFixed(0)} m` : '—';
+    const minLbl = result ? `${result.stretchMin.toFixed(0)} m` : '—';
+    const maxLbl = result ? `${result.stretchMax.toFixed(0)} m` : '—';
     return `
       <div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">
         Elevation
