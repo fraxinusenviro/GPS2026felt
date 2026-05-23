@@ -41,6 +41,7 @@ interface StackLayer {
   hrdemContourEnabled?:  boolean; // default false
   hrdemContourInterval?: number;  // default 10 (metres)
   hrdemContourColor?:    string;  // default '#ffffff'
+  hrdemContourWidth?:    number;  // default 1.2 (px)
 }
 
 interface UserLayerInfo {
@@ -696,6 +697,7 @@ export class BasemapManager {
           l.hrdemContourEnabled  ?? false,
           l.hrdemContourInterval ?? 10,
           l.hrdemContourColor    ?? '#ffffff',
+          l.hrdemContourWidth    ?? 1.2,
         );
       }
     }
@@ -1074,6 +1076,7 @@ export class BasemapManager {
     const hrdemContourEn    = layer.hrdemContourEnabled  ?? false;
     const hrdemContourIvl   = layer.hrdemContourInterval ?? 10;
     const hrdemContourCol   = layer.hrdemContourColor    ?? '#ffffff';
+    const hrdemContourWid   = layer.hrdemContourWidth    ?? 1.2;
     const hrdemRampEntry    = HRDEM_RAMPS[hrdemRampId] ?? HRDEM_RAMPS['terrain'];
     const hrdemGradient     = rampToHorizontalGradient(hrdemInvert ? invertRamp(hrdemRampEntry.ramp) : hrdemRampEntry.ramp);
     const inputStyle        = 'font-size:11px;background:var(--bg-2,#1a2a1a);color:var(--fg-1,#ccc);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px';
@@ -1121,13 +1124,19 @@ export class BasemapManager {
           <div class="bm-adj-row">
             <label class="bm-adj-label">Interval</label>
             <input type="number" class="bm-hrdem-contour-ivl" data-iid="${layer.instanceId}"
-              value="${hrdemContourIvl}" min="1" max="500" step="1"
+              value="${hrdemContourIvl}" min="0.1" max="500" step="0.1"
               style="width:52px;${inputStyle}" />
             <span style="font-size:10px;opacity:.6;margin-left:3px">m</span>
           </div>
           <div class="bm-adj-row">
             <label class="bm-adj-label">Line colour</label>
             <input type="color" class="bm-hrdem-contour-col" data-iid="${layer.instanceId}" value="${hrdemContourCol}" />
+          </div>
+          <div class="bm-adj-row">
+            <label class="bm-adj-label">Width</label>
+            <input type="range" class="bm-adj-slider bm-hrdem-contour-wid" data-iid="${layer.instanceId}"
+              min="0.5" max="5" step="0.5" value="${hrdemContourWid}" />
+            <span class="bm-adj-val bm-hrdem-contour-wid-val" data-iid="${layer.instanceId}">${hrdemContourWid}px</span>
           </div>
         </div>
       </div>` : '';
@@ -1501,6 +1510,7 @@ export class BasemapManager {
         layer.hrdemContourEnabled  ?? false,
         layer.hrdemContourInterval ?? 10,
         layer.hrdemContourColor    ?? '#ffffff',
+        layer.hrdemContourWidth    ?? 1.2,
       );
     };
 
@@ -1522,7 +1532,7 @@ export class BasemapManager {
         const iid = inp.dataset.iid!;
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
-        layer.hrdemContourInterval = Math.max(1, Number(inp.value) || 10);
+        layer.hrdemContourInterval = Math.max(0.1, Number(inp.value) || 10);
         applyContour(iid, layer);
         this.saveStack();
       });
@@ -1534,6 +1544,20 @@ export class BasemapManager {
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
         layer.hrdemContourColor = inp.value;
+        applyContour(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-contour-wid').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const iid = slider.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        const w = Number(slider.value);
+        layer.hrdemContourWidth = w;
+        const lbl = container.querySelector<HTMLElement>(`.bm-hrdem-contour-wid-val[data-iid="${iid}"]`);
+        if (lbl) lbl.textContent = `${w}px`;
         applyContour(iid, layer);
         this.saveStack();
       });

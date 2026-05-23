@@ -59,6 +59,7 @@ export class HRDEMLayer {
   private contourEnabled  = false;
   private contourInterval = 10;
   private contourColor    = '#ffffff';
+  private contourWidth    = 1.2;
 
   // Current activation state
   private instanceId     = '';
@@ -138,7 +139,7 @@ export class HRDEMLayer {
         layout: { visibility: this.effectiveContourVisible() ? 'visible' : 'none' },
         paint: {
           'line-color':   this.contourColor,
-          'line-width':   1.2,
+          'line-width':   this.contourWidth,
           'line-opacity': this.intendedOpacity,
         },
       },
@@ -206,14 +207,16 @@ export class HRDEMLayer {
     }
   }
 
-  setContour(enabled: boolean, interval: number, color: string): void {
+  setContour(enabled: boolean, interval: number, color: string, width = 1.2): void {
     this.contourEnabled  = enabled;
-    this.contourInterval = Math.max(1, interval);
+    this.contourInterval = Math.max(0.1, interval);
     this.contourColor    = color;
+    this.contourWidth    = width;
 
     const map = this.mapManager.getMap();
     if (map.getLayer(this.contourLayerId)) {
       map.setPaintProperty(this.contourLayerId, 'line-color', color);
+      map.setPaintProperty(this.contourLayerId, 'line-width', width);
     }
     this.applyVisibilities();
 
@@ -423,6 +426,15 @@ export class HRDEMLayer {
       ? `${result.elevMin.toFixed(0)}–${result.elevMax.toFixed(0)} m (${result.validCount.toLocaleString()} px)`
       : '';
 
+    const ivl = this.contourInterval;
+    const ivlLbl = ivl < 1 ? `${ivl} m` : `${ivl % 1 === 0 ? ivl.toFixed(0) : ivl} m`;
+    const contourHud = this.contourEnabled
+      ? `<div style="display:flex;align-items:center;gap:4px;font-size:9px;margin-top:5px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.1)">
+           <span style="display:inline-block;width:14px;height:0;border-top:1.5px solid ${this.contourColor};opacity:0.85;flex-shrink:0"></span>
+           <span style="opacity:0.65">${ivlLbl} contours</span>
+         </div>`
+      : '';
+
     return `
       <div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">
         Elevation
@@ -434,6 +446,7 @@ export class HRDEMLayer {
           <span>${minLbl}</span>
         </div>
       </div>
-      ${statsLbl ? `<div style="font-size:9px;opacity:0.45;margin-top:4px;max-width:120px;line-height:1.3">${statsLbl}</div>` : ''}`;
+      ${statsLbl ? `<div style="font-size:9px;opacity:0.45;margin-top:4px;max-width:120px;line-height:1.3">${statsLbl}</div>` : ''}
+      ${contourHud}`;
   }
 }
