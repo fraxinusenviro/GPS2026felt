@@ -429,6 +429,20 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
     max_zoom: 20
   },
 
+  // ---- Elevation (WCS) ----
+  {
+    id: 'hrdem-elevation',
+    label: 'Elevation (HRDEM 1m)',
+    type: 'hrdem-wcs',
+    group: 'Elevation',
+    // The url field is stored in the stack for serialisation but is not used
+    // for tile fetching — HRDEMLayer manages its own WCS endpoint internally.
+    url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic',
+    attribution: '© Natural Resources Canada — HRDEM DTM',
+    tile_size: 256,
+    max_zoom: 22,
+  },
+
   // ---- Wetland Indices (COG rasters) ----
   {
     id: 'wi-dtw',
