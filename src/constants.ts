@@ -558,15 +558,36 @@ export function DEFAULT_PROJECT_LAYER_PRESETS(projectId: string): LayerPreset[] 
   ];
 }
 
-/** Returns the JSON string for a new project's default basemap stack. */
+/** Returns the JSON string for a new project's default basemap stack.
+ *  Stack array order: index 0 = topmost overlay, last index = base layer rendered at bottom.
+ *  Default layout: property (top, no fill, black stroke) → imagery 50% → hillshade (base).
+ */
 export function buildDefaultProjectStack(): string {
   const esriDef = BASEMAPS.find(b => b.id === 'esri-imagery')!;
   const nsprdDef = (BASEMAP_OVERLAYS as BasemapDef[]).find(o => o.id === 'ns-plan-nsprd')!;
   const dtmDef   = (BASEMAP_OVERLAYS as BasemapDef[]).find(o => o.id === 'hrdem-dtm-hillshade')!;
+  const t = Date.now();
   const stack = [
-    { instanceId: 'base-0', defId: esriDef.id, label: esriDef.label, url: esriDef.url, type: esriDef.type, tileSize: esriDef.tile_size ?? 256, maxZoom: esriDef.max_zoom ?? 19, opacity: 1, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1 },
-    { instanceId: `ov-${Date.now()}-1`, defId: nsprdDef.id, label: nsprdDef.label, url: nsprdDef.url, type: nsprdDef.type, vector_config: nsprdDef.vector_config, tileSize: 256, maxZoom: nsprdDef.max_zoom ?? 20, opacity: 1, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1 },
-    { instanceId: `ov-${Date.now()}-2`, defId: dtmDef.id,   label: dtmDef.label,   url: dtmDef.url,   type: dtmDef.type,   tileSize: dtmDef.tile_size ?? 256,   maxZoom: dtmDef.max_zoom ?? 17,   opacity: 0.6, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1 },
+    // TOP: NS Property Registry — no fill, black stroke
+    {
+      instanceId: `ov-${t}-nsprd`, defId: nsprdDef.id, label: nsprdDef.label, url: nsprdDef.url,
+      type: nsprdDef.type, vector_config: nsprdDef.vector_config,
+      tileSize: 256, maxZoom: nsprdDef.max_zoom ?? 20,
+      opacity: 1, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
+      vecLineColor: '#000000', vecFillOpacityOverride: 0,
+    },
+    // MIDDLE: ESRI imagery at 50% opacity
+    {
+      instanceId: `ov-${t}-esri`, defId: esriDef.id, label: esriDef.label, url: esriDef.url,
+      type: esriDef.type, tileSize: esriDef.tile_size ?? 256, maxZoom: esriDef.max_zoom ?? 19,
+      opacity: 0.5, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
+    },
+    // BOTTOM (base layer — must be last in array): DTM hillshade
+    {
+      instanceId: 'base-0', defId: dtmDef.id, label: dtmDef.label, url: dtmDef.url,
+      type: dtmDef.type, tileSize: dtmDef.tile_size ?? 256, maxZoom: dtmDef.max_zoom ?? 17,
+      opacity: 1, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
+    },
   ];
   return JSON.stringify({ stack, collapsed: [] });
 }

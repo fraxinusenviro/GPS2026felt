@@ -161,9 +161,9 @@ export class App {
     // Load project-scoped data
     const activeProjectId = this.settings.active_project_id || 'default';
     const activeProject = await this.storage.getProject(activeProjectId);
-    if (activeProject?.basemap_stack_json) {
-      this.basemapManager.setActiveProjectStack(activeProject.basemap_stack_json);
-    }
+    // Prefer localStorage (most-recent session state) over the project's IndexedDB snapshot.
+    // Falls back to the project JSON only when localStorage has no data for this project.
+    this.basemapManager.initForProject(activeProjectId, activeProject?.basemap_stack_json);
     this.features = await this.storage.getFeaturesByProject(activeProjectId);
     this.projectLayerPresets = await this.storage.getLayersByProject(activeProjectId);
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
@@ -1302,9 +1302,9 @@ export class App {
     this.settings.default_layer_id = project.default_layer_id;
     await this.storage.saveAppSettings(this.settings);
 
-    // Restore basemap stack
+    // Restore basemap stack for the new project
     if (project.basemap_stack_json) {
-      this.basemapManager.setActiveProjectStack(project.basemap_stack_json);
+      this.basemapManager.setActiveProjectStack(project.basemap_stack_json, id);
     }
 
     // Load project features and layers
