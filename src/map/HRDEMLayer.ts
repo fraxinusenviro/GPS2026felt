@@ -13,12 +13,12 @@
 
 import maplibregl from 'maplibre-gl';
 import type { MapManager } from './MapManager';
-import { fetchHRDEM } from '../lib/hrdemWCS';
+import { fetchHRDEM, type HRDEMResult } from '../lib/hrdemWCS';
 import {
   renderElevation,
   rampToGradient,
   invertRamp,
-  DEFAULT_HYPSOMETRIC,
+  HRDEM_RAMPS,
   type ColorRamp,
 } from '../lib/elevationRenderer';
 import { LAYER_IDS } from '../constants';
@@ -34,13 +34,19 @@ const BLANK_PNG =
 export class HRDEMLayer {
   // Stable across activate/deactivate cycles so canvas data survives rebuildMap()
   private readonly canvas = document.createElement('canvas');
-  private ramp: ColorRamp = DEFAULT_HYPSOMETRIC;
+  private ramp: ColorRamp = HRDEM_RAMPS['terrain'].ramp;
+
+  // Last fetched result — re-rendered immediately on ramp changes (no re-fetch needed)
+  private lastResult: HRDEMResult | null = null;
 
   // Last fetched coordinates — restored on re-activate to avoid a blank flash
   private lastCoords: [[number,number],[number,number],[number,number],[number,number]] = [
     [-180, 85], [180, 85], [180, -85], [-180, -85],
   ];
   private canvasHasData = false;
+
+  // Tracks the opacity the caller wants; used to restore after the zoom-guard zeroes it
+  private intendedOpacity = 1;
 
   // Current activation state
   private instanceId = '';
@@ -65,6 +71,7 @@ export class HRDEMLayer {
    */
   activate(instanceId: string, opacity: number, visible: boolean, ramp?: ColorRamp): void {
     if (ramp) this.ramp = ramp;
+    this.intendedOpacity = visible ? opacity : 0;
     // Remove old map artefacts if present (ensures correct ordering after rebuildMap)
     this.removeMapLayers();
 
@@ -124,6 +131,7 @@ export class HRDEMLayer {
   // --------------------------------------------------------------------------
 
   setOpacity(opacity: number): void {
+    this.intendedOpacity = opacity;
     const map = this.mapManager.getMap();
     if (map.getLayer(this.layerId)) {
       map.setPaintProperty(this.layerId, 'raster-opacity', opacity);
@@ -140,7 +148,16 @@ export class HRDEMLayer {
 
   setRamp(ramp: ColorRamp, invert = false): void {
     this.ramp = invert ? invertRamp(ramp) : ramp;
-    this.scheduleFetch();
+    if (this.lastResult) {
+      // Re-render immediately from cached data — no network round-trip needed
+      renderElevation(this.canvas, this.lastResult, this.ramp);
+      this.canvasHasData = true;
+      const src = this.mapManager.getMap().getSource(this.srcId) as maplibregl.ImageSource | undefined;
+      if (src) src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
+      this.updateLegend(this.lastResult);
+    } else {
+      this.scheduleFetch();
+    }
   }
 
   getLayerIds(): string[] {
@@ -216,6 +233,7 @@ export class HRDEMLayer {
 
     if (!this.active) return; // deactivated while fetch was in-flight
 
+    this.lastResult = result;
     renderElevation(this.canvas, result, this.ramp);
     this.canvasHasData = true;
 
@@ -232,11 +250,10 @@ export class HRDEMLayer {
 
     src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
 
-    // Restore opacity (may have been zeroed at zoom < MIN_ZOOM earlier)
-    const stackOpacity = map.getPaintProperty(this.layerId, 'raster-opacity') as number;
-    if (stackOpacity === 0) {
-      // Re-read from MapLibre layer's default opacity (set during activate)
-      // We don't track it here; a non-zero value means it was deliberately muted
+    // Restore opacity if the zoom-guard previously zeroed it
+    const currentOpacity = map.getPaintProperty(this.layerId, 'raster-opacity') as number;
+    if (currentOpacity === 0 && this.intendedOpacity > 0) {
+      map.setPaintProperty(this.layerId, 'raster-opacity', this.intendedOpacity);
     }
 
     this.updateLegend(result);

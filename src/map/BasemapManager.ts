@@ -35,7 +35,7 @@ interface StackLayer {
   cogRampId?: string; // 'original' | key of COG_RAMPS
   cogRampInvert?: boolean;
   cogSmooth?: boolean;
-  hrdemRampId?: string;    // key of HRDEM_RAMPS, default 'hypsometric'
+  hrdemRampId?: string;    // key of HRDEM_RAMPS, default 'terrain'
   hrdemRampInvert?: boolean;
 }
 
@@ -531,7 +531,7 @@ export class BasemapManager {
   // ---- HRDEM ramp helpers ----
 
   private resolveHrdemRamp(layer: StackLayer): ColorRamp {
-    const entry = HRDEM_RAMPS[layer.hrdemRampId ?? 'hypsometric'] ?? HRDEM_RAMPS['hypsometric'];
+    const entry = HRDEM_RAMPS[layer.hrdemRampId ?? 'terrain'] ?? HRDEM_RAMPS['terrain'];
     return layer.hrdemRampInvert ? invertRamp(entry.ramp) : entry.ramp;
   }
 
@@ -1057,9 +1057,9 @@ export class BasemapManager {
       </div>` : '';
 
     const isHrdem = ltype === 'hrdem-wcs';
-    const hrdemRampId = layer.hrdemRampId ?? 'hypsometric';
+    const hrdemRampId = layer.hrdemRampId ?? 'terrain';
     const hrdemInvert = layer.hrdemRampInvert ?? false;
-    const hrdemRampEntry = HRDEM_RAMPS[hrdemRampId] ?? HRDEM_RAMPS['hypsometric'];
+    const hrdemRampEntry = HRDEM_RAMPS[hrdemRampId] ?? HRDEM_RAMPS['terrain'];
     const hrdemGradient = rampToHorizontalGradient(hrdemInvert ? invertRamp(hrdemRampEntry.ramp) : hrdemRampEntry.ramp);
     const hrdemAdjPanel = isHrdem ? `
       <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
@@ -1408,7 +1408,7 @@ export class BasemapManager {
 
     // HRDEM ramp picker
     const updateHrdemPreview = (iid: string, layer: StackLayer) => {
-      const entry = HRDEM_RAMPS[layer.hrdemRampId ?? 'hypsometric'] ?? HRDEM_RAMPS['hypsometric'];
+      const entry = HRDEM_RAMPS[layer.hrdemRampId ?? 'terrain'] ?? HRDEM_RAMPS['terrain'];
       const ramp = layer.hrdemRampInvert ? invertRamp(entry.ramp) : entry.ramp;
       const gradient = rampToHorizontalGradient(ramp);
       const preview = container.querySelector<HTMLElement>(`.bm-hrdem-ramp-preview[data-iid="${iid}"]`);
