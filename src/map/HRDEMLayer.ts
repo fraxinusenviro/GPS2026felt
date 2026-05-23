@@ -58,6 +58,10 @@ export class HRDEMLayer {
   private moveHandler: (() => void) | null = null;
   private legendEl: HTMLElement | null = null;
 
+  // Legend status
+  private legendStatus: 'idle' | 'loading' | 'error' | 'ready' = 'idle';
+  private legendError = '';
+
   constructor(private readonly mapManager: MapManager) {}
 
   // --------------------------------------------------------------------------
@@ -223,13 +227,21 @@ export class HRDEMLayer {
     const targetW = mc.width  || 512;
     const targetH = mc.height || 512;
 
+    this.legendStatus = 'loading';
+    this.updateLegend(null);
+
     let result;
     try {
       result = await fetchHRDEM(west, south, east, north, targetW, targetH);
     } catch (err) {
-      console.warn('[HRDEMLayer] fetch failed:', err);
+      this.legendStatus = 'error';
+      this.legendError = String(err).slice(0, 120);
+      this.updateLegend(null);
+      console.error('[HRDEMLayer] fetch failed:', err);
       return;
     }
+
+    this.legendStatus = 'ready';
 
     if (!this.active) return; // deactivated while fetch was in-flight
 
@@ -286,14 +298,32 @@ export class HRDEMLayer {
     this.legendEl = null;
   }
 
-  private updateLegend(result: { stretchMin: number; stretchMax: number } | null): void {
+  private updateLegend(result: { stretchMin: number; stretchMax: number; validCount: number; elevMin: number; elevMax: number } | null): void {
     if (this.legendEl) this.legendEl.innerHTML = this.buildLegendHTML(result);
   }
 
-  private buildLegendHTML(result: { stretchMin: number; stretchMax: number } | null): string {
+  private buildLegendHTML(result: { stretchMin: number; stretchMax: number; validCount: number; elevMin: number; elevMax: number } | null): string {
     const grad = rampToGradient(this.ramp);
+
+    if (this.legendStatus === 'loading') {
+      return `
+        <div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:4px;text-transform:uppercase">Elevation</div>
+        <div style="font-size:10px;opacity:0.7">⟳ Fetching…</div>`;
+    }
+
+    if (this.legendStatus === 'error') {
+      return `
+        <div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:4px;text-transform:uppercase">Elevation</div>
+        <div style="font-size:10px;color:#f87171;line-height:1.4;max-width:160px">⚠ ${this.legendError}</div>
+        <div style="font-size:9px;opacity:0.5;margin-top:3px">Check browser console</div>`;
+    }
+
     const minLbl = result ? `${result.stretchMin.toFixed(0)} m` : '—';
     const maxLbl = result ? `${result.stretchMax.toFixed(0)} m` : '—';
+    const statsLbl = result
+      ? `${result.elevMin.toFixed(0)}–${result.elevMax.toFixed(0)} m (${result.validCount.toLocaleString()} px)`
+      : '';
+
     return `
       <div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">
         Elevation
@@ -304,6 +334,7 @@ export class HRDEMLayer {
           <span>${maxLbl}</span>
           <span>${minLbl}</span>
         </div>
-      </div>`;
+      </div>
+      ${statsLbl ? `<div style="font-size:9px;opacity:0.45;margin-top:4px;max-width:120px;line-height:1.3">${statsLbl}</div>` : ''}`;
   }
 }
