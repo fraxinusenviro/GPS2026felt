@@ -37,6 +37,9 @@ interface StackLayer {
   cogSmooth?: boolean;
   hrdemRampId?: string;    // key of HRDEM_RAMPS, default 'terrain'
   hrdemRampInvert?: boolean;
+  hrdemContourEnabled?:  boolean; // default false
+  hrdemContourInterval?: number;  // default 10 (metres)
+  hrdemContourColor?:    string;  // default '#ffffff'
 }
 
 interface UserLayerInfo {
@@ -685,7 +688,13 @@ export class BasemapManager {
         if (!this.hrdemLayers.has(l.instanceId)) {
           this.hrdemLayers.set(l.instanceId, new HRDEMLayer(this.mapManager));
         }
-        this.hrdemLayers.get(l.instanceId)!.activate(l.instanceId, l.opacity, l.visible, this.resolveHrdemRamp(l));
+        const hrdemInst = this.hrdemLayers.get(l.instanceId)!;
+        hrdemInst.activate(l.instanceId, l.opacity, l.visible, this.resolveHrdemRamp(l));
+        hrdemInst.setContour(
+          l.hrdemContourEnabled  ?? false,
+          l.hrdemContourInterval ?? 10,
+          l.hrdemContourColor    ?? '#ffffff',
+        );
       }
     }
   }
@@ -1057,15 +1066,19 @@ export class BasemapManager {
       </div>` : '';
 
     const isHrdem = ltype === 'hrdem-wcs';
-    const hrdemRampId = layer.hrdemRampId ?? 'terrain';
-    const hrdemInvert = layer.hrdemRampInvert ?? false;
-    const hrdemRampEntry = HRDEM_RAMPS[hrdemRampId] ?? HRDEM_RAMPS['terrain'];
-    const hrdemGradient = rampToHorizontalGradient(hrdemInvert ? invertRamp(hrdemRampEntry.ramp) : hrdemRampEntry.ramp);
+    const hrdemRampId       = layer.hrdemRampId       ?? 'terrain';
+    const hrdemInvert       = layer.hrdemRampInvert   ?? false;
+    const hrdemContourEn    = layer.hrdemContourEnabled  ?? false;
+    const hrdemContourIvl   = layer.hrdemContourInterval ?? 10;
+    const hrdemContourCol   = layer.hrdemContourColor    ?? '#ffffff';
+    const hrdemRampEntry    = HRDEM_RAMPS[hrdemRampId] ?? HRDEM_RAMPS['terrain'];
+    const hrdemGradient     = rampToHorizontalGradient(hrdemInvert ? invertRamp(hrdemRampEntry.ramp) : hrdemRampEntry.ramp);
+    const inputStyle        = 'font-size:11px;background:var(--bg-2,#1a2a1a);color:var(--fg-1,#ccc);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px';
     const hrdemAdjPanel = isHrdem ? `
       <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
         <div class="bm-adj-row">
           <label class="bm-adj-label">Ramp</label>
-          <select class="bm-hrdem-ramp" data-iid="${layer.instanceId}" style="flex:1;min-width:0;font-size:11px;background:var(--bg-2,#1a2a1a);color:var(--fg-1,#ccc);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px">
+          <select class="bm-hrdem-ramp" data-iid="${layer.instanceId}" style="flex:1;min-width:0;${inputStyle}">
             ${Object.entries(HRDEM_RAMPS).map(([k, r]) => `<option value="${k}"${hrdemRampId === k ? ' selected' : ''}>${r.label}</option>`).join('')}
           </select>
         </div>
@@ -1083,6 +1096,29 @@ export class BasemapManager {
         <div class="bm-adj-row" style="font-size:10px;color:var(--fg-2,#888);opacity:0.7;padding-top:2px">
           <label class="bm-adj-label"></label>
           <span>Stretch: auto min–max per view</span>
+        </div>
+        <div class="bm-adj-row" style="margin-top:6px;border-top:1px solid var(--border,#444);padding-top:5px">
+          <label class="bm-adj-label" style="font-size:9px;text-transform:uppercase;letter-spacing:.05em;opacity:.55">Contours</label>
+        </div>
+        <div class="bm-adj-row">
+          <label class="bm-adj-label"></label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
+            <input type="checkbox" class="bm-hrdem-contour-en" data-iid="${layer.instanceId}"${hrdemContourEn ? ' checked' : ''} />
+            Show contour lines
+          </label>
+        </div>
+        <div class="bm-hrdem-contour-cfg" data-iid="${layer.instanceId}" style="${hrdemContourEn ? '' : 'display:none'}">
+          <div class="bm-adj-row">
+            <label class="bm-adj-label">Interval</label>
+            <input type="number" class="bm-hrdem-contour-ivl" data-iid="${layer.instanceId}"
+              value="${hrdemContourIvl}" min="1" max="500" step="1"
+              style="width:52px;${inputStyle}" />
+            <span style="font-size:10px;opacity:.6;margin-left:3px">m</span>
+          </div>
+          <div class="bm-adj-row">
+            <label class="bm-adj-label">Line colour</label>
+            <input type="color" class="bm-hrdem-contour-col" data-iid="${layer.instanceId}" value="${hrdemContourCol}" />
+          </div>
         </div>
       </div>` : '';
 
@@ -1435,6 +1471,49 @@ export class BasemapManager {
         layer.hrdemRampInvert = chk.checked;
         updateHrdemPreview(iid, layer);
         this.hrdemLayers.get(iid)?.setRamp(this.resolveHrdemRamp(layer));
+        this.saveStack();
+      });
+    });
+
+    const applyContour = (iid: string, layer: StackLayer) => {
+      this.hrdemLayers.get(iid)?.setContour(
+        layer.hrdemContourEnabled  ?? false,
+        layer.hrdemContourInterval ?? 10,
+        layer.hrdemContourColor    ?? '#ffffff',
+      );
+    };
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-contour-en').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const iid = chk.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemContourEnabled = chk.checked;
+        const cfg = container.querySelector<HTMLElement>(`.bm-hrdem-contour-cfg[data-iid="${iid}"]`);
+        if (cfg) cfg.style.display = chk.checked ? '' : 'none';
+        applyContour(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-contour-ivl').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const iid = inp.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemContourInterval = Math.max(1, Number(inp.value) || 10);
+        applyContour(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-contour-col').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const iid = inp.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemContourColor = inp.value;
+        applyContour(iid, layer);
         this.saveStack();
       });
     });

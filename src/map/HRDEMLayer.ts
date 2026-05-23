@@ -21,6 +21,7 @@ import {
   HRDEM_RAMPS,
   type ColorRamp,
 } from '../lib/elevationRenderer';
+import { generateContours } from '../lib/contourGenerator';
 import { LAYER_IDS } from '../constants';
 
 const DEBOUNCE_MS = 300;
@@ -30,6 +31,8 @@ const MIN_ZOOM    = 10;
 const BLANK_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' +
   'AAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
 export class HRDEMLayer {
   // Stable across activate/deactivate cycles so canvas data survives rebuildMap()
@@ -48,11 +51,18 @@ export class HRDEMLayer {
   // Tracks the opacity the caller wants; used to restore after the zoom-guard zeroes it
   private intendedOpacity = 1;
 
+  // Contour state
+  private contourEnabled  = false;
+  private contourInterval = 10;
+  private contourColor    = '#ffffff';
+
   // Current activation state
-  private instanceId = '';
-  private layerId    = '';
-  private srcId      = '';
-  private active     = false;
+  private instanceId     = '';
+  private layerId        = '';
+  private srcId          = '';
+  private contourLayerId = '';
+  private contourSrcId   = '';
+  private active         = false;
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private moveHandler: (() => void) | null = null;
@@ -79,14 +89,16 @@ export class HRDEMLayer {
     // Remove old map artefacts if present (ensures correct ordering after rebuildMap)
     this.removeMapLayers();
 
-    this.instanceId = instanceId;
-    this.layerId    = `bm-ov-${instanceId}`;
-    this.srcId      = `bmsrc-${instanceId}`;
-    this.active     = true;
+    this.instanceId     = instanceId;
+    this.layerId        = `bm-ov-${instanceId}`;
+    this.srcId          = `bmsrc-${instanceId}`;
+    this.contourLayerId = `bm-ov-${instanceId}-contour`;
+    this.contourSrcId   = `bmsrc-${instanceId}-contour`;
+    this.active         = true;
 
     const map = this.mapManager.getMap();
 
-    // Add image source — restore cached content immediately to avoid a blank frame
+    // Add raster image source — restore cached content immediately to avoid a blank frame
     map.addSource(this.srcId, {
       type:        'image',
       url:         this.canvasHasData ? this.canvas.toDataURL('image/png') : BLANK_PNG,
@@ -109,6 +121,24 @@ export class HRDEMLayer {
     if (!visible) {
       map.setLayoutProperty(this.layerId, 'visibility', 'none');
     }
+
+    // Add contour GeoJSON source + line layer (initially empty / hidden)
+    map.addSource(this.contourSrcId, { type: 'geojson', data: EMPTY_FC });
+
+    map.addLayer(
+      {
+        id:     this.contourLayerId,
+        type:   'line',
+        source: this.contourSrcId,
+        layout: { visibility: this.contourEnabled ? 'visible' : 'none' },
+        paint: {
+          'line-color':   this.contourColor,
+          'line-width':   1.2,
+          'line-opacity': this.intendedOpacity,
+        },
+      },
+      LAYER_IDS.USER_ACCURACY,
+    );
 
     // Create or restore legend
     this.ensureLegend();
@@ -140,12 +170,20 @@ export class HRDEMLayer {
     if (map.getLayer(this.layerId)) {
       map.setPaintProperty(this.layerId, 'raster-opacity', opacity);
     }
+    if (map.getLayer(this.contourLayerId)) {
+      map.setPaintProperty(this.contourLayerId, 'line-opacity', opacity);
+    }
   }
 
   setVisible(visible: boolean): void {
     const map = this.mapManager.getMap();
     if (map.getLayer(this.layerId)) {
       map.setLayoutProperty(this.layerId, 'visibility', visible ? 'visible' : 'none');
+    }
+    // Contour visibility follows its own toggle, but also respects the main visible flag
+    if (map.getLayer(this.contourLayerId)) {
+      const show = visible && this.contourEnabled;
+      map.setLayoutProperty(this.contourLayerId, 'visibility', show ? 'visible' : 'none');
     }
     if (visible) this.scheduleFetch();
   }
@@ -164,13 +202,48 @@ export class HRDEMLayer {
     }
   }
 
+  setContour(enabled: boolean, interval: number, color: string): void {
+    this.contourEnabled  = enabled;
+    this.contourInterval = Math.max(1, interval);
+    this.contourColor    = color;
+
+    const map = this.mapManager.getMap();
+
+    if (map.getLayer(this.contourLayerId)) {
+      map.setPaintProperty(this.contourLayerId, 'line-color', color);
+      const rasterVisible = map.getLayoutProperty(this.layerId, 'visibility') !== 'none';
+      map.setLayoutProperty(
+        this.contourLayerId, 'visibility',
+        enabled && rasterVisible ? 'visible' : 'none',
+      );
+    }
+
+    if (enabled && this.lastResult) {
+      this.updateContourSource(this.lastResult);
+    } else if (!enabled) {
+      const src = map.getSource(this.contourSrcId) as maplibregl.GeoJSONSource | undefined;
+      if (src) src.setData(EMPTY_FC);
+    }
+  }
+
   getLayerIds(): string[] {
-    return this.active ? [this.layerId] : [];
+    if (!this.active) return [];
+    return this.contourEnabled
+      ? [this.layerId, this.contourLayerId]
+      : [this.layerId];
   }
 
   // --------------------------------------------------------------------------
   // Internal
   // --------------------------------------------------------------------------
+
+  private updateContourSource(result: HRDEMResult): void {
+    const map = this.mapManager.getMap();
+    const src = map.getSource(this.contourSrcId) as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+    const geojson = generateContours(result, this.contourInterval);
+    src.setData(geojson as GeoJSON.FeatureCollection);
+  }
 
   private removeMapLayers(): void {
     if (this.moveHandler) {
@@ -186,8 +259,10 @@ export class HRDEMLayer {
     }
 
     const map = this.mapManager.getMap();
-    if (this.layerId && map.getLayer(this.layerId))  map.removeLayer(this.layerId);
-    if (this.srcId   && map.getSource(this.srcId))   map.removeSource(this.srcId);
+    if (this.contourLayerId && map.getLayer(this.contourLayerId)) map.removeLayer(this.contourLayerId);
+    if (this.contourSrcId   && map.getSource(this.contourSrcId))  map.removeSource(this.contourSrcId);
+    if (this.layerId        && map.getLayer(this.layerId))         map.removeLayer(this.layerId);
+    if (this.srcId          && map.getSource(this.srcId))          map.removeSource(this.srcId);
   }
 
   private scheduleFetch(): void {
@@ -208,11 +283,14 @@ export class HRDEMLayer {
       if (map.getLayer(this.layerId)) {
         map.setPaintProperty(this.layerId, 'raster-opacity', 0);
       }
+      if (map.getLayer(this.contourLayerId)) {
+        map.setLayoutProperty(this.contourLayerId, 'visibility', 'none');
+      }
       this.updateLegend(null);
       return;
     }
 
-    // Skip if layer is hidden
+    // Skip if raster layer is hidden (contours also depend on data being visible)
     const vis = map.getLayoutProperty(this.layerId, 'visibility');
     if (vis === 'none') return;
 
@@ -262,10 +340,19 @@ export class HRDEMLayer {
 
     src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
 
-    // Restore opacity if the zoom-guard previously zeroed it
+    // Restore raster opacity if the zoom-guard previously zeroed it
     const currentOpacity = map.getPaintProperty(this.layerId, 'raster-opacity') as number;
     if (currentOpacity === 0 && this.intendedOpacity > 0) {
       map.setPaintProperty(this.layerId, 'raster-opacity', this.intendedOpacity);
+    }
+
+    // Generate / refresh contour lines
+    if (this.contourEnabled) {
+      this.updateContourSource(result);
+      if (map.getLayer(this.contourLayerId)) {
+        map.setLayoutProperty(this.contourLayerId, 'visibility', 'visible');
+        map.setPaintProperty(this.contourLayerId, 'line-opacity', this.intendedOpacity);
+      }
     }
 
     this.updateLegend(result);
