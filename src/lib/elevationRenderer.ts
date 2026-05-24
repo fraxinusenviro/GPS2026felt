@@ -116,6 +116,31 @@ export const HRDEM_RAMPS: Record<string, { label: string; ramp: ColorRamp }> = {
 };
 
 // ---------------------------------------------------------------------------
+// Product-specific ramps (not user-selectable, used internally)
+// ---------------------------------------------------------------------------
+
+/** Slope: white (flat) → light green → brown → near-black (steep). */
+export const SLOPE_RAMP: ColorRamp = {
+  stops: [
+    { t: 0.00, r: 255, g: 255, b: 255 },
+    { t: 0.25, r: 195, g: 220, b: 185 },
+    { t: 0.55, r: 150, g: 115, b:  65 },
+    { t: 1.00, r:  25, g:  15, b:   5 },
+  ],
+};
+
+/** TPI: deep-blue (valley) → light-blue → cream (midslope) → orange → red (peak). */
+export const TPI_RAMP: ColorRamp = {
+  stops: [
+    { t: 0.00, r:  49, g:  54, b: 149 },
+    { t: 0.35, r: 116, g: 173, b: 209 },
+    { t: 0.50, r: 255, g: 255, b: 191 },
+    { t: 0.65, r: 244, g: 109, b:  67 },
+    { t: 1.00, r: 165, g:   0, b:  38 },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -241,5 +266,107 @@ export function rampToHorizontalGradient(ramp: ColorRamp): string {
     .map(s => `rgb(${s.r},${s.g},${s.b}) ${(s.t * 100).toFixed(0)}%`)
     .join(', ');
   return `linear-gradient(to right, ${stops})`;
+}
+
+/**
+ * Generic grid renderer — same pixel loop as renderElevation() but with
+ * explicit min/max instead of stretchMin/stretchMax from HRDEMResult.
+ * NaN pixels → transparent (nodata argument is for raw source grids; pass
+ * null for pre-computed derived grids which already use NaN for invalid).
+ */
+export function renderGrid(
+  canvas: HTMLCanvasElement,
+  grid: Float32Array,
+  width: number,
+  height: number,
+  min: number,
+  max: number,
+  nodata: number | null,
+  ramp: ColorRamp,
+): HTMLCanvasElement {
+  canvas.width  = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext('2d')!;
+  const imageData = ctx.createImageData(width, height);
+  const pixels    = imageData.data;
+  const range     = max - min;
+
+  for (let i = 0; i < grid.length; i++) {
+    const v  = grid[i];
+    const px = i * 4;
+
+    if (!isFinite(v) || (nodata !== null && Math.abs(v - nodata) < 0.001)) {
+      pixels[px + 3] = 0;
+      continue;
+    }
+
+    const t = range > 0 ? Math.max(0, Math.min(1, (v - min) / range)) : 0.5;
+    const [r, g, b] = sampleRamp(ramp, t);
+    pixels[px]     = r;
+    pixels[px + 1] = g;
+    pixels[px + 2] = b;
+    pixels[px + 3] = 255;
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+/** HSL → RGB helper (h ∈ [0,1], s/l ∈ [0,1]) → [r,g,b] 0-255. */
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h * 6) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if      (h < 1 / 6) { r = c; g = x; b = 0; }
+  else if (h < 2 / 6) { r = x; g = c; b = 0; }
+  else if (h < 3 / 6) { r = 0; g = c; b = x; }
+  else if (h < 4 / 6) { r = 0; g = x; b = c; }
+  else if (h < 5 / 6) { r = x; g = 0; b = c; }
+  else                 { r = c; g = 0; b = x; }
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+}
+
+/**
+ * Render an aspect grid using a circular hue wheel.
+ * - Values in [0, 360): hue = aspect_deg mapped to HSL(hue, 80%, 50%)
+ * - Value -1 (flat sentinel): semi-transparent grey
+ * - NaN: transparent
+ */
+export function renderAspect(
+  canvas: HTMLCanvasElement,
+  grid: Float32Array,
+  width: number,
+  height: number,
+): HTMLCanvasElement {
+  canvas.width  = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext('2d')!;
+  const imageData = ctx.createImageData(width, height);
+  const pixels    = imageData.data;
+
+  for (let i = 0; i < grid.length; i++) {
+    const v  = grid[i];
+    const px = i * 4;
+
+    if (!isFinite(v)) { pixels[px + 3] = 0; continue; }
+
+    if (v === -1) {
+      // Flat area — light grey, semi-transparent
+      pixels[px] = 160; pixels[px + 1] = 160; pixels[px + 2] = 160; pixels[px + 3] = 180;
+      continue;
+    }
+
+    const [r, g, b] = hslToRgb(v / 360, 0.8, 0.5);
+    pixels[px]     = r;
+    pixels[px + 1] = g;
+    pixels[px + 2] = b;
+    pixels[px + 3] = 255;
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
 }
 
