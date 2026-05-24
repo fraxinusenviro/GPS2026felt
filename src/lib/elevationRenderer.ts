@@ -186,25 +186,73 @@ export const CHM_CLASSES: Array<{ max: number; label: string; r: number; g: numb
   { max: Infinity, label: '>15 m',        r:   5, g:  65, b:  25 },  // tall forest
 ];
 
+export type ChmClassPalette = Array<{ max: number; label: string; r: number; g: number; b: number }>;
+
+export const CHM_CLASS_PALETTES: Record<string, { label: string; classes: ChmClassPalette }> = {
+  structural: {
+    label: 'Classic',
+    classes: CHM_CLASSES,
+  },
+  forest: {
+    label: 'Forest',
+    classes: [
+      { max: 0.10,     label: '<0.1 m',       r: 235, g: 228, b: 200 },
+      { max: 0.25,     label: '0.1–0.25 m',   r: 200, g: 222, b: 140 },
+      { max: 0.50,     label: '0.25–0.5 m',   r: 145, g: 205, b: 100 },
+      { max: 2.00,     label: '0.5–2 m',      r:  85, g: 175, b:  65 },
+      { max: 7.00,     label: '2–7 m',        r:  50, g: 140, b:  50 },
+      { max: 15.00,    label: '7–15 m',       r:  25, g: 100, b:  40 },
+      { max: Infinity, label: '>15 m',        r:   8, g:  65, b:  28 },
+    ],
+  },
+  spectral: {
+    label: 'Spectral',
+    classes: [
+      { max: 0.10,     label: '<0.1 m',       r: 215, g:  48, b:  39 },
+      { max: 0.25,     label: '0.1–0.25 m',   r: 244, g: 109, b:  67 },
+      { max: 0.50,     label: '0.25–0.5 m',   r: 253, g: 191, b: 111 },
+      { max: 2.00,     label: '0.5–2 m',      r: 171, g: 221, b: 164 },
+      { max: 7.00,     label: '2–7 m',        r:  67, g: 162, b:  84 },
+      { max: 15.00,    label: '7–15 m',       r:   0, g: 104, b:  55 },
+      { max: Infinity, label: '>15 m',        r:   0, g:  68, b:  27 },
+    ],
+  },
+  earthy: {
+    label: 'Earthy',
+    classes: [
+      { max: 0.10,     label: '<0.1 m',       r: 210, g: 180, b: 130 },
+      { max: 0.25,     label: '0.1–0.25 m',   r: 185, g: 165, b: 100 },
+      { max: 0.50,     label: '0.25–0.5 m',   r: 155, g: 145, b:  75 },
+      { max: 2.00,     label: '0.5–2 m',      r: 110, g: 135, b:  65 },
+      { max: 7.00,     label: '2–7 m',        r:  70, g: 115, b:  55 },
+      { max: 15.00,    label: '7–15 m',       r:  40, g:  90, b:  45 },
+      { max: Infinity, label: '>15 m',        r:  15, g:  60, b:  30 },
+    ],
+  },
+};
+
 /** Render a CHM grid using the classified structural break scheme. */
 export function renderCHMClassified(
   canvas: HTMLCanvasElement,
   grid: Float32Array,
   width: number,
   height: number,
+  paletteId?: string,
 ): void {
+  const pal = (paletteId ? CHM_CLASS_PALETTES[paletteId] : undefined) ?? CHM_CLASS_PALETTES['structural'];
+  const classes = pal.classes;
   canvas.width  = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d')!;
   const imageData = ctx.createImageData(width, height);
   const pixels = imageData.data;
-  const n = CHM_CLASSES.length;
+  const n = classes.length;
   for (let i = 0; i < grid.length; i++) {
     const v  = grid[i];
     const px = i * 4;
     if (!isFinite(v)) { pixels[px + 3] = 0; continue; }
-    let cls = CHM_CLASSES[n - 1];
-    for (let c = 0; c < n; c++) { if (v < CHM_CLASSES[c].max) { cls = CHM_CLASSES[c]; break; } }
+    let cls = classes[n - 1];
+    for (let c = 0; c < n; c++) { if (v < classes[c].max) { cls = classes[c]; break; } }
     pixels[px] = cls.r; pixels[px + 1] = cls.g; pixels[px + 2] = cls.b; pixels[px + 3] = 255;
   }
   ctx.putImageData(imageData, 0, 0);

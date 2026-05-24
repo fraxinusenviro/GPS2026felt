@@ -6,7 +6,7 @@ import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
 import { HRDEMLayer, type HRDEMProduct } from './HRDEMLayer';
 import { CogContourLayer } from './CogContourLayer';
-import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, CHM_RAMPS, CHM_CLASSES, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
+import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, CHM_RAMPS, CHM_CLASSES, CHM_CLASS_PALETTES, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
 import { EventBus } from '../utils/EventBus';
 import { StylePicker } from '../ui/StylePicker';
 import { renderSwatchDataUrl } from '../ui/SymbolRenderer';
@@ -61,6 +61,7 @@ interface StackLayer {
   hrdemChmMode?:      string;    // 'stretch'|'classified', default 'classified'
   hrdemChmRampId?:    string;    // key of CHM_RAMPS, default 'canopy_green'
   hrdemChmInvert?:    boolean;
+  hrdemChmClassPaletteId?: string;        // key of CHM_CLASS_PALETTES, default 'structural'
   // COG threshold contour
   cogContourThreshold?:   number;  // default 0.5 (metres for DTW)
   cogContourLineColor?:   string;  // default '#1565c0'

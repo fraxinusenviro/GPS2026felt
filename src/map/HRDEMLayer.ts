@@ -22,6 +22,7 @@ import {
   TPI_RAMPS,
   CHM_RAMPS,
   CHM_CLASSES,
+  CHM_CLASS_PALETTES,
   SLOPE_RAMP,
   TPI_RAMP,
   type ColorRamp,
@@ -58,6 +59,7 @@ export interface ProductStyle {
   chmMode?:      'stretch' | 'classified';  // default 'classified'
   chmRampId?:    string;                    // key of CHM_RAMPS, used in stretch mode
   chmInvert?:    boolean;
+  chmClassPaletteId?: string;            // key of CHM_CLASS_PALETTES, default 'structural'
 }
 
 export class HRDEMLayer {
@@ -90,6 +92,7 @@ export class HRDEMLayer {
   private chmMode:      'stretch' | 'classified' = 'classified';
   private chmRampId:    string  = 'canopy_green';
   private chmInvert:    boolean = false;
+  private chmClassPaletteId: string = 'structural';
 
   private contourEnabled  = false;
   private contourInterval = 10;
@@ -264,6 +267,7 @@ export class HRDEMLayer {
     if (style.chmMode      !== undefined) this.chmMode      = style.chmMode;
     if (style.chmRampId    !== undefined) this.chmRampId    = style.chmRampId;
     if (style.chmInvert    !== undefined) this.chmInvert    = style.chmInvert;
+    if (style.chmClassPaletteId !== undefined) this.chmClassPaletteId = style.chmClassPaletteId;
 
     if (this.lastResult) {
       this.renderProduct(this.canvas, this.lastResult);
@@ -384,7 +388,7 @@ export class HRDEMLayer {
       }
       case 'chm':
         if (this.chmMode === 'classified') {
-          renderCHMClassified(canvas, result.grid, result.width, result.height);
+          renderCHMClassified(canvas, result.grid, result.width, result.height, this.chmClassPaletteId);
         } else {
           renderGrid(canvas, result.grid, result.width, result.height,
             result.stretchMin, result.stretchMax, result.nodata, this.resolveChmRamp());
