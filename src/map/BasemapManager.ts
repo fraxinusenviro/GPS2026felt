@@ -4,7 +4,7 @@ import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCac
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
-import { HRDEMLayer } from './HRDEMLayer';
+import { HRDEMLayer, type HRDEMProduct } from './HRDEMLayer';
 import { HRDEM_RAMPS, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
 import { EventBus } from '../utils/EventBus';
 import { StylePicker } from '../ui/StylePicker';
@@ -42,6 +42,7 @@ interface StackLayer {
   hrdemContourInterval?: number;  // default 10 (metres)
   hrdemContourColor?:    string;  // default '#ffffff'
   hrdemContourWidth?:    number;  // default 1.2 (px)
+  hrdemProduct?: string;          // 'elevation'|'slope'|'aspect'|'tpi' — default 'elevation'
 }
 
 interface UserLayerInfo {
@@ -699,6 +700,7 @@ export class BasemapManager {
           l.hrdemContourColor    ?? '#ffffff',
           l.hrdemContourWidth    ?? 1.2,
         );
+        hrdemInst.setProduct((l.hrdemProduct ?? 'elevation') as HRDEMProduct);
       }
     }
   }
@@ -1070,6 +1072,7 @@ export class BasemapManager {
       </div>` : '';
 
     const isHrdem = ltype === 'hrdem-wcs';
+    const hrdemProduct      = layer.hrdemProduct         ?? 'elevation';
     const hrdemRampId       = layer.hrdemRampId          ?? 'terrain';
     const hrdemInvert       = layer.hrdemRampInvert      ?? false;
     const hrdemRasterVis    = layer.hrdemRasterVisible   ?? true;
@@ -1083,25 +1086,36 @@ export class BasemapManager {
     const hrdemAdjPanel = isHrdem ? `
       <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
         <div class="bm-adj-row">
-          <label class="bm-adj-label">Ramp</label>
-          <select class="bm-hrdem-ramp" data-iid="${layer.instanceId}" style="flex:1;min-width:0;${inputStyle}">
-            ${Object.entries(HRDEM_RAMPS).map(([k, r]) => `<option value="${k}"${hrdemRampId === k ? ' selected' : ''}>${r.label}</option>`).join('')}
+          <label class="bm-adj-label">Product</label>
+          <select class="bm-hrdem-product" data-iid="${layer.instanceId}" style="flex:1;min-width:0;${inputStyle}">
+            <option value="elevation"${hrdemProduct === 'elevation' ? ' selected' : ''}>Elevation</option>
+            <option value="slope"    ${hrdemProduct === 'slope'     ? ' selected' : ''}>Slope</option>
+            <option value="aspect"   ${hrdemProduct === 'aspect'    ? ' selected' : ''}>Aspect</option>
+            <option value="tpi"      ${hrdemProduct === 'tpi'       ? ' selected' : ''}>TPI</option>
           </select>
         </div>
-        <div class="bm-adj-row">
-          <label class="bm-adj-label"></label>
-          <div class="bm-hrdem-ramp-preview" data-iid="${layer.instanceId}" style="flex:1;height:10px;border-radius:3px;border:1px solid var(--border,#444);background:${hrdemGradient}"></div>
-        </div>
-        <div class="bm-adj-row">
-          <label class="bm-adj-label"></label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
-            <input type="checkbox" class="bm-hrdem-invert" data-iid="${layer.instanceId}"${hrdemInvert ? ' checked' : ''} />
-            Invert ramp
-          </label>
-        </div>
-        <div class="bm-adj-row" style="font-size:10px;color:var(--fg-2,#888);opacity:0.7;padding-top:2px">
-          <label class="bm-adj-label"></label>
-          <span>Stretch: auto min–max per view</span>
+        <div class="bm-hrdem-ramp-controls" data-iid="${layer.instanceId}" style="${hrdemProduct !== 'elevation' ? 'display:none' : ''}">
+          <div class="bm-adj-row">
+            <label class="bm-adj-label">Ramp</label>
+            <select class="bm-hrdem-ramp" data-iid="${layer.instanceId}" style="flex:1;min-width:0;${inputStyle}">
+              ${Object.entries(HRDEM_RAMPS).map(([k, r]) => `<option value="${k}"${hrdemRampId === k ? ' selected' : ''}>${r.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="bm-adj-row">
+            <label class="bm-adj-label"></label>
+            <div class="bm-hrdem-ramp-preview" data-iid="${layer.instanceId}" style="flex:1;height:10px;border-radius:3px;border:1px solid var(--border,#444);background:${hrdemGradient}"></div>
+          </div>
+          <div class="bm-adj-row">
+            <label class="bm-adj-label"></label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
+              <input type="checkbox" class="bm-hrdem-invert" data-iid="${layer.instanceId}"${hrdemInvert ? ' checked' : ''} />
+              Invert ramp
+            </label>
+          </div>
+          <div class="bm-adj-row" style="font-size:10px;color:var(--fg-2,#888);opacity:0.7;padding-top:2px">
+            <label class="bm-adj-label"></label>
+            <span>Stretch: auto min–max per view</span>
+          </div>
         </div>
         <div class="bm-adj-row">
           <label class="bm-adj-label"></label>
@@ -1457,6 +1471,21 @@ export class BasemapManager {
         layer.cogSmooth = chk.checked;
         this.applyCogSmooth(layer);
         this.refreshRasterOverlays();
+        this.saveStack();
+      });
+    });
+
+    // HRDEM product selector
+    container.querySelectorAll<HTMLSelectElement>('.bm-hrdem-product').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const iid = sel.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemProduct = sel.value;
+        // Show/hide ramp controls — only relevant for elevation product
+        const rampCtrl = container.querySelector<HTMLElement>(`.bm-hrdem-ramp-controls[data-iid="${iid}"]`);
+        if (rampCtrl) rampCtrl.style.display = sel.value === 'elevation' ? '' : 'none';
+        this.hrdemLayers.get(iid)?.setProduct(sel.value as HRDEMProduct);
         this.saveStack();
       });
     });
