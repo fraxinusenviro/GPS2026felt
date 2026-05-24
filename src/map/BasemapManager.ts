@@ -5,7 +5,7 @@ import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
 import { HRDEMLayer, type HRDEMProduct } from './HRDEMLayer';
-import { HRDEM_RAMPS, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
+import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
 import { EventBus } from '../utils/EventBus';
 import { StylePicker } from '../ui/StylePicker';
 import { renderSwatchDataUrl } from '../ui/SymbolRenderer';
@@ -43,6 +43,18 @@ interface StackLayer {
   hrdemContourColor?:    string;  // default '#ffffff'
   hrdemContourWidth?:    number;  // default 1.2 (px)
   hrdemProduct?: string;          // 'elevation'|'slope'|'aspect'|'tpi' — default 'elevation'
+  // Slope styling
+  hrdemSlopeRampId?:  string;    // key of SLOPE_RAMPS, default 'classic'
+  hrdemSlopeUnit?:    string;    // 'degrees'|'percent', default 'degrees'
+  hrdemSlopeStretch?: string;    // 'auto'|'full'|'0-45'|'0-90', default 'auto'
+  hrdemSlopeInvert?:  boolean;
+  // Aspect styling
+  hrdemAspectSat?:    number;    // 0–100, default 80
+  hrdemAspectLight?:  number;    // 0–100, default 50
+  // TPI styling
+  hrdemTpiRampId?:    string;    // key of TPI_RAMPS, default 'rdylbu'
+  hrdemTpiStretch?:   string;    // 'symmetric'|'auto', default 'symmetric'
+  hrdemTpiInvert?:    boolean;
 }
 
 interface UserLayerInfo {
@@ -421,13 +433,30 @@ export class BasemapManager {
 
   private addToStack(def: BasemapDef): void {
     const instanceId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
-    this.stack.unshift({
+    const base: StackLayer = {
       instanceId, defId: def.id, label: def.label, url: def.url,
       type: def.type, vector_config: def.vector_config,
       tileSize: def.tile_size ?? 256, maxZoom: def.max_zoom ?? 19,
       opacity: 1.0, visible: true,
       hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
-    });
+    };
+    // Set per-product defaults for HRDEM layers
+    if (def.type === 'hrdem-wcs') {
+      const productMap: Record<string, string> = {
+        'hrdem-slope': 'slope', 'hrdem-aspect': 'aspect',
+        'hrdem-tpi': 'tpi', 'hrdem-contours': 'elevation',
+      };
+      base.hrdemProduct = productMap[def.id] ?? 'elevation';
+      if (def.id === 'hrdem-contours') {
+        base.hrdemRasterVisible  = false;
+        base.hrdemContourEnabled = true;
+        base.hrdemContourInterval = 10;
+      } else {
+        base.hrdemRasterVisible  = true;
+        base.hrdemContourEnabled = false;
+      }
+    }
+    this.stack.unshift(base);
     this.rebuildMap();
     this.saveStack();
   }
@@ -701,6 +730,17 @@ export class BasemapManager {
           l.hrdemContourWidth    ?? 1.2,
         );
         hrdemInst.setProduct((l.hrdemProduct ?? 'elevation') as HRDEMProduct);
+        hrdemInst.setProductStyle({
+          slopeRampId:  l.hrdemSlopeRampId  ?? 'classic',
+          slopeUnit:    (l.hrdemSlopeUnit    ?? 'degrees') as 'degrees' | 'percent',
+          slopeStretch: (l.hrdemSlopeStretch ?? 'auto') as 'auto' | 'full' | '0-45' | '0-90',
+          slopeInvert:  l.hrdemSlopeInvert   ?? false,
+          aspectSat:    (l.hrdemAspectSat    ?? 80) / 100,
+          aspectLight:  (l.hrdemAspectLight  ?? 50) / 100,
+          tpiRampId:    l.hrdemTpiRampId     ?? 'rdylbu',
+          tpiStretch:   (l.hrdemTpiStretch   ?? 'symmetric') as 'symmetric' | 'auto',
+          tpiInvert:    l.hrdemTpiInvert     ?? false,
+        });
       }
     }
   }
@@ -1072,87 +1112,169 @@ export class BasemapManager {
       </div>` : '';
 
     const isHrdem = ltype === 'hrdem-wcs';
-    const hrdemProduct      = layer.hrdemProduct         ?? 'elevation';
+    const hrdemProduct      = layer.hrdemProduct         ?? (layer.defId === 'hrdem-slope' ? 'slope' : layer.defId === 'hrdem-aspect' ? 'aspect' : layer.defId === 'hrdem-tpi' ? 'tpi' : 'elevation');
     const hrdemRampId       = layer.hrdemRampId          ?? 'terrain';
     const hrdemInvert       = layer.hrdemRampInvert      ?? false;
-    const hrdemRasterVis    = layer.hrdemRasterVisible   ?? true;
-    const hrdemContourEn    = layer.hrdemContourEnabled  ?? false;
+    const hrdemRasterVis    = layer.hrdemRasterVisible   ?? (layer.defId === 'hrdem-contours' ? false : true);
+    const hrdemContourEn    = layer.hrdemContourEnabled  ?? (layer.defId === 'hrdem-contours' ? true : false);
     const hrdemContourIvl   = layer.hrdemContourInterval ?? 10;
     const hrdemContourCol   = layer.hrdemContourColor    ?? '#ffffff';
     const hrdemContourWid   = layer.hrdemContourWidth    ?? 1.2;
+    const hrdemSlopeRampId  = layer.hrdemSlopeRampId     ?? 'classic';
+    const hrdemSlopeUnit    = layer.hrdemSlopeUnit        ?? 'degrees';
+    const hrdemSlopeStretch = layer.hrdemSlopeStretch    ?? 'auto';
+    const hrdemSlopeInvert  = layer.hrdemSlopeInvert     ?? false;
+    const hrdemAspectSat    = layer.hrdemAspectSat       ?? 80;
+    const hrdemAspectLight  = layer.hrdemAspectLight     ?? 50;
+    const hrdemTpiRampId    = layer.hrdemTpiRampId       ?? 'rdylbu';
+    const hrdemTpiStretch   = layer.hrdemTpiStretch      ?? 'symmetric';
+    const hrdemTpiInvert    = layer.hrdemTpiInvert       ?? false;
+
     const hrdemRampEntry    = HRDEM_RAMPS[hrdemRampId] ?? HRDEM_RAMPS['terrain'];
     const hrdemGradient     = rampToHorizontalGradient(hrdemInvert ? invertRamp(hrdemRampEntry.ramp) : hrdemRampEntry.ramp);
-    const inputStyle        = 'font-size:11px;background:var(--bg-2,#1a2a1a);color:var(--fg-1,#ccc);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px';
+    const slopeRampEntry    = SLOPE_RAMPS[hrdemSlopeRampId] ?? SLOPE_RAMPS['classic'];
+    const slopeGradient     = rampToHorizontalGradient(hrdemSlopeInvert ? invertRamp(slopeRampEntry.ramp) : slopeRampEntry.ramp);
+    const tpiRampEntry      = TPI_RAMPS[hrdemTpiRampId] ?? TPI_RAMPS['rdylbu'];
+    const tpiGradient       = rampToHorizontalGradient(hrdemTpiInvert ? invertRamp(tpiRampEntry.ramp) : tpiRampEntry.ramp);
+
+    const iid = layer.instanceId;
+    const S = 'font-size:11px;background:var(--bg-2,#1a2a1a);color:var(--fg-1,#ccc);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px'; // shared input style
+
+    // Compact reusable chip helper
+    const chip = (label: string, active: boolean, cls: string, dataAttrs = '') =>
+      `<button class="hdem-chip${active?' hdem-active':''} ${cls}" data-iid="${iid}" ${dataAttrs}>${label}</button>`;
+
+    // Contours section (shared by elevation/slope/aspect/tpi panels)
+    const contoursSection = `
+      <div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border,#444)">
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:${hrdemContourEn?'5px':'0'}">
+          <span style="font-size:9px;text-transform:uppercase;letter-spacing:.06em;opacity:.55;flex:1">Contours</span>
+          <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--fg-2,#888);cursor:pointer">
+            <input type="checkbox" class="bm-hrdem-contour-en" data-iid="${iid}"${hrdemContourEn?' checked':''} /> Show
+          </label>
+        </div>
+        <div class="bm-hrdem-contour-cfg" data-iid="${iid}" style="${hrdemContourEn?'':'display:none'}">
+          <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+            <input type="number" class="bm-hrdem-contour-ivl" data-iid="${iid}" value="${hrdemContourIvl}" min="0.1" max="500" step="0.1" style="width:48px;${S}" />
+            <span style="font-size:10px;opacity:.55">m</span>
+            <input type="color" class="bm-hrdem-contour-col" data-iid="${iid}" value="${hrdemContourCol}" title="Line colour" style="width:26px;height:22px;padding:1px;border-radius:3px;border:1px solid var(--border,#444);cursor:pointer;background:none" />
+            <span style="font-size:10px;opacity:.55">wid</span>
+            <input type="range" class="bm-hrdem-contour-wid" data-iid="${iid}" min="0.5" max="5" step="0.5" value="${hrdemContourWid}" style="flex:1;min-width:40px;accent-color:var(--color-accent);height:14px" />
+            <span class="bm-hrdem-contour-wid-val" data-iid="${iid}" style="font-size:10px;opacity:.55;width:22px;text-align:right">${hrdemContourWid}px</span>
+          </div>
+        </div>
+      </div>`;
+
+    // Per-product inner panel content
+    let hrdemInnerContent = '';
+
+    if (layer.defId === 'hrdem-contours') {
+      // Contours-only panel
+      hrdemInnerContent = `
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+          <span style="font-size:9px;opacity:.55">Interval</span>
+          <input type="number" class="bm-hrdem-contour-ivl" data-iid="${iid}" value="${hrdemContourIvl}" min="0.1" max="500" step="0.1" style="width:52px;${S}" />
+          <span style="font-size:10px;opacity:.55">m</span>
+          <input type="color" class="bm-hrdem-contour-col" data-iid="${iid}" value="${hrdemContourCol}" title="Line colour" style="width:26px;height:22px;padding:1px;border-radius:3px;border:1px solid var(--border,#444);cursor:pointer;background:none" />
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;margin-top:4px">
+          <span style="font-size:9px;opacity:.55">Width</span>
+          <input type="range" class="bm-hrdem-contour-wid" data-iid="${iid}" min="0.5" max="5" step="0.5" value="${hrdemContourWid}" style="flex:1;accent-color:var(--color-accent);height:14px" />
+          <span class="bm-hrdem-contour-wid-val" data-iid="${iid}" style="font-size:10px;opacity:.55;width:28px">${hrdemContourWid}px</span>
+        </div>`;
+
+    } else if (layer.defId === 'hrdem-slope') {
+      hrdemInnerContent = `
+        <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px">
+          ${Object.entries(SLOPE_RAMPS).map(([k,r]) => chip(r.label, hrdemSlopeRampId===k, 'bm-hrdem-slope-ramp-chip', `data-ramp="${k}"`)).join('')}
+        </div>
+        <div class="bm-hrdem-slope-preview" data-iid="${iid}" style="height:7px;border-radius:2px;border:1px solid var(--border,#444);background:${slopeGradient};margin-bottom:6px"></div>
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--fg-2,#888);cursor:pointer">
+            <input type="checkbox" class="bm-hrdem-slope-invert" data-iid="${iid}"${hrdemSlopeInvert?' checked':''} /> Invert
+          </label>
+          <span style="font-size:10px;opacity:.25">|</span>
+          <span style="font-size:9px;opacity:.55">Unit</span>
+          ${chip('°', hrdemSlopeUnit==='degrees', 'bm-hrdem-slope-unit', 'data-unit="degrees"')}
+          ${chip('%', hrdemSlopeUnit==='percent',  'bm-hrdem-slope-unit', 'data-unit="percent"')}
+          <span style="font-size:10px;opacity:.25">|</span>
+          <span style="font-size:9px;opacity:.55">Stretch</span>
+          ${chip('Auto', hrdemSlopeStretch==='auto', 'bm-hrdem-slope-stretch', 'data-stretch="auto"')}
+          ${chip('0–45', hrdemSlopeStretch==='0-45', 'bm-hrdem-slope-stretch', 'data-stretch="0-45"')}
+          ${chip('Full', hrdemSlopeStretch==='full', 'bm-hrdem-slope-stretch', 'data-stretch="full"')}
+        </div>
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--fg-2,#888);cursor:pointer;margin-top:5px">
+          <input type="checkbox" class="bm-hrdem-raster-vis" data-iid="${iid}"${hrdemRasterVis?' checked':''} /> Show raster
+        </label>
+        ${contoursSection}`;
+
+    } else if (layer.defId === 'hrdem-aspect') {
+      hrdemInnerContent = `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <div style="width:40px;height:40px;border-radius:50%;flex-shrink:0;
+            background:conic-gradient(from -90deg,hsl(0,${hrdemAspectSat}%,${hrdemAspectLight}%) 0deg,hsl(90,${hrdemAspectSat}%,${hrdemAspectLight}%) 90deg,hsl(180,${hrdemAspectSat}%,${hrdemAspectLight}%) 180deg,hsl(270,${hrdemAspectSat}%,${hrdemAspectLight}%) 270deg,hsl(360,${hrdemAspectSat}%,${hrdemAspectLight}%) 360deg);
+            border:1px solid rgba(255,255,255,0.12)" class="bm-hrdem-aspect-rose" data-iid="${iid}"></div>
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">
+              <span style="font-size:9px;opacity:.55;width:20px">Sat</span>
+              <input type="range" class="bm-hrdem-aspect-sat" data-iid="${iid}" min="0" max="100" step="5" value="${hrdemAspectSat}" style="flex:1;accent-color:var(--color-accent);height:14px" />
+              <span class="bm-hrdem-aspect-sat-val" data-iid="${iid}" style="font-size:10px;opacity:.55;width:26px;text-align:right">${hrdemAspectSat}%</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:5px">
+              <span style="font-size:9px;opacity:.55;width:20px">Lgt</span>
+              <input type="range" class="bm-hrdem-aspect-light" data-iid="${iid}" min="20" max="80" step="5" value="${hrdemAspectLight}" style="flex:1;accent-color:var(--color-accent);height:14px" />
+              <span class="bm-hrdem-aspect-light-val" data-iid="${iid}" style="font-size:10px;opacity:.55;width:26px;text-align:right">${hrdemAspectLight}%</span>
+            </div>
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--fg-2,#888);cursor:pointer">
+          <input type="checkbox" class="bm-hrdem-raster-vis" data-iid="${iid}"${hrdemRasterVis?' checked':''} /> Show raster
+        </label>
+        ${contoursSection}`;
+
+    } else if (layer.defId === 'hrdem-tpi') {
+      hrdemInnerContent = `
+        <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px">
+          ${Object.entries(TPI_RAMPS).map(([k,r]) => chip(r.label, hrdemTpiRampId===k, 'bm-hrdem-tpi-ramp-chip', `data-ramp="${k}"`)).join('')}
+        </div>
+        <div class="bm-hrdem-tpi-preview" data-iid="${iid}" style="height:7px;border-radius:2px;border:1px solid var(--border,#444);background:${tpiGradient};margin-bottom:6px"></div>
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--fg-2,#888);cursor:pointer">
+            <input type="checkbox" class="bm-hrdem-tpi-invert" data-iid="${iid}"${hrdemTpiInvert?' checked':''} /> Invert
+          </label>
+          <span style="font-size:10px;opacity:.25">|</span>
+          <span style="font-size:9px;opacity:.55">Stretch</span>
+          ${chip('Symmetric', hrdemTpiStretch==='symmetric', 'bm-hrdem-tpi-stretch', 'data-stretch="symmetric"')}
+          ${chip('Auto',      hrdemTpiStretch==='auto',      'bm-hrdem-tpi-stretch', 'data-stretch="auto"')}
+        </div>
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--fg-2,#888);cursor:pointer;margin-top:5px">
+          <input type="checkbox" class="bm-hrdem-raster-vis" data-iid="${iid}"${hrdemRasterVis?' checked':''} /> Show raster
+        </label>
+        ${contoursSection}`;
+
+    } else {
+      // Default: elevation panel
+      hrdemInnerContent = `
+        <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px">
+          ${Object.entries(HRDEM_RAMPS).map(([k,r]) => chip(r.label, hrdemRampId===k, 'bm-hrdem-ramp-chip', `data-ramp="${k}"`)).join('')}
+        </div>
+        <div class="bm-hrdem-ramp-preview" data-iid="${iid}" style="height:7px;border-radius:2px;border:1px solid var(--border,#444);background:${hrdemGradient};margin-bottom:6px"></div>
+        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:4px">
+          <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--fg-2,#888);cursor:pointer">
+            <input type="checkbox" class="bm-hrdem-invert" data-iid="${iid}"${hrdemInvert?' checked':''} /> Invert
+          </label>
+          <span style="font-size:10px;opacity:.25">|</span>
+          <span style="font-size:9px;opacity:.55;font-style:italic">auto stretch per view</span>
+        </div>
+        <label style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--fg-2,#888);cursor:pointer">
+          <input type="checkbox" class="bm-hrdem-raster-vis" data-iid="${iid}"${hrdemRasterVis?' checked':''} /> Show raster
+        </label>
+        ${contoursSection}`;
+    }
+
     const hrdemAdjPanel = isHrdem ? `
-      <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
-        <div class="bm-adj-row">
-          <label class="bm-adj-label">Product</label>
-          <select class="bm-hrdem-product" data-iid="${layer.instanceId}" style="flex:1;min-width:0;${inputStyle}">
-            <option value="elevation"${hrdemProduct === 'elevation' ? ' selected' : ''}>Elevation</option>
-            <option value="slope"    ${hrdemProduct === 'slope'     ? ' selected' : ''}>Slope</option>
-            <option value="aspect"   ${hrdemProduct === 'aspect'    ? ' selected' : ''}>Aspect</option>
-            <option value="tpi"      ${hrdemProduct === 'tpi'       ? ' selected' : ''}>TPI</option>
-          </select>
-        </div>
-        <div class="bm-hrdem-ramp-controls" data-iid="${layer.instanceId}" style="${hrdemProduct !== 'elevation' ? 'display:none' : ''}">
-          <div class="bm-adj-row">
-            <label class="bm-adj-label">Ramp</label>
-            <select class="bm-hrdem-ramp" data-iid="${layer.instanceId}" style="flex:1;min-width:0;${inputStyle}">
-              ${Object.entries(HRDEM_RAMPS).map(([k, r]) => `<option value="${k}"${hrdemRampId === k ? ' selected' : ''}>${r.label}</option>`).join('')}
-            </select>
-          </div>
-          <div class="bm-adj-row">
-            <label class="bm-adj-label"></label>
-            <div class="bm-hrdem-ramp-preview" data-iid="${layer.instanceId}" style="flex:1;height:10px;border-radius:3px;border:1px solid var(--border,#444);background:${hrdemGradient}"></div>
-          </div>
-          <div class="bm-adj-row">
-            <label class="bm-adj-label"></label>
-            <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
-              <input type="checkbox" class="bm-hrdem-invert" data-iid="${layer.instanceId}"${hrdemInvert ? ' checked' : ''} />
-              Invert ramp
-            </label>
-          </div>
-          <div class="bm-adj-row" style="font-size:10px;color:var(--fg-2,#888);opacity:0.7;padding-top:2px">
-            <label class="bm-adj-label"></label>
-            <span>Stretch: auto min–max per view</span>
-          </div>
-        </div>
-        <div class="bm-adj-row">
-          <label class="bm-adj-label"></label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
-            <input type="checkbox" class="bm-hrdem-raster-vis" data-iid="${layer.instanceId}"${hrdemRasterVis ? ' checked' : ''} />
-            Show raster
-          </label>
-        </div>
-        <div class="bm-adj-row" style="margin-top:6px;border-top:1px solid var(--border,#444);padding-top:5px">
-          <label class="bm-adj-label" style="font-size:9px;text-transform:uppercase;letter-spacing:.05em;opacity:.55">Contours</label>
-        </div>
-        <div class="bm-adj-row">
-          <label class="bm-adj-label"></label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
-            <input type="checkbox" class="bm-hrdem-contour-en" data-iid="${layer.instanceId}"${hrdemContourEn ? ' checked' : ''} />
-            Show contour lines
-          </label>
-        </div>
-        <div class="bm-hrdem-contour-cfg" data-iid="${layer.instanceId}" style="${hrdemContourEn ? '' : 'display:none'}">
-          <div class="bm-adj-row">
-            <label class="bm-adj-label">Interval</label>
-            <input type="number" class="bm-hrdem-contour-ivl" data-iid="${layer.instanceId}"
-              value="${hrdemContourIvl}" min="0.1" max="500" step="0.1"
-              style="width:52px;${inputStyle}" />
-            <span style="font-size:10px;opacity:.6;margin-left:3px">m</span>
-          </div>
-          <div class="bm-adj-row">
-            <label class="bm-adj-label">Line colour</label>
-            <input type="color" class="bm-hrdem-contour-col" data-iid="${layer.instanceId}" value="${hrdemContourCol}" />
-          </div>
-          <div class="bm-adj-row">
-            <label class="bm-adj-label">Width</label>
-            <input type="range" class="bm-adj-slider bm-hrdem-contour-wid" data-iid="${layer.instanceId}"
-              min="0.5" max="5" step="0.5" value="${hrdemContourWid}" />
-            <span class="bm-adj-val bm-hrdem-contour-wid-val" data-iid="${layer.instanceId}">${hrdemContourWid}px</span>
-          </div>
-        </div>
+      <div class="bm-adj-panel" data-iid="${iid}" style="display:none">
+        ${hrdemInnerContent}
       </div>` : '';
 
     const isCog = layer.url.startsWith('cog://');
@@ -1475,22 +1597,7 @@ export class BasemapManager {
       });
     });
 
-    // HRDEM product selector
-    container.querySelectorAll<HTMLSelectElement>('.bm-hrdem-product').forEach(sel => {
-      sel.addEventListener('change', () => {
-        const iid = sel.dataset.iid!;
-        const layer = this.stack.find(l => l.instanceId === iid);
-        if (!layer) return;
-        layer.hrdemProduct = sel.value;
-        // Show/hide ramp controls — only relevant for elevation product
-        const rampCtrl = container.querySelector<HTMLElement>(`.bm-hrdem-ramp-controls[data-iid="${iid}"]`);
-        if (rampCtrl) rampCtrl.style.display = sel.value === 'elevation' ? '' : 'none';
-        this.hrdemLayers.get(iid)?.setProduct(sel.value as HRDEMProduct);
-        this.saveStack();
-      });
-    });
-
-    // HRDEM ramp picker
+    // ---- HRDEM elevation ramp chips ----
     const updateHrdemPreview = (iid: string, layer: StackLayer) => {
       const entry = HRDEM_RAMPS[layer.hrdemRampId ?? 'terrain'] ?? HRDEM_RAMPS['terrain'];
       const ramp = layer.hrdemRampInvert ? invertRamp(entry.ramp) : entry.ramp;
@@ -1499,12 +1606,13 @@ export class BasemapManager {
       if (preview) preview.style.background = gradient;
     };
 
-    container.querySelectorAll<HTMLSelectElement>('.bm-hrdem-ramp').forEach(sel => {
-      sel.addEventListener('change', () => {
-        const iid = sel.dataset.iid!;
+    container.querySelectorAll<HTMLButtonElement>('.bm-hrdem-ramp-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
-        layer.hrdemRampId = sel.value;
+        layer.hrdemRampId = btn.dataset.ramp!;
+        container.querySelectorAll<HTMLButtonElement>(`.bm-hrdem-ramp-chip[data-iid="${iid}"]`).forEach(b => b.classList.toggle('hdem-active', b.dataset.ramp === layer.hrdemRampId));
         updateHrdemPreview(iid, layer);
         this.hrdemLayers.get(iid)?.setRamp(this.resolveHrdemRamp(layer));
         this.saveStack();
@@ -1519,6 +1627,149 @@ export class BasemapManager {
         layer.hrdemRampInvert = chk.checked;
         updateHrdemPreview(iid, layer);
         this.hrdemLayers.get(iid)?.setRamp(this.resolveHrdemRamp(layer));
+        this.saveStack();
+      });
+    });
+
+    // ---- HRDEM slope styling ----
+    const applySlope = (iid: string, layer: StackLayer) => {
+      const entry = SLOPE_RAMPS[layer.hrdemSlopeRampId ?? 'classic'] ?? SLOPE_RAMPS['classic'];
+      const ramp = layer.hrdemSlopeInvert ? invertRamp(entry.ramp) : entry.ramp;
+      const preview = container.querySelector<HTMLElement>(`.bm-hrdem-slope-preview[data-iid="${iid}"]`);
+      if (preview) preview.style.background = rampToHorizontalGradient(ramp);
+      this.hrdemLayers.get(iid)?.setProductStyle({
+        slopeRampId:  layer.hrdemSlopeRampId  ?? 'classic',
+        slopeUnit:    (layer.hrdemSlopeUnit    ?? 'degrees') as 'degrees' | 'percent',
+        slopeStretch: (layer.hrdemSlopeStretch ?? 'auto') as 'auto' | 'full' | '0-45' | '0-90',
+        slopeInvert:  layer.hrdemSlopeInvert   ?? false,
+      });
+    };
+
+    container.querySelectorAll<HTMLButtonElement>('.bm-hrdem-slope-ramp-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemSlopeRampId = btn.dataset.ramp!;
+        container.querySelectorAll<HTMLButtonElement>(`.bm-hrdem-slope-ramp-chip[data-iid="${iid}"]`).forEach(b => b.classList.toggle('hdem-active', b.dataset.ramp === layer.hrdemSlopeRampId));
+        applySlope(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('.bm-hrdem-slope-unit').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemSlopeUnit = btn.dataset.unit!;
+        container.querySelectorAll<HTMLButtonElement>(`.bm-hrdem-slope-unit[data-iid="${iid}"]`).forEach(b => b.classList.toggle('hdem-active', b.dataset.unit === layer.hrdemSlopeUnit));
+        applySlope(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('.bm-hrdem-slope-stretch').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemSlopeStretch = btn.dataset.stretch!;
+        container.querySelectorAll<HTMLButtonElement>(`.bm-hrdem-slope-stretch[data-iid="${iid}"]`).forEach(b => b.classList.toggle('hdem-active', b.dataset.stretch === layer.hrdemSlopeStretch));
+        applySlope(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-slope-invert').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const iid = chk.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemSlopeInvert = chk.checked;
+        applySlope(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    // ---- HRDEM aspect styling ----
+    const applyAspect = (iid: string, layer: StackLayer) => {
+      const sat = layer.hrdemAspectSat ?? 80, light = layer.hrdemAspectLight ?? 50;
+      const rose = container.querySelector<HTMLElement>(`.bm-hrdem-aspect-rose[data-iid="${iid}"]`);
+      if (rose) rose.style.background = `conic-gradient(from -90deg,hsl(0,${sat}%,${light}%) 0deg,hsl(90,${sat}%,${light}%) 90deg,hsl(180,${sat}%,${light}%) 180deg,hsl(270,${sat}%,${light}%) 270deg,hsl(360,${sat}%,${light}%) 360deg)`;
+      this.hrdemLayers.get(iid)?.setProductStyle({ aspectSat: sat / 100, aspectLight: light / 100 });
+    };
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-aspect-sat').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const iid = slider.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemAspectSat = Number(slider.value);
+        const lbl = container.querySelector<HTMLElement>(`.bm-hrdem-aspect-sat-val[data-iid="${iid}"]`);
+        if (lbl) lbl.textContent = `${layer.hrdemAspectSat}%`;
+        applyAspect(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-aspect-light').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const iid = slider.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemAspectLight = Number(slider.value);
+        const lbl = container.querySelector<HTMLElement>(`.bm-hrdem-aspect-light-val[data-iid="${iid}"]`);
+        if (lbl) lbl.textContent = `${layer.hrdemAspectLight}%`;
+        applyAspect(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    // ---- HRDEM TPI styling ----
+    const applyTpi = (iid: string, layer: StackLayer) => {
+      const entry = TPI_RAMPS[layer.hrdemTpiRampId ?? 'rdylbu'] ?? TPI_RAMPS['rdylbu'];
+      const ramp = layer.hrdemTpiInvert ? invertRamp(entry.ramp) : entry.ramp;
+      const preview = container.querySelector<HTMLElement>(`.bm-hrdem-tpi-preview[data-iid="${iid}"]`);
+      if (preview) preview.style.background = rampToHorizontalGradient(ramp);
+      this.hrdemLayers.get(iid)?.setProductStyle({
+        tpiRampId:  layer.hrdemTpiRampId  ?? 'rdylbu',
+        tpiStretch: (layer.hrdemTpiStretch ?? 'symmetric') as 'symmetric' | 'auto',
+        tpiInvert:  layer.hrdemTpiInvert   ?? false,
+      });
+    };
+
+    container.querySelectorAll<HTMLButtonElement>('.bm-hrdem-tpi-ramp-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemTpiRampId = btn.dataset.ramp!;
+        container.querySelectorAll<HTMLButtonElement>(`.bm-hrdem-tpi-ramp-chip[data-iid="${iid}"]`).forEach(b => b.classList.toggle('hdem-active', b.dataset.ramp === layer.hrdemTpiRampId));
+        applyTpi(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('.bm-hrdem-tpi-stretch').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemTpiStretch = btn.dataset.stretch!;
+        container.querySelectorAll<HTMLButtonElement>(`.bm-hrdem-tpi-stretch[data-iid="${iid}"]`).forEach(b => b.classList.toggle('hdem-active', b.dataset.stretch === layer.hrdemTpiStretch));
+        applyTpi(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-tpi-invert').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const iid = chk.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemTpiInvert = chk.checked;
+        applyTpi(iid, layer);
         this.saveStack();
       });
     });
@@ -1551,6 +1802,9 @@ export class BasemapManager {
         layer.hrdemContourEnabled = chk.checked;
         const cfg = container.querySelector<HTMLElement>(`.bm-hrdem-contour-cfg[data-iid="${iid}"]`);
         if (cfg) cfg.style.display = chk.checked ? '' : 'none';
+        // Update the contour section header spacing
+        const hdr = cfg?.previousElementSibling as HTMLElement | null;
+        if (hdr) hdr.style.marginBottom = chk.checked ? '5px' : '0';
         applyContour(iid, layer);
         this.saveStack();
       });

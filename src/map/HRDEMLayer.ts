@@ -4,11 +4,6 @@
  * Follows the same activate / deactivate lifecycle as NSPRDVectorLayer and
  * NSHNVectorLayer so it integrates seamlessly with BasemapManager's
  * rebuildMap() loop.
- *
- * Layer / source naming deliberately mirrors the raster-overlay convention
- * (bm-ov-{iid} / bmsrc-{iid}) so that all existing wireContent() handlers
- * for opacity sliders, visibility toggles, and image-adjustment sliders
- * work on this layer without modification.
  */
 
 import maplibregl from 'maplibre-gl';
@@ -20,7 +15,10 @@ import {
   renderAspect,
   rampToGradient,
   invertRamp,
+  sampleRamp,
   HRDEM_RAMPS,
+  SLOPE_RAMPS,
+  TPI_RAMPS,
   SLOPE_RAMP,
   TPI_RAMP,
   type ColorRamp,
@@ -32,7 +30,6 @@ import { LAYER_IDS } from '../constants';
 const DEBOUNCE_MS = 300;
 const MIN_ZOOM    = 10;
 
-// 1×1 transparent PNG — used as the initial image source placeholder
 const BLANK_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' +
   'AAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
@@ -41,37 +38,53 @@ const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', feature
 
 export type HRDEMProduct = 'elevation' | 'slope' | 'aspect' | 'tpi';
 
+export interface ProductStyle {
+  // Slope
+  slopeRampId?:  string;    // key of SLOPE_RAMPS
+  slopeUnit?:    'degrees' | 'percent';
+  slopeStretch?: 'auto' | 'full' | '0-45' | '0-90';
+  slopeInvert?:  boolean;
+  // Aspect
+  aspectSat?:    number;    // 0–1
+  aspectLight?:  number;    // 0–1
+  // TPI
+  tpiRampId?:    string;    // key of TPI_RAMPS
+  tpiStretch?:   'symmetric' | 'auto';
+  tpiInvert?:    boolean;
+}
+
 export class HRDEMLayer {
-  // Stable across activate/deactivate cycles so canvas data survives rebuildMap()
   private readonly canvas = document.createElement('canvas');
   private ramp: ColorRamp = HRDEM_RAMPS['terrain'].ramp;
 
-  // Last fetched result — re-rendered immediately on ramp/product changes (no re-fetch needed)
   private lastResult: HRDEMResult | null = null;
-
-  // Last fetched coordinates — restored on re-activate to avoid a blank flash
   private lastCoords: [[number,number],[number,number],[number,number],[number,number]] = [
     [-180, 85], [180, 85], [180, -85], [-180, -85],
   ];
   private canvasHasData = false;
-
-  // Tracks the opacity the caller wants; used to restore after the zoom-guard zeroes it
   private intendedOpacity = 1;
 
-  // Visibility state — tracked internally so each sublayer can be controlled independently
-  private layerVisible  = true;  // main eye-icon toggle
-  private rasterVisible = true;  // "Show raster" checkbox in adj panel
+  private layerVisible  = true;
+  private rasterVisible = true;
 
-  // Display product
   private hrdemProduct: HRDEMProduct = 'elevation';
 
-  // Contour state
+  // Per-product style state
+  private slopeRampId:  string  = 'classic';
+  private slopeUnit:    'degrees' | 'percent' = 'degrees';
+  private slopeStretch: string  = 'auto';
+  private slopeInvert:  boolean = false;
+  private aspectSat:    number  = 0.8;
+  private aspectLight:  number  = 0.5;
+  private tpiRampId:    string  = 'rdylbu';
+  private tpiStretch:   string  = 'symmetric';
+  private tpiInvert:    boolean = false;
+
   private contourEnabled  = false;
   private contourInterval = 10;
   private contourColor    = '#ffffff';
   private contourWidth    = 1.2;
 
-  // Current activation state
   private instanceId     = '';
   private layerId        = '';
   private srcId          = '';
@@ -84,11 +97,9 @@ export class HRDEMLayer {
   private legendEl: HTMLElement | null = null;
   private toolbarEl: HTMLElement | null = null;
 
-  // Legend status
   private legendStatus: 'idle' | 'loading' | 'error' | 'ready' = 'idle';
   private legendError = '';
 
-  // Elevation sample / profile tool state
   private activeTool: 'none' | 'sample' | 'profile' = 'none';
   private profilePoints: [number, number][] = [];
   private sampleClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
@@ -102,16 +113,10 @@ export class HRDEMLayer {
   // Lifecycle
   // --------------------------------------------------------------------------
 
-  /**
-   * Activate (or re-activate) the layer.
-   * Always tears down existing map layers first so that the layer is
-   * re-inserted at the correct position within the unified overlay order.
-   */
   activate(instanceId: string, opacity: number, visible: boolean, ramp?: ColorRamp): void {
     if (ramp) this.ramp = ramp;
     this.layerVisible    = visible;
     this.intendedOpacity = visible ? opacity : 0;
-    // Remove old map artefacts if present (ensures correct ordering after rebuildMap)
     this.removeMapLayers();
 
     this.instanceId     = instanceId;
@@ -123,10 +128,9 @@ export class HRDEMLayer {
 
     const map = this.mapManager.getMap();
 
-    // Add raster image source — restore cached content immediately to avoid a blank frame
     map.addSource(this.srcId, {
-      type:        'image',
-      url:         this.canvasHasData ? this.canvas.toDataURL('image/png') : BLANK_PNG,
+      type: 'image',
+      url:  this.canvasHasData ? this.canvas.toDataURL('image/png') : BLANK_PNG,
       coordinates: this.lastCoords,
     } as Parameters<typeof map.addSource>[1]);
 
@@ -147,9 +151,7 @@ export class HRDEMLayer {
       map.setLayoutProperty(this.layerId, 'visibility', 'none');
     }
 
-    // Add contour GeoJSON source + line layer (initially empty / hidden)
     map.addSource(this.contourSrcId, { type: 'geojson', data: EMPTY_FC });
-
     map.addLayer(
       {
         id:     this.contourLayerId,
@@ -165,11 +167,9 @@ export class HRDEMLayer {
       LAYER_IDS.USER_ACCURACY,
     );
 
-    // Create or restore legend and toolbar
     this.ensureLegend();
     this.ensureToolbar();
 
-    // Attach move listeners (idempotent guard)
     if (!this.moveHandler) {
       this.moveHandler = () => this.scheduleFetch();
       map.on('moveend', this.moveHandler);
@@ -189,18 +189,14 @@ export class HRDEMLayer {
   }
 
   // --------------------------------------------------------------------------
-  // Public controls (called by BasemapManager when stack changes)
+  // Public controls
   // --------------------------------------------------------------------------
 
   setOpacity(opacity: number): void {
     this.intendedOpacity = opacity;
     const map = this.mapManager.getMap();
-    if (map.getLayer(this.layerId)) {
-      map.setPaintProperty(this.layerId, 'raster-opacity', opacity);
-    }
-    if (map.getLayer(this.contourLayerId)) {
-      map.setPaintProperty(this.contourLayerId, 'line-opacity', opacity);
-    }
+    if (map.getLayer(this.layerId))        map.setPaintProperty(this.layerId, 'raster-opacity', opacity);
+    if (map.getLayer(this.contourLayerId)) map.setPaintProperty(this.contourLayerId, 'line-opacity', opacity);
   }
 
   setVisible(visible: boolean): void {
@@ -218,7 +214,7 @@ export class HRDEMLayer {
 
   setRamp(ramp: ColorRamp, invert = false): void {
     this.ramp = invert ? invertRamp(ramp) : ramp;
-    if (this.hrdemProduct !== 'elevation') return; // ramp only applies to elevation
+    if (this.hrdemProduct !== 'elevation') return;
     if (this.lastResult) {
       renderElevation(this.canvas, this.lastResult, this.ramp);
       this.canvasHasData = true;
@@ -243,6 +239,26 @@ export class HRDEMLayer {
     }
   }
 
+  setProductStyle(style: ProductStyle): void {
+    if (style.slopeRampId  !== undefined) this.slopeRampId  = style.slopeRampId;
+    if (style.slopeUnit    !== undefined) this.slopeUnit    = style.slopeUnit;
+    if (style.slopeStretch !== undefined) this.slopeStretch = style.slopeStretch;
+    if (style.slopeInvert  !== undefined) this.slopeInvert  = style.slopeInvert;
+    if (style.aspectSat    !== undefined) this.aspectSat    = style.aspectSat;
+    if (style.aspectLight  !== undefined) this.aspectLight  = style.aspectLight;
+    if (style.tpiRampId    !== undefined) this.tpiRampId    = style.tpiRampId;
+    if (style.tpiStretch   !== undefined) this.tpiStretch   = style.tpiStretch;
+    if (style.tpiInvert    !== undefined) this.tpiInvert    = style.tpiInvert;
+
+    if (this.lastResult) {
+      this.renderProduct(this.canvas, this.lastResult);
+      this.canvasHasData = true;
+      const src = this.mapManager.getMap().getSource(this.srcId) as maplibregl.ImageSource | undefined;
+      if (src) src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
+      this.updateLegend(this.lastResult);
+    }
+  }
+
   setContour(enabled: boolean, interval: number, color: string, width = 1.2): void {
     this.contourEnabled  = enabled;
     this.contourInterval = Math.max(0.1, interval);
@@ -258,53 +274,117 @@ export class HRDEMLayer {
 
     if (enabled && this.lastResult) {
       this.updateContourSource(this.lastResult);
-      // Fetch fresh data if the raster was hidden (no prior fetch in that state)
       if (!this.rasterVisible) this.scheduleFetch();
     } else if (!enabled) {
       const src = map.getSource(this.contourSrcId) as maplibregl.GeoJSONSource | undefined;
       if (src) src.setData(EMPTY_FC);
     }
 
-    // Update toolbar contour label
     this.refreshToolbarContourLabel();
   }
 
   getLayerIds(): string[] {
     if (!this.active) return [];
-    return this.contourEnabled
-      ? [this.layerId, this.contourLayerId]
-      : [this.layerId];
+    return this.contourEnabled ? [this.layerId, this.contourLayerId] : [this.layerId];
   }
 
   // --------------------------------------------------------------------------
-  // Internal — product rendering
+  // Product rendering
   // --------------------------------------------------------------------------
+
+  private resolveSlopeRamp(): ColorRamp {
+    const entry = SLOPE_RAMPS[this.slopeRampId] ?? SLOPE_RAMPS['classic'];
+    return this.slopeInvert ? invertRamp(entry.ramp) : entry.ramp;
+  }
+
+  private resolveTpiRamp(): ColorRamp {
+    const entry = TPI_RAMPS[this.tpiRampId] ?? TPI_RAMPS['rdylbu'];
+    return this.tpiInvert ? invertRamp(entry.ramp) : entry.ramp;
+  }
 
   private renderProduct(canvas: HTMLCanvasElement, result: HRDEMResult): void {
     switch (this.hrdemProduct) {
       case 'slope': {
         const { grid, min, max } = computeSlope(result);
-        renderGrid(canvas, grid, result.width, result.height, min, max, null, SLOPE_RAMP);
+        let outGrid = grid;
+        let outMin = min, outMax = max;
+
+        if (this.slopeUnit === 'percent') {
+          outGrid = new Float32Array(grid.length);
+          for (let i = 0; i < grid.length; i++) {
+            outGrid[i] = isFinite(grid[i]) ? Math.tan(grid[i] * Math.PI / 180) * 100 : NaN;
+          }
+          outMin = Math.tan(min * Math.PI / 180) * 100;
+          outMax = Math.tan(max * Math.PI / 180) * 100;
+        }
+
+        let rMin = outMin, rMax = outMax;
+        if (this.slopeStretch === 'full') {
+          rMin = 0; rMax = this.slopeUnit === 'percent' ? Infinity : 90;
+        } else if (this.slopeStretch === '0-45') {
+          rMin = 0; rMax = this.slopeUnit === 'percent' ? 100 : 45;
+        } else if (this.slopeStretch === '0-90') {
+          rMin = 0; rMax = this.slopeUnit === 'percent' ? Infinity : 90;
+        }
+        // 'auto' uses actual data min/max
+        if (!isFinite(rMax) || rMax > outMax) rMax = outMax;
+        if (rMin < outMin) rMin = outMin;
+
+        renderGrid(canvas, outGrid, result.width, result.height, rMin, rMax, null, this.resolveSlopeRamp());
         break;
       }
       case 'aspect': {
         const { grid } = computeAspect(result);
-        renderAspect(canvas, grid, result.width, result.height);
+        this.renderAspectWithStyle(canvas, grid, result.width, result.height);
         break;
       }
       case 'tpi': {
         const { grid, min, max } = computeTPI(result);
-        const range = Math.max(Math.abs(min), Math.abs(max), 0.1);
-        renderGrid(canvas, grid, result.width, result.height, -range, range, null, TPI_RAMP);
+        let rMin: number, rMax: number;
+        if (this.tpiStretch === 'symmetric') {
+          const range = Math.max(Math.abs(min), Math.abs(max), 0.1);
+          rMin = -range; rMax = range;
+        } else {
+          rMin = min; rMax = max;
+        }
+        renderGrid(canvas, grid, result.width, result.height, rMin, rMax, null, this.resolveTpiRamp());
         break;
       }
-      default: // 'elevation'
+      default:
         renderElevation(canvas, result, this.ramp);
     }
   }
 
+  /** Aspect renderer that respects sat/light style overrides. */
+  private renderAspectWithStyle(
+    canvas: HTMLCanvasElement,
+    grid: Float32Array,
+    width: number,
+    height: number,
+  ): void {
+    canvas.width  = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d')!;
+    const imageData = ctx.createImageData(width, height);
+    const pixels    = imageData.data;
+    const s = this.aspectSat, l = this.aspectLight;
+
+    for (let i = 0; i < grid.length; i++) {
+      const v  = grid[i];
+      const px = i * 4;
+      if (!isFinite(v)) { pixels[px + 3] = 0; continue; }
+      if (v === -1) {
+        pixels[px] = 160; pixels[px + 1] = 160; pixels[px + 2] = 160; pixels[px + 3] = 180;
+        continue;
+      }
+      const [r, g, b] = hslToRgb(v / 360, s, l);
+      pixels[px] = r; pixels[px + 1] = g; pixels[px + 2] = b; pixels[px + 3] = 255;
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }
+
   // --------------------------------------------------------------------------
-  // Internal — visibility
+  // Visibility helpers
   // --------------------------------------------------------------------------
 
   private effectiveRasterVisible():  boolean { return this.layerVisible && this.rasterVisible; }
@@ -337,12 +417,10 @@ export class HRDEMLayer {
       map.off('zoomend', this.moveHandler);
       this.moveHandler = null;
     }
-
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
-
     const map = this.mapManager.getMap();
     if (this.contourLayerId && map.getLayer(this.contourLayerId)) map.removeLayer(this.contourLayerId);
     if (this.contourSrcId   && map.getSource(this.contourSrcId))  map.removeSource(this.contourSrcId);
@@ -360,10 +438,8 @@ export class HRDEMLayer {
 
   private async fetchAndRender(): Promise<void> {
     if (!this.active) return;
-
     const map = this.mapManager.getMap();
 
-    // Skip at small scales — HRDEM 1 m data is meaningless below zoom 10
     if (map.getZoom() < MIN_ZOOM) {
       if (map.getLayer(this.layerId))        map.setPaintProperty(this.layerId, 'raster-opacity', 0);
       if (map.getLayer(this.contourLayerId)) map.setLayoutProperty(this.contourLayerId, 'visibility', 'none');
@@ -371,20 +447,14 @@ export class HRDEMLayer {
       return;
     }
 
-    // Skip if nothing would be shown — but allow fetch when raster is off if contours are on
     if (!this.layerVisible) return;
     if (!this.rasterVisible && !this.contourEnabled) return;
 
     const bounds = map.getBounds();
-    const west  = bounds.getWest();
-    const south = bounds.getSouth();
-    const east  = bounds.getEast();
-    const north = bounds.getNorth();
-
-    // Request at screen resolution (capped inside fetchHRDEM)
+    const west  = bounds.getWest(), south = bounds.getSouth();
+    const east  = bounds.getEast(), north = bounds.getNorth();
     const mc = map.getCanvas();
-    const targetW = mc.width  || 512;
-    const targetH = mc.height || 512;
+    const targetW = mc.width || 512, targetH = mc.height || 512;
 
     this.legendStatus = 'loading';
     this.updateLegend(null);
@@ -401,33 +471,25 @@ export class HRDEMLayer {
     }
 
     this.legendStatus = 'ready';
-
-    if (!this.active) return; // deactivated while fetch was in-flight
+    if (!this.active) return;
 
     this.lastResult = result;
     this.renderProduct(this.canvas, result);
     this.canvasHasData = true;
 
-    // NW → NE → SE → SW (MapLibre image-source coordinate order)
     this.lastCoords = [
-      [west,  north],
-      [east,  north],
-      [east,  south],
-      [west,  south],
+      [west, north], [east, north], [east, south], [west, south],
     ];
 
     const src = map.getSource(this.srcId) as maplibregl.ImageSource | undefined;
     if (!src) return;
-
     src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
 
-    // Restore raster opacity if the zoom-guard previously zeroed it
     const currentOpacity = map.getPaintProperty(this.layerId, 'raster-opacity') as number;
     if (currentOpacity === 0 && this.intendedOpacity > 0) {
       map.setPaintProperty(this.layerId, 'raster-opacity', this.intendedOpacity);
     }
 
-    // Generate / refresh contour lines
     if (this.contourEnabled) {
       this.updateContourSource(result);
       if (map.getLayer(this.contourLayerId)) {
@@ -440,7 +502,7 @@ export class HRDEMLayer {
   }
 
   // --------------------------------------------------------------------------
-  // Elevation sample helper
+  // Elevation sample / profile
   // --------------------------------------------------------------------------
 
   private sampleElevationAt(lon: number, lat: number): number | null {
@@ -456,38 +518,29 @@ export class HRDEMLayer {
   }
 
   private sampleProfileLine(
-    lon1: number, lat1: number,
-    lon2: number, lat2: number,
-    n = 200,
+    lon1: number, lat1: number, lon2: number, lat2: number, n = 200,
   ): Array<{ dist: number; elev: number | null }> {
     if (!this.lastResult) return [];
     const { grid, width, height, bbox, nodata } = this.lastResult;
     const [west, south, east, north] = bbox;
-
     const dlon = lon2 - lon1, dlat = lat2 - lat1;
     const latMid = (lat1 + lat2) / 2;
     const distKm = Math.sqrt(
-      (dlat * 110.54) ** 2 +
-      (dlon * 111.32 * Math.cos(latMid * Math.PI / 180)) ** 2,
+      (dlat * 110.54) ** 2 + (dlon * 111.32 * Math.cos(latMid * Math.PI / 180)) ** 2,
     );
 
-    const points: Array<{ dist: number; elev: number | null }> = [];
-    for (let i = 0; i <= n; i++) {
+    return Array.from({ length: n + 1 }, (_, i) => {
       const t = i / n;
-      const lon = lon1 + t * dlon;
-      const lat = lat1 + t * dlat;
-      const col = Math.round((lon - west)  / (east  - west)  * (width  - 1));
+      const lon = lon1 + t * dlon, lat = lat1 + t * dlat;
+      const col = Math.round((lon - west)  / (east - west)   * (width  - 1));
       const row = Math.round((north - lat) / (north - south) * (height - 1));
       let elev: number | null = null;
       if (col >= 0 && col < width && row >= 0 && row < height) {
         const v = grid[row * width + col];
-        if (isFinite(v) && (nodata === null || Math.abs(v - nodata) >= 0.001)) {
-          elev = v;
-        }
+        if (isFinite(v) && (nodata === null || Math.abs(v - nodata) >= 0.001)) elev = v;
       }
-      points.push({ dist: t * distKm, elev });
-    }
-    return points;
+      return { dist: t * distKm, elev };
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -497,24 +550,13 @@ export class HRDEMLayer {
   private cancelTool(): void {
     this.activeTool = 'none';
     this.profilePoints = [];
-
     const map = this.mapManager.getMap();
-
-    if (this.sampleClickHandler) {
-      map.off('click', this.sampleClickHandler);
-      this.sampleClickHandler = null;
-    }
-    if (this.profileClickHandler) {
-      map.off('click', this.profileClickHandler);
-      this.profileClickHandler = null;
-    }
-
+    if (this.sampleClickHandler)  { map.off('click', this.sampleClickHandler);  this.sampleClickHandler  = null; }
+    if (this.profileClickHandler) { map.off('click', this.profileClickHandler); this.profileClickHandler = null; }
     map.getCanvas().style.cursor = '';
     this.samplePopupEl?.remove();
     this.samplePopupEl = null;
-    this.profilePanelEl?.remove();
-    this.profilePanelEl = null;
-
+    // Note: profilePanelEl is intentionally NOT removed here — it has its own close button.
     this.refreshToolbarButtons();
   }
 
@@ -522,7 +564,6 @@ export class HRDEMLayer {
     if (this.activeTool === 'sample') { this.cancelTool(); return; }
     this.cancelTool();
     this.activeTool = 'sample';
-
     const map = this.mapManager.getMap();
     map.getCanvas().style.cursor = 'crosshair';
 
@@ -539,17 +580,31 @@ export class HRDEMLayer {
     this.cancelTool();
     this.activeTool = 'profile';
     this.profilePoints = [];
-
     const map = this.mapManager.getMap();
     map.getCanvas().style.cursor = 'crosshair';
 
     this.profileClickHandler = (e: maplibregl.MapMouseEvent) => {
       this.profilePoints.push([e.lngLat.lng, e.lngLat.lat]);
+
       if (this.profilePoints.length >= 2) {
         const [p1, p2] = this.profilePoints;
         const pts = this.sampleProfileLine(p1[0], p1[1], p2[0], p2[1]);
+
+        // Reset tool input state WITHOUT removing the profile panel
+        if (this.profileClickHandler) {
+          map.off('click', this.profileClickHandler);
+          this.profileClickHandler = null;
+        }
+        map.getCanvas().style.cursor = '';
+        this.activeTool = 'none';
+        this.profilePoints = [];
+        this.refreshToolbarButtons();
+
+        // Show panel after resetting state (so cancelTool won't see it)
         this.showProfilePanel(pts);
-        this.cancelTool();
+      } else {
+        // After first click, update hint
+        this.refreshToolbarButtons();
       }
     };
     map.on('click', this.profileClickHandler);
@@ -558,7 +613,6 @@ export class HRDEMLayer {
 
   private showSamplePopup(lon: number, lat: number, elev: number | null): void {
     this.samplePopupEl?.remove();
-
     const container = this.mapManager.getMap().getContainer();
     const el = document.createElement('div');
     el.style.cssText = [
@@ -568,100 +622,90 @@ export class HRDEMLayer {
       'font-family:inherit', 'font-size:11px', 'color:#c8d8c8',
       'pointer-events:none', 'white-space:nowrap',
     ].join(';');
-
     const elevTxt = elev !== null ? `${elev.toFixed(1)} m` : 'No data';
     el.innerHTML = `<b style="font-size:12px">${elevTxt}</b><br><span style="font-size:9px;opacity:0.55">${lat.toFixed(5)}, ${lon.toFixed(5)}</span>`;
-
-    // Position near map centre — will be repositioned by pixel projection
     const map = this.mapManager.getMap();
     const pt = map.project([lon, lat]);
     const canv = map.getCanvas();
-    const scaleX = canv.clientWidth  / canv.width;
-    const scaleY = canv.clientHeight / canv.height;
-    el.style.left = `${pt.x * scaleX + 12}px`;
-    el.style.top  = `${pt.y * scaleY - 24}px`;
-
+    el.style.left = `${pt.x * (canv.clientWidth / canv.width) + 12}px`;
+    el.style.top  = `${pt.y * (canv.clientHeight / canv.height) - 24}px`;
     container.appendChild(el);
     this.samplePopupEl = el;
-
-    // Auto-dismiss after 4 s
     setTimeout(() => { el.remove(); if (this.samplePopupEl === el) this.samplePopupEl = null; }, 4000);
   }
 
   private showProfilePanel(pts: Array<{ dist: number; elev: number | null }>): void {
     this.profilePanelEl?.remove();
+    this.profilePanelEl = null;
 
     const valid = pts.filter(p => p.elev !== null) as Array<{ dist: number; elev: number }>;
     if (valid.length < 2) return;
 
-    const distMax = valid[valid.length - 1].dist;
-    const elevMin = Math.min(...valid.map(p => p.elev));
-    const elevMax = Math.max(...valid.map(p => p.elev));
+    const distMax  = valid[valid.length - 1].dist;
+    const elevMin  = Math.min(...valid.map(p => p.elev));
+    const elevMax  = Math.max(...valid.map(p => p.elev));
     const elevRange = elevMax - elevMin || 1;
 
-    const W = 360, H = 120, padL = 40, padR = 8, padT = 8, padB = 28;
-    const plotW = W - padL - padR;
-    const plotH = H - padT - padB;
-
-    const toX = (d: number) => padL + (d / distMax) * plotW;
+    const W = 340, H = 110, padL = 38, padR = 8, padT = 6, padB = 22;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const toX = (d: number) => padL + (d / Math.max(distMax, 1e-9)) * plotW;
     const toY = (e: number) => padT + plotH - ((e - elevMin) / elevRange) * plotH;
 
-    // Build SVG polyline path
     let pathD = '';
     for (const p of valid) {
-      const x = toX(p.dist), y = toY(p.elev);
-      pathD += pathD ? ` L${x.toFixed(1)},${y.toFixed(1)}` : `M${x.toFixed(1)},${y.toFixed(1)}`;
+      const x = toX(p.dist).toFixed(1), y = toY(p.elev).toFixed(1);
+      pathD += pathD ? ` L${x},${y}` : `M${x},${y}`;
     }
 
-    // Y-axis ticks (3 values)
-    const yTicks = [elevMin, elevMin + elevRange / 2, elevMax];
-    const yTickSvg = yTicks.map(e =>
-      `<text x="${padL - 3}" y="${toY(e).toFixed(1)}" text-anchor="end" dominant-baseline="middle" fill="#9ab" font-size="9">${e.toFixed(0)}</text>
-       <line x1="${padL}" y1="${toY(e).toFixed(1)}" x2="${padL + plotW}" y2="${toY(e).toFixed(1)}" stroke="#334" stroke-width="1"/>`,
+    // Filled area under the profile
+    const firstX = toX(valid[0].dist).toFixed(1);
+    const lastX  = toX(valid[valid.length - 1].dist).toFixed(1);
+    const baseY  = (padT + plotH).toFixed(1);
+    const areaD  = `${pathD} L${lastX},${baseY} L${firstX},${baseY} Z`;
+
+    const yTicks = [elevMin, elevMin + elevRange / 2, elevMax].map(e =>
+      `<text x="${padL - 3}" y="${toY(e).toFixed(1)}" text-anchor="end" dominant-baseline="middle" fill="#7a9" font-size="9">${e.toFixed(0)}</text>
+       <line x1="${padL}" y1="${toY(e).toFixed(1)}" x2="${padL + plotW}" y2="${toY(e).toFixed(1)}" stroke="#1e3228" stroke-width="1"/>`,
     ).join('');
 
-    // X-axis label
-    const xLabel = distMax < 1
-      ? `${(distMax * 1000).toFixed(0)} m`
-      : `${distMax.toFixed(2)} km`;
+    const xLabel = distMax < 1 ? `${(distMax * 1000).toFixed(0)} m` : `${distMax.toFixed(2)} km`;
 
     const svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-      <rect width="${W}" height="${H}" fill="#0c1c14" rx="4"/>
-      ${yTickSvg}
+      <rect width="${W}" height="${H}" fill="#0c1c14" rx="3"/>
+      ${yTicks}
+      <path d="${areaD}" fill="rgba(91,175,130,0.15)"/>
       <path d="${pathD}" fill="none" stroke="#5baf82" stroke-width="1.5"/>
-      <text x="${padL}" y="${H - 8}" fill="#9ab" font-size="9">0</text>
-      <text x="${padL + plotW}" y="${H - 8}" fill="#9ab" font-size="9" text-anchor="end">${xLabel}</text>
-      <text x="${padL + plotW / 2}" y="${H - 8}" fill="#9ab" font-size="9" text-anchor="middle">Distance</text>
-      <text x="8" y="${H / 2}" fill="#9ab" font-size="9" text-anchor="middle" transform="rotate(-90,8,${H / 2})">Elev (m)</text>
+      <text x="${padL}" y="${H - 5}" fill="#7a9" font-size="9">0</text>
+      <text x="${padL + plotW}" y="${H - 5}" fill="#7a9" font-size="9" text-anchor="end">${xLabel}</text>
     </svg>`;
 
     const container = this.mapManager.getMap().getContainer();
     const el = document.createElement('div');
     el.style.cssText = [
-      'position:absolute', 'bottom:80px', 'left:50%',
+      'position:absolute', 'bottom:70px', 'left:50%',
       'transform:translateX(-50%)',
       'z-index:30',
-      'background:rgba(12,28,20,0.95)',
-      'border:1px solid rgba(255,255,255,0.14)',
-      'border-radius:6px', 'padding:8px',
+      'background:rgba(10,22,16,0.96)',
+      'border:1px solid rgba(91,175,130,0.25)',
+      'border-radius:6px', 'padding:8px 10px 6px',
       'pointer-events:auto',
-      'box-shadow:0 4px 16px rgba(0,0,0,0.5)',
+      'box-shadow:0 4px 20px rgba(0,0,0,0.6)',
     ].join(';');
 
     const header = document.createElement('div');
-    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:11px;color:#c8d8c8';
-    header.innerHTML = `<span>Elevation Profile &nbsp;<span style="font-size:9px;opacity:0.55">${elevMin.toFixed(0)}–${elevMax.toFixed(0)} m</span></span>`;
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px';
+    header.innerHTML = `<span style="font-size:10px;color:#7a9;letter-spacing:.04em;text-transform:uppercase">Elevation Profile</span><span style="font-size:10px;color:#5baf82;margin-left:8px">${elevMin.toFixed(0)}–${elevMax.toFixed(0)} m</span>`;
 
     const close = document.createElement('button');
     close.textContent = '✕';
-    close.style.cssText = 'background:none;border:none;color:#9ab;cursor:pointer;font-size:12px;padding:0 0 0 8px';
+    close.style.cssText = 'background:none;border:none;color:#7a9;cursor:pointer;font-size:11px;padding:0 0 0 10px;line-height:1';
     close.addEventListener('click', () => { el.remove(); this.profilePanelEl = null; });
     header.appendChild(close);
 
     el.appendChild(header);
-    const svgContainer = document.createElement('div');
-    svgContainer.innerHTML = svg;
-    el.appendChild(svgContainer);
+    const svgWrap = document.createElement('div');
+    svgWrap.innerHTML = svg;
+    el.appendChild(svgWrap);
 
     container.appendChild(el);
     this.profilePanelEl = el;
@@ -674,7 +718,6 @@ export class HRDEMLayer {
   private ensureToolbar(): void {
     if (this.toolbarEl) return;
     const container = this.mapManager.getMap().getContainer();
-
     const el = document.createElement('div');
     el.id = 'hrdem-elevation-toolbar';
     el.style.cssText = [
@@ -691,38 +734,30 @@ export class HRDEMLayer {
       'box-shadow:0 2px 8px rgba(0,0,0,0.4)',
     ].join(';');
 
-    // Contour interval label (shown only when contours enabled)
     const contourLbl = document.createElement('span');
     contourLbl.className = 'hrdem-tb-contour-lbl';
     contourLbl.style.cssText = `font-size:10px;opacity:0.7;display:${this.contourEnabled ? '' : 'none'}`;
     this.updateContourLabelText(contourLbl);
 
-    // Divider
     const sep1 = document.createElement('span');
-    sep1.style.cssText = 'width:1px;height:16px;background:rgba(255,255,255,0.15);flex-shrink:0';
     sep1.className = 'hrdem-tb-sep hrdem-tb-sep-contour';
-    sep1.style.display = this.contourEnabled ? '' : 'none';
+    sep1.style.cssText = `width:1px;height:14px;background:rgba(255,255,255,0.15);flex-shrink:0;display:${this.contourEnabled ? '' : 'none'}`;
 
-    // Sample button
     const sampleBtn = document.createElement('button');
     sampleBtn.className = 'hrdem-tb-btn hrdem-tb-sample';
-    sampleBtn.title = 'Click a point on the map to read its elevation';
-    sampleBtn.style.cssText = this.toolBtnStyle();
-    sampleBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3" stroke="currentColor" stroke-width="1.5" fill="none"/></svg> Sample';
+    sampleBtn.title = 'Click the map to read elevation at a point';
+    sampleBtn.style.cssText = this.toolBtnStyle(false);
+    sampleBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>&thinsp;Sample`;
     sampleBtn.addEventListener('click', () => this.activateSampleTool());
 
-    // Profile button
     const profileBtn = document.createElement('button');
     profileBtn.className = 'hrdem-tb-btn hrdem-tb-profile';
     profileBtn.title = 'Click two points to create an elevation profile';
-    profileBtn.style.cssText = this.toolBtnStyle();
-    profileBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="1,13 5,7 9,10 15,3"/></svg> Profile';
+    profileBtn.style.cssText = this.toolBtnStyle(false);
+    profileBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="1,13 5,7 9,10 15,3"/></svg>&thinsp;Profile`;
     profileBtn.addEventListener('click', () => this.activateProfileTool());
 
-    if (this.contourEnabled) {
-      el.appendChild(contourLbl);
-      el.appendChild(sep1);
-    }
+    if (this.contourEnabled) { el.appendChild(contourLbl); el.appendChild(sep1); }
     el.appendChild(sampleBtn);
     el.appendChild(profileBtn);
 
@@ -730,32 +765,31 @@ export class HRDEMLayer {
     this.toolbarEl = el;
   }
 
-  private toolBtnStyle(active = false): string {
+  private toolBtnStyle(active: boolean): string {
     return [
-      'display:inline-flex', 'align-items:center', 'gap:4px',
-      'background:' + (active ? 'rgba(91,175,130,0.25)' : 'none'),
-      'border:1px solid ' + (active ? 'rgba(91,175,130,0.5)' : 'rgba(255,255,255,0.12)'),
-      'border-radius:4px', 'color:#c8d8c8',
-      'cursor:pointer', 'padding:3px 7px',
+      'display:inline-flex', 'align-items:center', 'gap:3px',
+      'background:' + (active ? 'rgba(91,175,130,0.2)' : 'none'),
+      'border:1px solid ' + (active ? 'rgba(91,175,130,0.45)' : 'rgba(255,255,255,0.12)'),
+      'border-radius:4px', 'color:' + (active ? '#5baf82' : '#c8d8c8'),
+      'cursor:pointer', 'padding:2px 7px',
       'font-family:inherit', 'font-size:10px',
     ].join(';');
   }
 
   private refreshToolbarButtons(): void {
     if (!this.toolbarEl) return;
-    const sampleBtn = this.toolbarEl.querySelector<HTMLButtonElement>('.hrdem-tb-sample');
+    const sampleBtn  = this.toolbarEl.querySelector<HTMLButtonElement>('.hrdem-tb-sample');
     const profileBtn = this.toolbarEl.querySelector<HTMLButtonElement>('.hrdem-tb-profile');
     if (sampleBtn)  sampleBtn.style.cssText  = this.toolBtnStyle(this.activeTool === 'sample');
     if (profileBtn) profileBtn.style.cssText = this.toolBtnStyle(this.activeTool === 'profile');
 
-    // Hint text in toolbar while profile first point is pending
     const existing = this.toolbarEl.querySelector('.hrdem-tb-hint');
     existing?.remove();
-    if (this.activeTool === 'profile' && this.profilePoints.length === 0) {
+    if (this.activeTool === 'profile') {
       const hint = document.createElement('span');
       hint.className = 'hrdem-tb-hint';
       hint.style.cssText = 'font-size:9px;opacity:0.55;margin-left:2px';
-      hint.textContent = 'Click start point…';
+      hint.textContent = this.profilePoints.length === 0 ? 'Click start…' : 'Click end point…';
       this.toolbarEl.appendChild(hint);
     }
   }
@@ -764,18 +798,13 @@ export class HRDEMLayer {
     if (!this.toolbarEl) return;
     const lbl = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-contour-lbl');
     const sep = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-sep-contour');
-    if (lbl) {
-      lbl.style.display = this.contourEnabled ? '' : 'none';
-      this.updateContourLabelText(lbl);
-    }
+    if (lbl) { lbl.style.display = this.contourEnabled ? '' : 'none'; this.updateContourLabelText(lbl); }
     if (sep) sep.style.display = this.contourEnabled ? '' : 'none';
   }
 
   private updateContourLabelText(el: HTMLElement): void {
     const iv = this.contourInterval;
-    const ivlLbl = iv < 1
-      ? `${iv}m`
-      : `${iv % 1 === 0 ? iv.toFixed(0) : iv}m`;
+    const ivlLbl = iv < 1 ? `${iv}m` : `${iv % 1 === 0 ? iv.toFixed(0) : iv}m`;
     el.innerHTML = `<span style="display:inline-block;width:12px;height:0;border-top:1.5px solid ${this.contourColor};vertical-align:middle;margin-right:3px"></span>${ivlLbl} contours`;
   }
 
@@ -793,7 +822,6 @@ export class HRDEMLayer {
     const container = this.mapManager.getMap().getContainer();
     const el = document.createElement('div');
     el.id = 'hrdem-elevation-legend';
-    // Offset left by toolbar width (~52px) + gap so legend doesn't sit under the left toolbar
     el.style.cssText = [
       'position:absolute', 'bottom:36px', 'left:68px', 'z-index:10',
       'background:rgba(18,36,26,0.88)', 'border:1px solid rgba(255,255,255,0.12)',
@@ -807,10 +835,7 @@ export class HRDEMLayer {
     this.legendEl = el;
   }
 
-  private removeLegend(): void {
-    this.legendEl?.remove();
-    this.legendEl = null;
-  }
+  private removeLegend(): void { this.legendEl?.remove(); this.legendEl = null; }
 
   private updateLegend(result: HRDEMResult | null): void {
     if (this.legendEl) this.legendEl.innerHTML = this.buildLegendHTML(result);
@@ -818,125 +843,107 @@ export class HRDEMLayer {
 
   private buildLegendHTML(result: HRDEMResult | null): string {
     if (this.legendStatus === 'loading') {
-      return `
-        <div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:4px;text-transform:uppercase">${this.productLabel()}</div>
-        <div style="font-size:10px;opacity:0.7">⟳ Fetching…</div>`;
+      return `<div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:4px;text-transform:uppercase">${this.productLabel()}</div>
+              <div style="font-size:10px;opacity:0.7">⟳ Fetching…</div>`;
     }
-
     if (this.legendStatus === 'error') {
-      return `
-        <div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:4px;text-transform:uppercase">${this.productLabel()}</div>
-        <div style="font-size:10px;color:#f87171;line-height:1.4;max-width:160px">⚠ ${this.legendError}</div>
-        <div style="font-size:9px;opacity:0.5;margin-top:3px">Check browser console</div>`;
+      return `<div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:4px;text-transform:uppercase">${this.productLabel()}</div>
+              <div style="font-size:10px;color:#f87171;line-height:1.4;max-width:160px">⚠ ${this.legendError}</div>
+              <div style="font-size:9px;opacity:0.5;margin-top:3px">Check browser console</div>`;
     }
-
     switch (this.hrdemProduct) {
-      case 'slope':    return this.buildSlopeLegend(result);
-      case 'aspect':   return this.buildAspectLegend();
-      case 'tpi':      return this.buildTPILegend(result);
-      default:         return this.buildElevationLegend(result);
+      case 'slope':  return this.buildSlopeLegend(result);
+      case 'aspect': return this.buildAspectLegend();
+      case 'tpi':    return this.buildTPILegend(result);
+      default:       return this.buildElevationLegend(result);
     }
   }
 
   private productLabel(): string {
-    const labels: Record<HRDEMProduct, string> = {
-      elevation: 'Elevation',
-      slope:     'Slope',
-      aspect:    'Aspect',
-      tpi:       'TPI',
-    };
-    return labels[this.hrdemProduct] ?? 'Elevation';
+    return { elevation: 'Elevation', slope: 'Slope', aspect: 'Aspect', tpi: 'TPI' }[this.hrdemProduct] ?? 'Elevation';
   }
 
   private buildElevationLegend(result: HRDEMResult | null): string {
     const grad = rampToGradient(this.ramp);
     const minLbl = result ? `${result.stretchMin.toFixed(0)} m` : '—';
     const maxLbl = result ? `${result.stretchMax.toFixed(0)} m` : '—';
-    const statsLbl = result
-      ? `${result.elevMin.toFixed(0)}–${result.elevMax.toFixed(0)} m (${result.validCount.toLocaleString()} px)`
-      : '';
-
+    const stats  = result ? `${result.elevMin.toFixed(0)}–${result.elevMax.toFixed(0)} m` : '';
     const iv = this.contourInterval;
     const ivlLbl = iv < 1 ? `${iv} m` : `${iv % 1 === 0 ? iv.toFixed(0) : iv} m`;
     const contourHud = this.contourEnabled
       ? `<div style="display:flex;align-items:center;gap:4px;font-size:9px;margin-top:5px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.1)">
            <span style="display:inline-block;width:14px;height:0;border-top:1.5px solid ${this.contourColor};opacity:0.85;flex-shrink:0"></span>
-           <span style="opacity:0.65">${ivlLbl} contours</span>
-         </div>`
-      : '';
-
-    return `
-      <div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">Elevation</div>
+           <span style="opacity:0.65">${ivlLbl} contours</span></div>` : '';
+    return `<div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">Elevation</div>
       <div style="display:flex;align-items:stretch;gap:7px">
         <div style="width:10px;min-height:60px;border-radius:3px;background:${grad};flex-shrink:0"></div>
         <div style="display:flex;flex-direction:column;justify-content:space-between;font-size:10px;line-height:1.3">
-          <span>${maxLbl}</span>
-          <span>${minLbl}</span>
+          <span>${maxLbl}</span><span>${minLbl}</span>
         </div>
       </div>
-      ${statsLbl ? `<div style="font-size:9px;opacity:0.45;margin-top:4px;max-width:120px;line-height:1.3">${statsLbl}</div>` : ''}
+      ${stats ? `<div style="font-size:9px;opacity:0.45;margin-top:4px">${stats}</div>` : ''}
       ${contourHud}`;
   }
 
   private buildSlopeLegend(result: HRDEMResult | null): string {
-    const stops = SLOPE_RAMP.stops
-      .map(s => `rgb(${s.r},${s.g},${s.b}) ${(s.t * 100).toFixed(0)}%`)
-      .join(', ');
-    const grad = `linear-gradient(to top, ${stops})`;
-    const statsLbl = result
-      ? `${result.validCount.toLocaleString()} px`
-      : '';
-    return `
-      <div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">Slope</div>
+    const ramp = this.resolveSlopeRamp();
+    const grad = `linear-gradient(to top, ${ramp.stops.map(s => `rgb(${s.r},${s.g},${s.b}) ${(s.t*100).toFixed(0)}%`).join(',')})`;
+    const unit = this.slopeUnit === 'percent' ? '%' : '°';
+    const maxLbl = this.slopeStretch === '0-45' ? `45${unit}` : this.slopeStretch === '0-90' ? `90${unit}` : `max${unit}`;
+    return `<div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">Slope</div>
       <div style="display:flex;align-items:stretch;gap:7px">
         <div style="width:10px;min-height:60px;border-radius:3px;background:${grad};flex-shrink:0"></div>
         <div style="display:flex;flex-direction:column;justify-content:space-between;font-size:10px;line-height:1.3">
-          <span>90°</span>
-          <span>0°</span>
+          <span>${maxLbl}</span><span>0${unit}</span>
         </div>
       </div>
-      ${statsLbl ? `<div style="font-size:9px;opacity:0.45;margin-top:4px">${statsLbl}</div>` : ''}`;
+      ${result ? `<div style="font-size:9px;opacity:0.45;margin-top:4px">${result.validCount.toLocaleString()} px</div>` : ''}`;
   }
 
   private buildAspectLegend(): string {
-    // Compass rose using a conic-gradient: N=red, E=yellow, S=cyan, W=blue
-    return `
-      <div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">Aspect</div>
+    return `<div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">Aspect</div>
       <div style="display:flex;align-items:center;gap:8px">
         <div style="width:36px;height:36px;border-radius:50%;flex-shrink:0;
           background:conic-gradient(from -90deg,
-            hsl(0,80%,50%) 0deg,
-            hsl(90,80%,50%) 90deg,
-            hsl(180,80%,50%) 180deg,
-            hsl(270,80%,50%) 270deg,
-            hsl(360,80%,50%) 360deg);
-          border:1px solid rgba(255,255,255,0.15)">
-        </div>
-        <div style="font-size:9px;line-height:1.6;opacity:0.7">
-          N &nbsp;↑<br>E &nbsp;→<br>S &nbsp;↓<br>W ←
-        </div>
+            hsl(0,${Math.round(this.aspectSat*100)}%,${Math.round(this.aspectLight*100)}%) 0deg,
+            hsl(90,${Math.round(this.aspectSat*100)}%,${Math.round(this.aspectLight*100)}%) 90deg,
+            hsl(180,${Math.round(this.aspectSat*100)}%,${Math.round(this.aspectLight*100)}%) 180deg,
+            hsl(270,${Math.round(this.aspectSat*100)}%,${Math.round(this.aspectLight*100)}%) 270deg,
+            hsl(360,${Math.round(this.aspectSat*100)}%,${Math.round(this.aspectLight*100)}%) 360deg);
+          border:1px solid rgba(255,255,255,0.15)"></div>
+        <div style="font-size:9px;line-height:1.6;opacity:0.7">N↑ &nbsp;E→<br>S↓ &nbsp;W←</div>
       </div>
       <div style="font-size:9px;opacity:0.4;margin-top:4px">Grey = flat</div>`;
   }
 
   private buildTPILegend(result: HRDEMResult | null): string {
-    const stops = TPI_RAMP.stops
-      .map(s => `rgb(${s.r},${s.g},${s.b}) ${(s.t * 100).toFixed(0)}%`)
-      .join(', ');
-    const grad = `linear-gradient(to top, ${stops})`;
-    const statsLbl = result
-      ? `${result.validCount.toLocaleString()} px`
-      : '';
-    return `
-      <div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">TPI</div>
+    const ramp = this.resolveTpiRamp();
+    const grad = `linear-gradient(to top, ${ramp.stops.map(s => `rgb(${s.r},${s.g},${s.b}) ${(s.t*100).toFixed(0)}%`).join(',')})`;
+    return `<div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">TPI</div>
       <div style="display:flex;align-items:stretch;gap:7px">
         <div style="width:10px;min-height:60px;border-radius:3px;background:${grad};flex-shrink:0"></div>
         <div style="display:flex;flex-direction:column;justify-content:space-between;font-size:10px;line-height:1.3">
-          <span>Ridge +</span>
-          <span style="opacity:0.55">0</span>
-          <span>Valley −</span>
+          <span style="opacity:0.7">Ridge</span><span style="opacity:0.45">0</span><span style="opacity:0.7">Valley</span>
         </div>
       </div>
-      ${statsLbl ? `<div style="font-size:9px;opacity:0.45;margin-top:4px">${statsLbl}</div>` : ''}`;
+      ${result ? `<div style="font-size:9px;opacity:0.45;margin-top:4px">${result.validCount.toLocaleString()} px</div>` : ''}`;
   }
+}
+
+// ---------------------------------------------------------------------------
+// HSL helper (exported for aspect renderer in elevationRenderer.ts context)
+// ---------------------------------------------------------------------------
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h * 6) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if      (h < 1/6) { r = c; g = x; b = 0; }
+  else if (h < 2/6) { r = x; g = c; b = 0; }
+  else if (h < 3/6) { r = 0; g = c; b = x; }
+  else if (h < 4/6) { r = 0; g = x; b = c; }
+  else if (h < 5/6) { r = x; g = 0; b = c; }
+  else              { r = c; g = 0; b = x; }
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
 }

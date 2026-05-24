@@ -141,6 +141,87 @@ export const TPI_RAMP: ColorRamp = {
 };
 
 // ---------------------------------------------------------------------------
+// Named slope ramp catalogue
+// ---------------------------------------------------------------------------
+
+export const SLOPE_RAMPS: Record<string, { label: string; ramp: ColorRamp }> = {
+  classic: {
+    label: 'Classic',
+    ramp: SLOPE_RAMP,
+  },
+  grey: {
+    label: 'Greyscale',
+    ramp: { stops: [
+      { t: 0, r: 255, g: 255, b: 255 },
+      { t: 1, r:  20, g:  20, b:  20 },
+    ]},
+  },
+  warm: {
+    label: 'Warm',
+    ramp: { stops: [
+      { t: 0.00, r: 255, g: 252, b: 220 },
+      { t: 0.40, r: 249, g: 180, b:  70 },
+      { t: 0.75, r: 210, g:  80, b:  20 },
+      { t: 1.00, r: 100, g:  15, b:   5 },
+    ]},
+  },
+  stoplight: {
+    label: 'Green→Red',
+    ramp: { stops: [
+      { t: 0.00, r:  54, g: 155, b:  85 },
+      { t: 0.35, r: 210, g: 215, b:  65 },
+      { t: 0.65, r: 230, g: 110, b:  40 },
+      { t: 1.00, r: 165, g:   0, b:  38 },
+    ]},
+  },
+  plasma: {
+    label: 'Plasma',
+    ramp: HRDEM_RAMPS.plasma.ramp,
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Named TPI ramp catalogue
+// ---------------------------------------------------------------------------
+
+export const TPI_RAMPS: Record<string, { label: string; ramp: ColorRamp }> = {
+  rdylbu: {
+    label: 'RdYlBu',
+    ramp: TPI_RAMP,
+  },
+  brbg: {
+    label: 'BrBG',
+    ramp: { stops: [
+      { t: 0.00, r: 140, g:  81, b:  10 },
+      { t: 0.35, r: 216, g: 179, b: 101 },
+      { t: 0.50, r: 245, g: 245, b: 245 },
+      { t: 0.65, r: 128, g: 205, b: 193 },
+      { t: 1.00, r:   1, g: 102, b:  94 },
+    ]},
+  },
+  piyg: {
+    label: 'PiYG',
+    ramp: { stops: [
+      { t: 0.00, r: 197, g:  27, b: 125 },
+      { t: 0.35, r: 233, g: 163, b: 201 },
+      { t: 0.50, r: 247, g: 247, b: 247 },
+      { t: 0.65, r: 161, g: 215, b:  74 },
+      { t: 1.00, r:  77, g: 146, b:  33 },
+    ]},
+  },
+  spectral: {
+    label: 'Spectral',
+    ramp: { stops: [
+      { t: 0.00, r: 213, g:  62, b:  79 },
+      { t: 0.25, r: 253, g: 174, b:  97 },
+      { t: 0.50, r: 255, g: 255, b: 191 },
+      { t: 0.75, r: 102, g: 194, b: 165 },
+      { t: 1.00, r:  50, g: 136, b: 189 },
+    ]},
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
