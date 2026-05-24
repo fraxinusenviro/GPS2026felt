@@ -2499,6 +2499,29 @@ input[type=color] {
   background: var(--color-accent-dim);
 }
 
+/* ---- HRDEM product adj chip buttons ---- */
+.hdem-chip {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: var(--color-surface-2, #1a2a1a);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.4;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.hdem-chip:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+.hdem-chip.hdem-active {
+  background: rgba(91,175,130,0.18);
+  border-color: rgba(91,175,130,0.5);
+  color: #5baf82;
+}
+
 /* ---- User layers section in basemap mixer ---- */
 .bm-user-layers {
   display: flex;
