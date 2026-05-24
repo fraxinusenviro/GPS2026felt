@@ -5,6 +5,7 @@ import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
 import { HRDEMLayer, type HRDEMProduct } from './HRDEMLayer';
+import { CogContourLayer } from './CogContourLayer';
 import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, CHM_RAMPS, CHM_CLASSES, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
 import { EventBus } from '../utils/EventBus';
 import { StylePicker } from '../ui/StylePicker';
@@ -60,6 +61,13 @@ interface StackLayer {
   hrdemChmMode?:      string;    // 'stretch'|'classified', default 'classified'
   hrdemChmRampId?:    string;    // key of CHM_RAMPS, default 'canopy_green'
   hrdemChmInvert?:    boolean;
+  // COG threshold contour
+  cogContourThreshold?:   number;  // default 0.5 (metres for DTW)
+  cogContourLineColor?:   string;  // default '#1565c0'
+  cogContourLineWidth?:   number;  // default 2.0
+  cogContourFillEnabled?: boolean; // default false
+  cogContourFillColor?:   string;  // default '#1565c0'
+  cogContourFillOpacity?: number;  // default 0.30
 }
 
 interface UserLayerInfo {
@@ -109,6 +117,7 @@ export class BasemapManager {
   private nsprdLayer: NSPRDVectorLayer | null = null;
   private nshnLayers = new Map<string, NSHNVectorLayer>();
   private hrdemLayers = new Map<string, HRDEMLayer>();
+  private cogContourLayers = new Map<string, CogContourLayer>();
   private unifiedLegendEl: HTMLElement | null = null;
   private unifiedLegendCollapsed = false;
 
@@ -447,6 +456,10 @@ export class BasemapManager {
       opacity: 1.0, visible: true,
       hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
     };
+    // Set defaults for COG contour layers
+    if (def.type === 'cog-contour') {
+      base.cogContourThreshold = def.cog_contour_threshold ?? 0.5;
+    }
     // Set per-product defaults for HRDEM layers
     if (def.type === 'hrdem-wcs') {
       const productMap: Record<string, string> = {
@@ -757,6 +770,17 @@ export class BasemapManager {
       }
     }
 
+    // Deactivate COG contour layers that are no longer in the stack
+    const activeCcIds = new Set(
+      overlays.filter(l => this.getLayerType(l) === 'cog-contour').map(e => e.instanceId)
+    );
+    for (const [iid, layer] of this.cogContourLayers) {
+      if (!activeCcIds.has(iid)) {
+        layer.deactivate();
+        this.cogContourLayers.delete(iid);
+      }
+    }
+
     // Process all overlay types in unified bottom-to-top order so map layer positions
     // match the UI stack exactly (last activated ends up closest to user features)
     for (const l of overlays) {
@@ -815,6 +839,19 @@ export class BasemapManager {
           chmRampId:    l.hrdemChmRampId     ?? 'canopy_green',
           chmInvert:    l.hrdemChmInvert     ?? false,
         });
+      } else if (ltype === 'cog-contour') {
+        if (!this.cogContourLayers.has(l.instanceId)) {
+          this.cogContourLayers.set(l.instanceId, new CogContourLayer(this.mapManager, l.url));
+        }
+        const cc = this.cogContourLayers.get(l.instanceId)!;
+        cc.activate(l.instanceId, l.opacity, l.visible);
+        cc.setThreshold(l.cogContourThreshold ?? 0.5);
+        cc.setLineStyle(l.cogContourLineColor ?? '#1565c0', l.cogContourLineWidth ?? 2.0);
+        cc.setFill(
+          l.cogContourFillEnabled ?? false,
+          l.cogContourFillColor   ?? '#1565c0',
+          l.cogContourFillOpacity ?? 0.30,
+        );
       }
     }
     this.refreshUnifiedLegend();
@@ -1186,6 +1223,49 @@ export class BasemapManager {
         </div>` : ''}
       </div>` : '';
 
+    const isCogContour = ltype === 'cog-contour';
+    const ccThreshold   = layer.cogContourThreshold   ?? 0.5;
+    const ccLineColor   = layer.cogContourLineColor   ?? '#1565c0';
+    const ccLineWidth   = layer.cogContourLineWidth   ?? 2.0;
+    const ccFillEn      = layer.cogContourFillEnabled ?? false;
+    const ccFillColor   = layer.cogContourFillColor   ?? '#1565c0';
+    const ccFillOpacity = layer.cogContourFillOpacity ?? 0.30;
+
+    const inSt = `background:var(--input-bg,#1a2a1e);color:var(--fg,#e8f5e9);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px;font-size:11px`;
+    const cogContourAdjPanel = isCogContour ? `
+      <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
+        <div class="bm-adj-row">
+          <label class="bm-adj-label">Threshold</label>
+          <input type="number" class="bm-cc-threshold" data-iid="${layer.instanceId}"
+            value="${ccThreshold}" min="0.1" max="50" step="0.1" style="width:54px;${inSt}" />
+          <span style="font-size:10px;opacity:.55;margin-left:3px">m</span>
+        </div>
+        <div class="bm-adj-row">
+          <label class="bm-adj-label">Line</label>
+          <input type="color" class="bm-cc-line-color" data-iid="${layer.instanceId}"
+            value="${ccLineColor}" title="Line colour"
+            style="width:26px;height:22px;padding:1px;border-radius:3px;border:1px solid var(--border,#444);cursor:pointer;background:none" />
+          <input type="range" class="bm-cc-line-width" data-iid="${layer.instanceId}"
+            min="0.5" max="6" step="0.5" value="${ccLineWidth}"
+            style="flex:1;accent-color:var(--color-accent);height:14px" />
+          <span class="bm-cc-lw-val" data-iid="${layer.instanceId}"
+            style="font-size:10px;opacity:.55;width:30px">${ccLineWidth}px</span>
+        </div>
+        <div class="bm-adj-row">
+          <label class="bm-adj-label">Fill ≤ t</label>
+          <input type="checkbox" class="bm-cc-fill-en" data-iid="${layer.instanceId}"${ccFillEn ? ' checked' : ''}
+            style="margin-right:4px" />
+          <input type="color" class="bm-cc-fill-color" data-iid="${layer.instanceId}"
+            value="${ccFillColor}" title="Fill colour"
+            style="width:26px;height:22px;padding:1px;border-radius:3px;border:1px solid var(--border,#444);cursor:pointer;background:none" />
+          <input type="range" class="bm-cc-fill-opacity" data-iid="${layer.instanceId}"
+            min="0" max="100" step="5" value="${Math.round(ccFillOpacity * 100)}"
+            style="flex:1;accent-color:var(--color-accent);height:14px" />
+          <span class="bm-cc-fo-val" data-iid="${layer.instanceId}"
+            style="font-size:10px;opacity:.55;width:30px">${Math.round(ccFillOpacity * 100)}%</span>
+        </div>
+      </div>` : '';
+
     const isHrdem = ltype === 'hrdem-wcs';
     const hrdemProduct      = layer.hrdemProduct         ?? (layer.defId === 'hrdem-slope' ? 'slope' : layer.defId === 'hrdem-aspect' ? 'aspect' : layer.defId === 'hrdem-tpi' ? 'tpi' : 'elevation');
     const hrdemRampId       = layer.hrdemRampId          ?? 'terrain';
@@ -1390,7 +1470,10 @@ export class BasemapManager {
       </div>` : '';
 
     const hasStylePanel = isVectorLayer ? (cfg !== undefined) : true;
-    const adjTitle = isVectorLayer ? 'Style options' : isHrdem ? 'Elevation style' : 'Image adjustments';
+    const adjTitle = isVectorLayer ? 'Style options'
+      : isHrdem ? 'Elevation style'
+      : isCogContour ? 'Contour options'
+      : 'Image adjustments';
 
     return `
       <div class="bm-stack-item ${isBase ? 'bm-base-item' : ''}"
@@ -1408,7 +1491,7 @@ export class BasemapManager {
           ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
-        ${isVectorLayer ? vecStylePanel : isHrdem ? hrdemAdjPanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
+        ${isVectorLayer ? vecStylePanel : isHrdem ? hrdemAdjPanel : isCogContour ? cogContourAdjPanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
           ${cogRampRow}
           <div class="bm-adj-row">
             <label class="bm-adj-label">Hue</label>
@@ -1524,6 +1607,7 @@ export class BasemapManager {
         else if (ltype === 'nsprd-vector') this.nsprdLayer?.setOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'hrdem-wcs') this.hrdemLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
+        else if (ltype === 'cog-contour') this.cogContourLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else this.mapManager.setBasemapOverlayOpacity(iid, layer.visible ? opacity : 0);
         this.saveStack();
       });
@@ -1546,6 +1630,7 @@ export class BasemapManager {
           this.hrdemLayers.get(iid)?.setVisible(layer.visible);
           this.refreshUnifiedLegend();
         }
+        else if (ltype2 === 'cog-contour') this.cogContourLayers.get(iid)?.setVisible(layer.visible);
         else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
         this.saveStack();
       });
@@ -1931,6 +2016,100 @@ export class BasemapManager {
         const lbl = container.querySelector<HTMLElement>(`.bm-hrdem-contour-wid-val[data-iid="${iid}"]`);
         if (lbl) lbl.textContent = `${w}px`;
         applyContour(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    // COG contour — threshold
+    container.querySelectorAll<HTMLInputElement>('.bm-cc-threshold').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const iid   = inp.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        const t = parseFloat(inp.value);
+        if (!isFinite(t) || t <= 0) return;
+        layer.cogContourThreshold = t;
+        this.cogContourLayers.get(iid)?.setThreshold(t);
+        this.saveStack();
+      });
+    });
+
+    // COG contour — line colour
+    container.querySelectorAll<HTMLInputElement>('.bm-cc-line-color').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const iid   = inp.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.cogContourLineColor = inp.value;
+        this.cogContourLayers.get(iid)?.setLineStyle(
+          inp.value, layer.cogContourLineWidth ?? 2.0);
+        this.saveStack();
+      });
+    });
+
+    // COG contour — line width
+    container.querySelectorAll<HTMLInputElement>('.bm-cc-line-width').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const iid   = slider.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        const w = parseFloat(slider.value);
+        layer.cogContourLineWidth = w;
+        const lbl = container.querySelector<HTMLElement>(`.bm-cc-lw-val[data-iid="${iid}"]`);
+        if (lbl) lbl.textContent = `${w}px`;
+        this.cogContourLayers.get(iid)?.setLineStyle(
+          layer.cogContourLineColor ?? '#1565c0', w);
+        this.saveStack();
+      });
+    });
+
+    // COG contour — fill enable
+    container.querySelectorAll<HTMLInputElement>('.bm-cc-fill-en').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const iid   = chk.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.cogContourFillEnabled = chk.checked;
+        this.cogContourLayers.get(iid)?.setFill(
+          chk.checked,
+          layer.cogContourFillColor   ?? '#1565c0',
+          layer.cogContourFillOpacity ?? 0.30,
+        );
+        this.saveStack();
+      });
+    });
+
+    // COG contour — fill colour
+    container.querySelectorAll<HTMLInputElement>('.bm-cc-fill-color').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const iid   = inp.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.cogContourFillColor = inp.value;
+        this.cogContourLayers.get(iid)?.setFill(
+          layer.cogContourFillEnabled ?? false,
+          inp.value,
+          layer.cogContourFillOpacity ?? 0.30,
+        );
+        this.saveStack();
+      });
+    });
+
+    // COG contour — fill opacity
+    container.querySelectorAll<HTMLInputElement>('.bm-cc-fill-opacity').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const iid   = slider.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        const fo = parseInt(slider.value) / 100;
+        layer.cogContourFillOpacity = fo;
+        const lbl = container.querySelector<HTMLElement>(`.bm-cc-fo-val[data-iid="${iid}"]`);
+        if (lbl) lbl.textContent = `${Math.round(fo * 100)}%`;
+        this.cogContourLayers.get(iid)?.setFill(
+          layer.cogContourFillEnabled ?? false,
+          layer.cogContourFillColor   ?? '#1565c0',
+          fo,
+        );
         this.saveStack();
       });
     });

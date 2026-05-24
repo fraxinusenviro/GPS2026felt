@@ -546,6 +546,17 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
     ],
   },
   {
+    id: 'wi-dtw-contour',
+    label: 'DTW Threshold Contour',
+    type: 'cog-contour',
+    group: 'Wetland Indices',
+    url: 'https://nswetlands-mapping.s3.us-east-2.amazonaws.com/COG/DTW_cog.tif',
+    attribution: '© NS Wetlands Mapping',
+    tile_size: 256,
+    max_zoom: 22,
+    cog_contour_threshold: 0.5,
+  },
+  {
     id: 'wi-pdep',
     label: 'Probability of Depression (PDEP)',
     type: 'raster',
