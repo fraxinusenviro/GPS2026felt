@@ -13,15 +13,17 @@ import {
   renderElevation,
   renderGrid,
   renderAspect,
+  renderCHMClassified,
   rampToGradient,
   invertRamp,
   sampleRamp,
   HRDEM_RAMPS,
   SLOPE_RAMPS,
   TPI_RAMPS,
+  CHM_RAMPS,
+  CHM_CLASSES,
   SLOPE_RAMP,
   TPI_RAMP,
-  CHM_RAMP,
   type ColorRamp,
 } from '../lib/elevationRenderer';
 import { generateContours } from '../lib/contourGenerator';
@@ -52,6 +54,10 @@ export interface ProductStyle {
   tpiRampId?:    string;    // key of TPI_RAMPS
   tpiStretch?:   'symmetric' | 'auto';
   tpiInvert?:    boolean;
+  // CHM
+  chmMode?:      'stretch' | 'classified';  // default 'classified'
+  chmRampId?:    string;                    // key of CHM_RAMPS, used in stretch mode
+  chmInvert?:    boolean;
 }
 
 export class HRDEMLayer {
@@ -81,6 +87,9 @@ export class HRDEMLayer {
   private tpiRampId:    string  = 'rdylbu';
   private tpiStretch:   string  = 'symmetric';
   private tpiInvert:    boolean = false;
+  private chmMode:      'stretch' | 'classified' = 'classified';
+  private chmRampId:    string  = 'canopy_green';
+  private chmInvert:    boolean = false;
 
   private contourEnabled  = false;
   private contourInterval = 10;
@@ -252,6 +261,9 @@ export class HRDEMLayer {
     if (style.tpiRampId    !== undefined) this.tpiRampId    = style.tpiRampId;
     if (style.tpiStretch   !== undefined) this.tpiStretch   = style.tpiStretch;
     if (style.tpiInvert    !== undefined) this.tpiInvert    = style.tpiInvert;
+    if (style.chmMode      !== undefined) this.chmMode      = style.chmMode;
+    if (style.chmRampId    !== undefined) this.chmRampId    = style.chmRampId;
+    if (style.chmInvert    !== undefined) this.chmInvert    = style.chmInvert;
 
     if (this.lastResult) {
       this.renderProduct(this.canvas, this.lastResult);
@@ -317,6 +329,11 @@ export class HRDEMLayer {
     return this.tpiInvert ? invertRamp(entry.ramp) : entry.ramp;
   }
 
+  private resolveChmRamp(): ColorRamp {
+    const entry = CHM_RAMPS[this.chmRampId] ?? CHM_RAMPS['canopy_green'];
+    return this.chmInvert ? invertRamp(entry.ramp) : entry.ramp;
+  }
+
   private renderProduct(canvas: HTMLCanvasElement, result: HRDEMResult): void {
     switch (this.hrdemProduct) {
       case 'slope': {
@@ -366,8 +383,12 @@ export class HRDEMLayer {
         break;
       }
       case 'chm':
-        renderGrid(canvas, result.grid, result.width, result.height,
-          result.stretchMin, result.stretchMax, result.nodata, CHM_RAMP);
+        if (this.chmMode === 'classified') {
+          renderCHMClassified(canvas, result.grid, result.width, result.height);
+        } else {
+          renderGrid(canvas, result.grid, result.width, result.height,
+            result.stretchMin, result.stretchMax, result.nodata, this.resolveChmRamp());
+        }
         break;
       default:
         renderElevation(canvas, result, this.ramp);
@@ -964,16 +985,27 @@ export class HRDEMLayer {
   }
 
   private buildCHMLegend(result: HRDEMResult | null): string {
-    const grad = `linear-gradient(to top, ${CHM_RAMP.stops.map(s => `rgb(${s.r},${s.g},${s.b}) ${(s.t*100).toFixed(0)}%`).join(',')})`;
-    const maxLbl = result ? `${result.stretchMax.toFixed(0)} m` : '—';
-    return `<div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">Canopy Height</div>
-      <div style="display:flex;align-items:stretch;gap:7px">
-        <div style="width:10px;min-height:60px;border-radius:3px;background:${grad};flex-shrink:0"></div>
-        <div style="display:flex;flex-direction:column;justify-content:space-between;font-size:10px;line-height:1.3">
-          <span>${maxLbl}</span><span>0 m</span>
-        </div>
-      </div>
-      <div style="font-size:9px;opacity:0.4;margin-top:4px">CHM = DSM − DTM</div>`;
+    const hdr = `<div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">Canopy Height</div>`;
+    if (this.chmMode === 'stretch') {
+      const ramp = this.resolveChmRamp();
+      const grad = `linear-gradient(to top, ${ramp.stops.map(s => `rgb(${s.r},${s.g},${s.b}) ${(s.t*100).toFixed(0)}%`).join(',')})`;
+      const maxLbl = result ? `${result.stretchMax.toFixed(1)} m` : '—';
+      return `${hdr}
+        <div style="display:flex;align-items:stretch;gap:7px">
+          <div style="width:10px;min-height:60px;border-radius:3px;background:${grad};flex-shrink:0"></div>
+          <div style="display:flex;flex-direction:column;justify-content:space-between;font-size:10px;line-height:1.3">
+            <span>${maxLbl}</span><span>0 m</span>
+          </div>
+        </div>`;
+    }
+    // Classified
+    const rows = CHM_CLASSES.map(c =>
+      `<div style="display:flex;align-items:center;gap:5px">
+         <div style="width:12px;height:9px;border-radius:2px;background:rgb(${c.r},${c.g},${c.b});flex-shrink:0"></div>
+         <span style="font-size:9px;opacity:0.75">${c.label}</span>
+       </div>`,
+    ).join('');
+    return `${hdr}<div style="display:flex;flex-direction:column;gap:3px">${rows}</div>`;
   }
 }
 
