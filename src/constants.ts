@@ -481,6 +481,70 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
     max_zoom: 22,
   },
 
+  // ---- Elevation (DSM — Digital Surface Model incl. vegetation & structures) ----
+  {
+    id: 'hrdem-dsm-elevation',
+    label: 'DSM Elevation',
+    type: 'hrdem-wcs',
+    group: 'Elevation',
+    url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic',
+    attribution: '© Natural Resources Canada — HRDEM DSM',
+    tile_size: 256,
+    max_zoom: 22,
+  },
+  {
+    id: 'hrdem-dsm-slope',
+    label: 'DSM Slope',
+    type: 'hrdem-wcs',
+    group: 'Elevation',
+    url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic',
+    attribution: '© Natural Resources Canada — HRDEM DSM',
+    tile_size: 256,
+    max_zoom: 22,
+  },
+  {
+    id: 'hrdem-dsm-aspect',
+    label: 'DSM Aspect',
+    type: 'hrdem-wcs',
+    group: 'Elevation',
+    url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic',
+    attribution: '© Natural Resources Canada — HRDEM DSM',
+    tile_size: 256,
+    max_zoom: 22,
+  },
+  {
+    id: 'hrdem-dsm-tpi',
+    label: 'DSM TPI',
+    type: 'hrdem-wcs',
+    group: 'Elevation',
+    url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic',
+    attribution: '© Natural Resources Canada — HRDEM DSM',
+    tile_size: 256,
+    max_zoom: 22,
+  },
+  {
+    id: 'hrdem-dsm-contours',
+    label: 'DSM Contours',
+    type: 'hrdem-wcs',
+    group: 'Elevation',
+    url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic',
+    attribution: '© Natural Resources Canada — HRDEM DSM',
+    tile_size: 256,
+    max_zoom: 22,
+  },
+
+  // ---- Canopy Height Model (CHM = DSM − DTM) ----
+  {
+    id: 'hrdem-chm',
+    label: 'Canopy Height (CHM)',
+    type: 'hrdem-wcs',
+    group: 'Elevation',
+    url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic',
+    attribution: '© Natural Resources Canada — HRDEM DSM/DTM',
+    tile_size: 256,
+    max_zoom: 22,
+  },
+
   // ---- Wetland Indices (COG rasters) ----
   {
     id: 'wi-dtw',
