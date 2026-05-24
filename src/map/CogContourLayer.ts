@@ -30,7 +30,7 @@ export class CogContourLayer {
   private iid = '';
 
   // Style
-  private threshold   = 0.5;
+  private threshold   = 50;
   private lineColor   = '#1565c0';
   private lineWidth   = 2.0;
   private fillEnabled = false;
@@ -64,6 +64,7 @@ export class CogContourLayer {
     this.iid     = iid;
     this.opacity = opacity;
     this.visible = visible;
+    this.removeLayers();
     this.ensureLayers();
     this.hookMoveEnd();
     this.scheduleFetch();
@@ -72,13 +73,7 @@ export class CogContourLayer {
   deactivate(): void {
     this.unhookMoveEnd();
     this.lastAbort?.abort();
-    const map = this.mm.getMap();
-    for (const id of [this.lineId, this.fillId]) {
-      try { map.removeLayer(id); } catch { /* */ }
-    }
-    for (const id of [this.geomSrcId, this.imgSrcId]) {
-      try { map.removeSource(id); } catch { /* */ }
-    }
+    this.removeLayers();
   }
 
   setThreshold(t: number): void {
@@ -140,53 +135,55 @@ export class CogContourLayer {
   private get geomSrcId() { return `ccl-src-${this.iid}`; }
   private get imgSrcId()  { return `ccl-img-${this.iid}`; }
 
+  private removeLayers(): void {
+    const map = this.mm.getMap();
+    for (const id of [this.lineId, this.fillId]) {
+      try { map.removeLayer(id); } catch { /* */ }
+    }
+    for (const id of [this.geomSrcId, this.imgSrcId]) {
+      try { map.removeSource(id); } catch { /* */ }
+    }
+  }
+
   private ensureLayers(): void {
     const map    = this.mm.getMap();
     const bounds = map.getBounds();
 
-    if (!map.getSource(this.geomSrcId)) {
-      map.addSource(this.geomSrcId, { type: 'geojson', data: EMPTY_FC });
-    }
+    map.addSource(this.geomSrcId, { type: 'geojson', data: EMPTY_FC });
 
-    if (!map.getSource(this.imgSrcId)) {
-      this.canvas.width = 1; this.canvas.height = 1;
-      map.addSource(this.imgSrcId, {
-        type: 'image',
-        url: this.canvas.toDataURL(),
-        coordinates: [
-          [bounds.getWest(), bounds.getNorth()],
-          [bounds.getEast(), bounds.getNorth()],
-          [bounds.getEast(), bounds.getSouth()],
-          [bounds.getWest(), bounds.getSouth()],
-        ],
-      } as Parameters<typeof map.addSource>[1]);
-    }
+    this.canvas.width = 1; this.canvas.height = 1;
+    map.addSource(this.imgSrcId, {
+      type: 'image',
+      url: this.canvas.toDataURL(),
+      coordinates: [
+        [bounds.getWest(), bounds.getNorth()],
+        [bounds.getEast(), bounds.getNorth()],
+        [bounds.getEast(), bounds.getSouth()],
+        [bounds.getWest(), bounds.getSouth()],
+      ],
+    } as Parameters<typeof map.addSource>[1]);
 
-    if (!map.getLayer(this.fillId)) {
-      map.addLayer(
-        {
-          id: this.fillId, type: 'raster', source: this.imgSrcId,
-          paint: { 'raster-opacity': 0, 'raster-fade-duration': 0 },
-          layout: { visibility: 'none' },
+    map.addLayer(
+      {
+        id: this.fillId, type: 'raster', source: this.imgSrcId,
+        paint: { 'raster-opacity': 0, 'raster-fade-duration': 0 },
+        layout: { visibility: 'none' },
+      },
+      LAYER_IDS.USER_ACCURACY,
+    );
+
+    map.addLayer(
+      {
+        id: this.lineId, type: 'line', source: this.geomSrcId,
+        paint: {
+          'line-color':   this.lineColor,
+          'line-width':   this.lineWidth,
+          'line-opacity': this.visible ? this.opacity : 0,
         },
-        LAYER_IDS.USER_ACCURACY,
-      );
-    }
-
-    if (!map.getLayer(this.lineId)) {
-      map.addLayer(
-        {
-          id: this.lineId, type: 'line', source: this.geomSrcId,
-          paint: {
-            'line-color':   this.lineColor,
-            'line-width':   this.lineWidth,
-            'line-opacity': this.visible ? this.opacity : 0,
-          },
-          layout: { visibility: this.visible ? 'visible' : 'none' },
-        },
-        LAYER_IDS.USER_ACCURACY,
-      );
-    }
+        layout: { visibility: this.visible ? 'visible' : 'none' },
+      },
+      LAYER_IDS.USER_ACCURACY,
+    );
   }
 
   private hookMoveEnd(): void {

@@ -896,6 +896,7 @@ export class HRDEMLayer {
   }
 
   private buildLegendHTML(result: HRDEMResult | null): string {
+    if (this.legendStatus === 'idle') return '';     // ← ADD THIS LINE
     if (this.legendStatus === 'loading') {
       return `<div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:4px;text-transform:uppercase">${this.productLabel()}</div>
               <div style="font-size:10px;opacity:0.7">⟳ Fetching…</div>`;

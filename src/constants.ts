@@ -134,8 +134,9 @@ export const DEFAULT_CONNECTIONS: SavedConnection[] = [
 export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
   {
     id: 'hrdem-dtm-hillshade',
-    label: 'Digital Terrain Model',
+    label: 'DTM Hillshade',
     type: 'raster',
+    group: 'Elevation',
     url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=dtm-hillshade&STYLES=&FORMAT=image/png&TRANSPARENT=TRUE&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}',
     attribution: '© Natural Resources Canada',
     tile_size: 256,
@@ -143,8 +144,9 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
   },
   {
     id: 'hrdem-dsm-hillshade',
-    label: 'Digital Surface Model',
+    label: 'DSM Hillshade',
     type: 'raster',
+    group: 'Elevation',
     url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=dsm-hillshade&STYLES=&FORMAT=image/png&TRANSPARENT=TRUE&CRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}',
     attribution: '© Natural Resources Canada',
     tile_size: 256,
@@ -554,7 +556,7 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
     attribution: '© NS Wetlands Mapping',
     tile_size: 256,
     max_zoom: 22,
-    cog_contour_threshold: 0.5,
+    cog_contour_threshold: 50,
   },
   {
     id: 'wi-pdep',

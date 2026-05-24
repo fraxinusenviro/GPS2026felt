@@ -458,7 +458,7 @@ export class BasemapManager {
     };
     // Set defaults for COG contour layers
     if (def.type === 'cog-contour') {
-      base.cogContourThreshold = def.cog_contour_threshold ?? 0.5;
+      base.cogContourThreshold = def.cog_contour_threshold ?? 50;
     }
     // Set per-product defaults for HRDEM layers
     if (def.type === 'hrdem-wcs') {
@@ -635,12 +635,20 @@ export class BasemapManager {
           const inst = this.hrdemLayers.get(l.instanceId);
           if (!inst) return '';
           const blockInner = inst.getLegendHTML();
+          if (!blockInner) return '';   // ← skip layers with no legend content yet
           return `<div style="padding:6px 10px;${visible.indexOf(l) < visible.length - 1 ? 'border-bottom:1px solid rgba(255,255,255,0.06)' : ''}">
             <div style="font-size:8px;opacity:0.4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">${l.label}</div>
             ${blockInner}
           </div>`;
-        }).join('');
+        }).filter(Boolean).join('');
         bodyHtml = blocks;
+      }
+
+      // If all blocks ended up empty, remove the legend container
+      if (!bodyHtml && !collapsed) {
+        this.unifiedLegendEl?.remove();
+        this.unifiedLegendEl = null;
+        return;
       }
 
       el.innerHTML = headerHtml + bodyHtml;
@@ -845,7 +853,7 @@ export class BasemapManager {
         }
         const cc = this.cogContourLayers.get(l.instanceId)!;
         cc.activate(l.instanceId, l.opacity, l.visible);
-        cc.setThreshold(l.cogContourThreshold ?? 0.5);
+        cc.setThreshold(l.cogContourThreshold ?? 50);
         cc.setLineStyle(l.cogContourLineColor ?? '#1565c0', l.cogContourLineWidth ?? 2.0);
         cc.setFill(
           l.cogContourFillEnabled ?? false,
@@ -1224,7 +1232,7 @@ export class BasemapManager {
       </div>` : '';
 
     const isCogContour = ltype === 'cog-contour';
-    const ccThreshold   = layer.cogContourThreshold   ?? 0.5;
+    const ccThreshold   = layer.cogContourThreshold   ?? 50;
     const ccLineColor   = layer.cogContourLineColor   ?? '#1565c0';
     const ccLineWidth   = layer.cogContourLineWidth   ?? 2.0;
     const ccFillEn      = layer.cogContourFillEnabled ?? false;
@@ -1237,8 +1245,8 @@ export class BasemapManager {
         <div class="bm-adj-row">
           <label class="bm-adj-label">Threshold</label>
           <input type="number" class="bm-cc-threshold" data-iid="${layer.instanceId}"
-            value="${ccThreshold}" min="0.1" max="50" step="0.1" style="width:54px;${inSt}" />
-          <span style="font-size:10px;opacity:.55;margin-left:3px">m</span>
+            value="${ccThreshold}" min="1" max="10000" step="0.5" style="width:54px;${inSt}" />
+          <span style="font-size:10px;opacity:.55;margin-left:3px">cm</span>
         </div>
         <div class="bm-adj-row">
           <label class="bm-adj-label">Line</label>
@@ -1478,15 +1486,12 @@ export class BasemapManager {
     return `
       <div class="bm-stack-item ${isBase ? 'bm-base-item' : ''}"
            draggable="true" data-idx="${idx}" data-iid="${layer.instanceId}">
-        <div class="bm-item-row1">
+        <div class="bm-item-row">
           <div class="bm-drag-handle" title="Drag to reorder">${dragSvg}</div>
           <span class="bm-layer-label" title="${layer.label}">${layer.label}</span>
-          ${isBase ? '<span class="bm-base-badge">BASE</span>' : ''}
-        </div>
-        <div class="bm-item-row2">
-          <input type="range" class="bm-opacity-slider" data-iid="${layer.instanceId}"
-            min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity" />
-          <span class="bm-opacity-val">${Math.round(layer.opacity * 100)}%</span>
+          ${isBase ? '<span class="bm-base-badge">B</span>' : ''}
+          <input type="number" class="bm-opacity-num" data-iid="${layer.instanceId}"
+            min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity %" />
           <button class="bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
           ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
@@ -1591,16 +1596,17 @@ export class BasemapManager {
       });
     });
 
-    // Opacity sliders (stack items)
-    container.querySelectorAll<HTMLInputElement>('.bm-opacity-slider:not(.bm-pdf-opacity):not(.bm-ul-opacity)').forEach(slider => {
-      slider.addEventListener('input', () => {
-        const iid = slider.dataset.iid!;
-        const opacity = parseInt(slider.value) / 100;
+    // Opacity number inputs (stack items)
+    container.querySelectorAll<HTMLInputElement>('.bm-opacity-num').forEach(input => {
+      input.addEventListener('change', () => {
+        const iid = input.dataset.iid!;
+        const rawVal = parseInt(input.value);
+        const clamped = isNaN(rawVal) ? 100 : Math.min(100, Math.max(0, rawVal));
+        input.value = String(clamped);
+        const opacity = clamped / 100;
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
         layer.opacity = opacity;
-        const valEl = slider.closest('.bm-stack-item')?.querySelector('.bm-opacity-val');
-        if (valEl) valEl.textContent = `${Math.round(opacity * 100)}%`;
         const isBase = iid === this.stack[this.stack.length - 1]?.instanceId;
         const ltype = this.getLayerType(layer);
         if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? opacity : 0);
