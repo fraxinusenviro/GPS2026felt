@@ -6,7 +6,7 @@ import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
 import { HRDEMLayer, type HRDEMProduct } from './HRDEMLayer';
 import { CogContourLayer } from './CogContourLayer';
-import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, CHM_RAMPS, CHM_CLASSES, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
+import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, CHM_RAMPS, CHM_CLASSES, CHM_CLASS_PALETTES, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
 import { EventBus } from '../utils/EventBus';
 import { StylePicker } from '../ui/StylePicker';
 import { renderSwatchDataUrl } from '../ui/SymbolRenderer';
@@ -61,6 +61,7 @@ interface StackLayer {
   hrdemChmMode?:      string;    // 'stretch'|'classified', default 'classified'
   hrdemChmRampId?:    string;    // key of CHM_RAMPS, default 'canopy_green'
   hrdemChmInvert?:    boolean;
+  hrdemChmClassPaletteId?: string;        // key of CHM_CLASS_PALETTES, default 'structural'
   // COG threshold contour
   cogContourThreshold?:   number;  // default 0.5 (metres for DTW)
   cogContourLineColor?:   string;  // default '#1565c0'
@@ -1217,9 +1218,9 @@ export class BasemapManager {
           <label class="bm-adj-label">Stroke</label>
           <input type="color" class="bm-vec-color bm-vec-lc" data-iid="${layer.instanceId}" value="${currentLineHex}" title="Stroke colour" />
           ${cfg ? `
-          <input type="range" class="bm-adj-slider bm-vec-lw" data-iid="${layer.instanceId}"
-            min="0.5" max="8" step="0.5" value="${currentLineWidth}" title="Stroke width" />
-          <span class="bm-adj-val">${currentLineWidth}px</span>` : ''}
+          <input type="number" class="bm-width-num bm-vec-lw" data-iid="${layer.instanceId}"
+            min="0.5" max="8" step="0.5" value="${currentLineWidth}" title="Stroke width"
+            inputmode="decimal" style="width:44px" />` : ''}
         </div>
         ${cfg?.geomType === 'polygon' ? `
         <div class="bm-adj-row">
@@ -1245,7 +1246,8 @@ export class BasemapManager {
         <div class="bm-adj-row">
           <label class="bm-adj-label">Threshold</label>
           <input type="number" class="bm-cc-threshold" data-iid="${layer.instanceId}"
-            value="${ccThreshold}" min="1" max="10000" step="0.5" style="width:54px;${inSt}" />
+            value="${ccThreshold}" min="1" max="10000" step="0.5" style="width:54px;${inSt}"
+            inputmode="decimal" />
           <span style="font-size:10px;opacity:.55;margin-left:3px">cm</span>
         </div>
         <div class="bm-adj-row">
@@ -1253,11 +1255,9 @@ export class BasemapManager {
           <input type="color" class="bm-cc-line-color" data-iid="${layer.instanceId}"
             value="${ccLineColor}" title="Line colour"
             style="width:26px;height:22px;padding:1px;border-radius:3px;border:1px solid var(--border,#444);cursor:pointer;background:none" />
-          <input type="range" class="bm-cc-line-width" data-iid="${layer.instanceId}"
-            min="0.5" max="6" step="0.5" value="${ccLineWidth}"
-            style="flex:1;accent-color:var(--color-accent);height:14px" />
-          <span class="bm-cc-lw-val" data-iid="${layer.instanceId}"
-            style="font-size:10px;opacity:.55;width:30px">${ccLineWidth}px</span>
+          <input type="number" class="bm-width-num bm-cc-line-width" data-iid="${layer.instanceId}"
+            min="0.5" max="6" step="0.5" value="${ccLineWidth}" title="Line width"
+            inputmode="decimal" />
         </div>
         <div class="bm-adj-row">
           <label class="bm-adj-label">Fill ≤ t</label>
@@ -1315,14 +1315,13 @@ export class BasemapManager {
       hrdemInnerContent = `
         <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
           <span style="font-size:9px;opacity:.55">Interval</span>
-          <input type="number" class="bm-hrdem-contour-ivl" data-iid="${iid}" value="${hrdemContourIvl}" min="0.1" max="500" step="0.1" style="width:52px;${S}" />
+          <input type="number" class="bm-hrdem-contour-ivl" data-iid="${iid}" value="${hrdemContourIvl}" min="0.1" max="500" step="0.1" style="width:52px;${S}" inputmode="decimal" />
           <span style="font-size:10px;opacity:.55">m</span>
           <input type="color" class="bm-hrdem-contour-col" data-iid="${iid}" value="${hrdemContourCol}" title="Line colour" style="width:26px;height:22px;padding:1px;border-radius:3px;border:1px solid var(--border,#444);cursor:pointer;background:none" />
         </div>
         <div style="display:flex;align-items:center;gap:5px;margin-top:4px">
           <span style="font-size:9px;opacity:.55">Width</span>
-          <input type="range" class="bm-hrdem-contour-wid" data-iid="${iid}" min="0.5" max="5" step="0.5" value="${hrdemContourWid}" style="flex:1;accent-color:var(--color-accent);height:14px" />
-          <span class="bm-hrdem-contour-wid-val" data-iid="${iid}" style="font-size:10px;opacity:.55;width:28px">${hrdemContourWid}px</span>
+          <input type="number" class="bm-width-num bm-hrdem-contour-wid" data-iid="${iid}" min="0.5" max="5" step="0.5" value="${hrdemContourWid}" inputmode="decimal" style="width:44px" />
         </div>`;
 
     } else if (layer.defId === 'hrdem-slope' || layer.defId === 'hrdem-dsm-slope') {
@@ -1388,6 +1387,7 @@ export class BasemapManager {
       const chmInvert  = layer.hrdemChmInvert ?? false;
       const chmEntry   = CHM_RAMPS[chmRampId] ?? CHM_RAMPS['canopy_green'];
       const chmGrad    = rampToHorizontalGradient(chmInvert ? invertRamp(chmEntry.ramp) : chmEntry.ramp);
+      const chmClassPaletteId = layer.hrdemChmClassPaletteId ?? 'structural';
       hrdemInnerContent = `
         <div style="display:flex;align-items:center;gap:5px;margin-bottom:6px">
           <span style="font-size:9px;opacity:.55">Mode</span>
@@ -1404,8 +1404,11 @@ export class BasemapManager {
           </label>
         </div>
         <div class="bm-hrdem-chm-class-opts" data-iid="${iid}" style="${chmMode==='classified'?'':'display:none'}">
-          <div style="display:grid;grid-template-columns:14px 1fr;gap:2px 6px;align-items:center">
-            ${CHM_CLASSES.map(c=>`<div style="width:14px;height:9px;border-radius:2px;background:rgb(${c.r},${c.g},${c.b})"></div><span style="font-size:9px;opacity:.7">${c.label}</span>`).join('')}
+          <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px">
+            ${Object.entries(CHM_CLASS_PALETTES).map(([k,p]) => chip(p.label, chmClassPaletteId===k, 'bm-hrdem-chm-class-chip', `data-pal="${k}"`)).join('')}
+          </div>
+          <div class="bm-hrdem-chm-class-swatches" data-iid="${iid}" style="display:grid;grid-template-columns:14px 1fr;gap:2px 6px;align-items:center">
+            ${(CHM_CLASS_PALETTES[chmClassPaletteId]?.classes ?? CHM_CLASSES).map(c=>`<div style="width:14px;height:9px;border-radius:2px;background:rgb(${c.r},${c.g},${c.b})"></div><span style="font-size:9px;opacity:.7">${c.label}</span>`).join('')}
           </div>
         </div>`;
 
@@ -1491,7 +1494,8 @@ export class BasemapManager {
           <span class="bm-layer-label" title="${layer.label}">${layer.label}</span>
           ${isBase ? '<span class="bm-base-badge">B</span>' : ''}
           <input type="number" class="bm-opacity-num" data-iid="${layer.instanceId}"
-            min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity %" />
+            min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity %"
+            inputmode="decimal" />
           <button class="bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
           ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
@@ -1981,6 +1985,24 @@ export class BasemapManager {
       });
     });
 
+    container.querySelectorAll<HTMLButtonElement>('.bm-hrdem-chm-class-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemChmClassPaletteId = btn.dataset.pal!;
+        container.querySelectorAll<HTMLButtonElement>(`.bm-hrdem-chm-class-chip[data-iid="${iid}"]`).forEach(b => b.classList.toggle('hdem-active', b.dataset.pal === layer.hrdemChmClassPaletteId));
+        // Update swatches
+        const swatches = container.querySelector<HTMLElement>(`.bm-hrdem-chm-class-swatches[data-iid="${iid}"]`);
+        if (swatches) {
+          const pal = CHM_CLASS_PALETTES[layer.hrdemChmClassPaletteId] ?? CHM_CLASS_PALETTES['structural'];
+          swatches.innerHTML = pal.classes.map(c => `<div style="width:14px;height:9px;border-radius:2px;background:rgb(${c.r},${c.g},${c.b})"></div><span style="font-size:9px;opacity:.7">${c.label}</span>`).join('');
+        }
+        this.hrdemLayers.get(iid)?.setProductStyle({ chmClassPaletteId: layer.hrdemChmClassPaletteId });
+        this.saveStack();
+      });
+    });
+
     const applyContour = (iid: string, layer: StackLayer) => {
       this.hrdemLayers.get(iid)?.setContour(
         layer.hrdemContourEnabled  ?? false,
@@ -2012,15 +2034,14 @@ export class BasemapManager {
       });
     });
 
-    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-contour-wid').forEach(slider => {
-      slider.addEventListener('input', () => {
-        const iid = slider.dataset.iid!;
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-contour-wid').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const iid = inp.dataset.iid!;
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
-        const w = Number(slider.value);
+        const w = Number(inp.value);
+        if (!isFinite(w) || w <= 0) return;
         layer.hrdemContourWidth = w;
-        const lbl = container.querySelector<HTMLElement>(`.bm-hrdem-contour-wid-val[data-iid="${iid}"]`);
-        if (lbl) lbl.textContent = `${w}px`;
         applyContour(iid, layer);
         this.saveStack();
       });
@@ -2054,15 +2075,14 @@ export class BasemapManager {
     });
 
     // COG contour — line width
-    container.querySelectorAll<HTMLInputElement>('.bm-cc-line-width').forEach(slider => {
-      slider.addEventListener('input', () => {
-        const iid   = slider.dataset.iid!;
+    container.querySelectorAll<HTMLInputElement>('.bm-cc-line-width').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const iid   = inp.dataset.iid!;
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
-        const w = parseFloat(slider.value);
+        const w = parseFloat(inp.value);
+        if (!isFinite(w) || w <= 0) return;
         layer.cogContourLineWidth = w;
-        const lbl = container.querySelector<HTMLElement>(`.bm-cc-lw-val[data-iid="${iid}"]`);
-        if (lbl) lbl.textContent = `${w}px`;
         this.cogContourLayers.get(iid)?.setLineStyle(
           layer.cogContourLineColor ?? '#1565c0', w);
         this.saveStack();
@@ -2121,15 +2141,14 @@ export class BasemapManager {
     });
 
     // Vector style — line width
-    container.querySelectorAll<HTMLInputElement>('.bm-vec-lw').forEach(slider => {
-      slider.addEventListener('input', () => {
-        const iid = slider.dataset.iid!;
-        const w = parseFloat(slider.value);
+    container.querySelectorAll<HTMLInputElement>('.bm-vec-lw').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const iid = inp.dataset.iid!;
+        const w = parseFloat(inp.value);
+        if (!isFinite(w) || w <= 0) return;
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
         layer.vecLineWidth = w;
-        const valEl = slider.nextElementSibling as HTMLElement;
-        if (valEl) valEl.textContent = `${w}px`;
         const ltype = this.getLayerType(layer);
         if (ltype === 'nsprd-vector') this.nsprdLayer?.setLineWidth(w);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setLineWidth(w);
