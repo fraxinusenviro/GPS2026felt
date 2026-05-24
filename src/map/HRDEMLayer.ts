@@ -21,6 +21,7 @@ import {
   TPI_RAMPS,
   SLOPE_RAMP,
   TPI_RAMP,
+  CHM_RAMP,
   type ColorRamp,
 } from '../lib/elevationRenderer';
 import { generateContours } from '../lib/contourGenerator';
@@ -36,7 +37,7 @@ const BLANK_PNG =
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
-export type HRDEMProduct = 'elevation' | 'slope' | 'aspect' | 'tpi';
+export type HRDEMProduct = 'elevation' | 'slope' | 'aspect' | 'tpi' | 'chm';
 
 export interface ProductStyle {
   // Slope
@@ -68,6 +69,7 @@ export class HRDEMLayer {
   private rasterVisible = true;
 
   private hrdemProduct: HRDEMProduct = 'elevation';
+  private surface: 'dtm' | 'dsm' = 'dtm';
 
   // Per-product style state
   private slopeRampId:  string  = 'classic';
@@ -94,11 +96,13 @@ export class HRDEMLayer {
 
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private moveHandler: (() => void) | null = null;
-  private legendEl: HTMLElement | null = null;
   private toolbarEl: HTMLElement | null = null;
 
   private legendStatus: 'idle' | 'loading' | 'error' | 'ready' = 'idle';
   private legendError = '';
+
+  /** Called by BasemapManager whenever legend content changes. */
+  public onLegendUpdate: (() => void) | null = null;
 
   private activeTool: 'none' | 'sample' | 'profile' = 'none';
   private profilePoints: [number, number][] = [];
@@ -167,7 +171,6 @@ export class HRDEMLayer {
       LAYER_IDS.USER_ACCURACY,
     );
 
-    this.ensureLegend();
     this.ensureToolbar();
 
     if (!this.moveHandler) {
@@ -182,9 +185,9 @@ export class HRDEMLayer {
   deactivate(): void {
     if (!this.active) return;
     this.removeMapLayers();
-    this.removeLegend();
     this.removeToolbar();
     this.cancelTool();
+    this.onLegendUpdate?.();
     this.active = false;
   }
 
@@ -220,7 +223,7 @@ export class HRDEMLayer {
       this.canvasHasData = true;
       const src = this.mapManager.getMap().getSource(this.srcId) as maplibregl.ImageSource | undefined;
       if (src) src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
-      this.updateLegend(this.lastResult);
+      this.onLegendUpdate?.();
     } else {
       this.scheduleFetch();
     }
@@ -228,12 +231,12 @@ export class HRDEMLayer {
 
   setProduct(product: HRDEMProduct): void {
     this.hrdemProduct = product;
-    if (this.lastResult) {
+    if (this.lastResult && product !== 'chm') {
       this.renderProduct(this.canvas, this.lastResult);
       this.canvasHasData = true;
       const src = this.mapManager.getMap().getSource(this.srcId) as maplibregl.ImageSource | undefined;
       if (src) src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
-      this.updateLegend(this.lastResult);
+      this.onLegendUpdate?.();
     } else {
       this.scheduleFetch();
     }
@@ -255,7 +258,7 @@ export class HRDEMLayer {
       this.canvasHasData = true;
       const src = this.mapManager.getMap().getSource(this.srcId) as maplibregl.ImageSource | undefined;
       if (src) src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
-      this.updateLegend(this.lastResult);
+      this.onLegendUpdate?.();
     }
   }
 
@@ -281,6 +284,18 @@ export class HRDEMLayer {
     }
 
     this.refreshToolbarContourLabel();
+  }
+
+  setSurface(surface: string): void {
+    const s = surface === 'dsm' ? 'dsm' : 'dtm';
+    if (this.surface === s) return;
+    this.surface = s;
+    if (this.lastResult) this.scheduleFetch();
+  }
+
+  /** Returns the inner HTML for this layer's legend block (used by BasemapManager unified legend). */
+  public getLegendHTML(): string {
+    return this.buildLegendHTML(this.lastResult);
   }
 
   getLayerIds(): string[] {
@@ -350,6 +365,10 @@ export class HRDEMLayer {
         renderGrid(canvas, grid, result.width, result.height, rMin, rMax, null, this.resolveTpiRamp());
         break;
       }
+      case 'chm':
+        renderGrid(canvas, result.grid, result.width, result.height,
+          result.stretchMin, result.stretchMax, result.nodata, CHM_RAMP);
+        break;
       default:
         renderElevation(canvas, result, this.ramp);
     }
@@ -457,15 +476,23 @@ export class HRDEMLayer {
     const targetW = mc.width || 512, targetH = mc.height || 512;
 
     this.legendStatus = 'loading';
-    this.updateLegend(null);
+    this.onLegendUpdate?.();
 
     let result;
     try {
-      result = await fetchHRDEM(west, south, east, north, targetW, targetH);
+      if (this.hrdemProduct === 'chm') {
+        const [dtmResult, dsmResult] = await Promise.all([
+          fetchHRDEM(west, south, east, north, targetW, targetH, 'dtm'),
+          fetchHRDEM(west, south, east, north, targetW, targetH, 'dsm'),
+        ]);
+        result = HRDEMLayer.computeCHMGrid(dtmResult, dsmResult);
+      } else {
+        result = await fetchHRDEM(west, south, east, north, targetW, targetH, this.surface);
+      }
     } catch (err) {
       this.legendStatus = 'error';
       this.legendError = String(err).slice(0, 120);
-      this.updateLegend(null);
+      this.onLegendUpdate?.();
       console.error('[HRDEMLayer] fetch failed:', err);
       return;
     }
@@ -499,6 +526,31 @@ export class HRDEMLayer {
     }
 
     this.updateLegend(result);
+  }
+
+  /** Compute CHM (DSM minus DTM) on the intersection of two grids. */
+  private static computeCHMGrid(dtm: HRDEMResult, dsm: HRDEMResult): HRDEMResult {
+    const { width, height, bbox, nodata } = dtm;
+    const grid = new Float32Array(width * height);
+    const valid: number[] = [];
+    for (let i = 0; i < grid.length; i++) {
+      const d = dtm.grid[i], s = dsm.grid[i];
+      if (!isFinite(d) || !isFinite(s) ||
+          (nodata !== null && (Math.abs(d - nodata) < 0.001 || Math.abs(s - nodata) < 0.001))) {
+        grid[i] = NaN;
+        continue;
+      }
+      const chm = Math.max(0, s - d);
+      grid[i] = chm;
+      valid.push(chm);
+    }
+    valid.sort((a, b) => a - b);
+    const n = valid.length;
+    const elevMin = n > 0 ? valid[0] : 0;
+    const elevMax = n > 0 ? valid[n - 1] : 1;
+    const stretchMin = n > 0 ? valid[Math.floor(n * 0.02)] : 0;
+    const stretchMax = n > 0 ? valid[Math.min(n - 1, Math.ceil(n * 0.98) - 1)] : 1;
+    return { grid, width, height, bbox, nodata, elevMin, elevMax, stretchMin, stretchMax, validCount: n };
   }
 
   // --------------------------------------------------------------------------
@@ -817,28 +869,9 @@ export class HRDEMLayer {
   // Legend
   // --------------------------------------------------------------------------
 
-  private ensureLegend(): void {
-    if (this.legendEl) return;
-    const container = this.mapManager.getMap().getContainer();
-    const el = document.createElement('div');
-    el.id = 'hrdem-elevation-legend';
-    el.style.cssText = [
-      'position:absolute', 'bottom:36px', 'left:68px', 'z-index:10',
-      'background:rgba(18,36,26,0.88)', 'border:1px solid rgba(255,255,255,0.12)',
-      'border-radius:6px', 'padding:8px 10px',
-      'font-family:inherit', 'font-size:11px', 'color:#c8d8c8',
-      'min-width:80px', 'pointer-events:none',
-      'backdrop-filter:blur(3px)', '-webkit-backdrop-filter:blur(3px)',
-    ].join(';');
-    el.innerHTML = this.buildLegendHTML(null);
-    container.appendChild(el);
-    this.legendEl = el;
-  }
-
-  private removeLegend(): void { this.legendEl?.remove(); this.legendEl = null; }
-
   private updateLegend(result: HRDEMResult | null): void {
-    if (this.legendEl) this.legendEl.innerHTML = this.buildLegendHTML(result);
+    this.lastResult = result ?? this.lastResult;
+    this.onLegendUpdate?.();
   }
 
   private buildLegendHTML(result: HRDEMResult | null): string {
@@ -855,12 +888,13 @@ export class HRDEMLayer {
       case 'slope':  return this.buildSlopeLegend(result);
       case 'aspect': return this.buildAspectLegend();
       case 'tpi':    return this.buildTPILegend(result);
+      case 'chm':    return this.buildCHMLegend(result);
       default:       return this.buildElevationLegend(result);
     }
   }
 
   private productLabel(): string {
-    return { elevation: 'Elevation', slope: 'Slope', aspect: 'Aspect', tpi: 'TPI' }[this.hrdemProduct] ?? 'Elevation';
+    return { elevation: 'Elevation', slope: 'Slope', aspect: 'Aspect', tpi: 'TPI', chm: 'Canopy Height' }[this.hrdemProduct] ?? 'Elevation';
   }
 
   private buildElevationLegend(result: HRDEMResult | null): string {
@@ -927,6 +961,19 @@ export class HRDEMLayer {
         </div>
       </div>
       ${result ? `<div style="font-size:9px;opacity:0.45;margin-top:4px">${result.validCount.toLocaleString()} px</div>` : ''}`;
+  }
+
+  private buildCHMLegend(result: HRDEMResult | null): string {
+    const grad = `linear-gradient(to top, ${CHM_RAMP.stops.map(s => `rgb(${s.r},${s.g},${s.b}) ${(s.t*100).toFixed(0)}%`).join(',')})`;
+    const maxLbl = result ? `${result.stretchMax.toFixed(0)} m` : '—';
+    return `<div style="font-size:9px;opacity:0.6;letter-spacing:.06em;margin-bottom:5px;text-transform:uppercase">Canopy Height</div>
+      <div style="display:flex;align-items:stretch;gap:7px">
+        <div style="width:10px;min-height:60px;border-radius:3px;background:${grad};flex-shrink:0"></div>
+        <div style="display:flex;flex-direction:column;justify-content:space-between;font-size:10px;line-height:1.3">
+          <span>${maxLbl}</span><span>0 m</span>
+        </div>
+      </div>
+      <div style="font-size:9px;opacity:0.4;margin-top:4px">CHM = DSM − DTM</div>`;
   }
 }
 

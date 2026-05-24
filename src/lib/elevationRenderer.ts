@@ -129,6 +129,17 @@ export const SLOPE_RAMP: ColorRamp = {
   ],
 };
 
+/** CHM: transparent/dark (0 m) → lime-green → deep forest-green (40 m+). */
+export const CHM_RAMP: ColorRamp = {
+  stops: [
+    { t: 0.00, r:  20, g:  40, b:  20 },  // very dark (ground/bare)
+    { t: 0.10, r:  80, g: 160, b:  70 },  // shrub/low
+    { t: 0.35, r:  60, g: 160, b:  60 },  // young forest
+    { t: 0.65, r:  30, g: 120, b:  50 },  // mature forest
+    { t: 1.00, r:  10, g:  70, b:  35 },  // tall canopy
+  ],
+};
+
 /** TPI: deep-blue (valley) → light-blue → cream (midslope) → orange → red (peak). */
 export const TPI_RAMP: ColorRamp = {
   stops: [

@@ -57,7 +57,8 @@ export async function probeCapabilities(): Promise<void> {
 void probeCapabilities();
 
 /**
- * Fetch and decode an HRDEM DTM coverage for the given geographic bounding box.
+ * Fetch and decode an HRDEM coverage for the given geographic bounding box.
+ * @param surface - 'dtm' (bare earth) or 'dsm' (surface model). Defaults to 'dtm'.
  */
 export async function fetchHRDEM(
   west: number,
@@ -66,6 +67,7 @@ export async function fetchHRDEM(
   north: number,
   targetWidth: number,
   targetHeight: number,
+  surface: 'dtm' | 'dsm' = 'dtm',
 ): Promise<HRDEMResult> {
   const scale = Math.min(1, MAX_PIXELS / Math.max(targetWidth, targetHeight, 1));
   const reqW = Math.max(1, Math.round(targetWidth  * scale));
@@ -79,7 +81,7 @@ export async function fetchHRDEM(
   // BOUNDINGBOX: south,west,north,east,CRS  (EPSG:4326 lat-first axis order)
   const url = `${OGC_BASE_URL}?` +
     `SERVICE=WCS&VERSION=1.1.1&REQUEST=GetCoverage` +
-    `&IDENTIFIER=dtm` +
+    `&IDENTIFIER=${surface}` +
     `&BOUNDINGBOX=${south},${west},${north},${east},urn:ogc:def:crs:EPSG::4326` +
     `&GRIDBASECRS=urn:ogc:def:crs:EPSG::4326` +
     `&GRIDCS=urn:ogc:def:crs:OGC::CS0002` +
