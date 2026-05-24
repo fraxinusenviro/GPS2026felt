@@ -5,7 +5,7 @@ import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
 import { HRDEMLayer, type HRDEMProduct } from './HRDEMLayer';
-import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
+import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, CHM_RAMPS, CHM_CLASSES, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
 import { EventBus } from '../utils/EventBus';
 import { StylePicker } from '../ui/StylePicker';
 import { renderSwatchDataUrl } from '../ui/SymbolRenderer';
@@ -56,6 +56,10 @@ interface StackLayer {
   hrdemTpiRampId?:    string;    // key of TPI_RAMPS, default 'rdylbu'
   hrdemTpiStretch?:   string;    // 'symmetric'|'auto', default 'symmetric'
   hrdemTpiInvert?:    boolean;
+  // CHM styling
+  hrdemChmMode?:      string;    // 'stretch'|'classified', default 'classified'
+  hrdemChmRampId?:    string;    // key of CHM_RAMPS, default 'canopy_green'
+  hrdemChmInvert?:    boolean;
 }
 
 interface UserLayerInfo {
@@ -448,17 +452,14 @@ export class BasemapManager {
       const productMap: Record<string, string> = {
         'hrdem-slope': 'slope', 'hrdem-aspect': 'aspect',
         'hrdem-tpi': 'tpi', 'hrdem-contours': 'elevation',
-        'hrdem-dsm-slope': 'slope', 'hrdem-dsm-aspect': 'aspect',
-        'hrdem-dsm-tpi': 'tpi', 'hrdem-dsm-contours': 'elevation',
         'hrdem-chm': 'chm',
       };
       const surfaceMap: Record<string, string> = {
-        'hrdem-dsm-elevation': 'dsm', 'hrdem-dsm-slope': 'dsm',
-        'hrdem-dsm-aspect': 'dsm', 'hrdem-dsm-tpi': 'dsm', 'hrdem-dsm-contours': 'dsm',
+        'hrdem-dsm-elevation': 'dsm',
       };
       base.hrdemProduct = productMap[def.id] ?? 'elevation';
       base.hrdemSurface = surfaceMap[def.id] ?? 'dtm';
-      const isContours = def.id === 'hrdem-contours' || def.id === 'hrdem-dsm-contours';
+      const isContours = def.id === 'hrdem-contours';
       if (isContours) {
         base.hrdemRasterVisible  = false;
         base.hrdemContourEnabled = true;
@@ -810,6 +811,9 @@ export class BasemapManager {
           tpiRampId:    l.hrdemTpiRampId     ?? 'rdylbu',
           tpiStretch:   (l.hrdemTpiStretch   ?? 'symmetric') as 'symmetric' | 'auto',
           tpiInvert:    l.hrdemTpiInvert     ?? false,
+          chmMode:      (l.hrdemChmMode      ?? 'classified') as 'stretch' | 'classified',
+          chmRampId:    l.hrdemChmRampId     ?? 'canopy_green',
+          chmInvert:    l.hrdemChmInvert     ?? false,
         });
       }
     }
@@ -1291,9 +1295,31 @@ export class BasemapManager {
         </div>`;
 
     } else if (layer.defId === 'hrdem-chm') {
+      const chmMode    = layer.hrdemChmMode   ?? 'classified';
+      const chmRampId  = layer.hrdemChmRampId ?? 'canopy_green';
+      const chmInvert  = layer.hrdemChmInvert ?? false;
+      const chmEntry   = CHM_RAMPS[chmRampId] ?? CHM_RAMPS['canopy_green'];
+      const chmGrad    = rampToHorizontalGradient(chmInvert ? invertRamp(chmEntry.ramp) : chmEntry.ramp);
       hrdemInnerContent = `
-        <div style="font-size:9px;opacity:0.55;margin-bottom:4px;font-style:italic">Canopy Height = DSM − DTM</div>
-        <div style="font-size:9px;opacity:0.45">Renders on fetch — no style options</div>`;
+        <div style="display:flex;align-items:center;gap:5px;margin-bottom:6px">
+          <span style="font-size:9px;opacity:.55">Mode</span>
+          ${chip('Stretch',    chmMode==='stretch',    'bm-hrdem-chm-mode', 'data-mode="stretch"')}
+          ${chip('Classified', chmMode==='classified', 'bm-hrdem-chm-mode', 'data-mode="classified"')}
+        </div>
+        <div class="bm-hrdem-chm-stretch-opts" data-iid="${iid}" style="${chmMode==='stretch'?'':'display:none'}">
+          <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:4px">
+            ${Object.entries(CHM_RAMPS).map(([k,r]) => chip(r.label, chmRampId===k, 'bm-hrdem-chm-ramp-chip', `data-ramp="${k}"`)).join('')}
+          </div>
+          <div class="bm-hrdem-chm-preview" data-iid="${iid}" style="height:7px;border-radius:2px;border:1px solid var(--border,#444);background:${chmGrad};margin-bottom:4px"></div>
+          <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--fg-2,#888);cursor:pointer">
+            <input type="checkbox" class="bm-hrdem-chm-invert" data-iid="${iid}"${chmInvert?' checked':''} /> Invert
+          </label>
+        </div>
+        <div class="bm-hrdem-chm-class-opts" data-iid="${iid}" style="${chmMode==='classified'?'':'display:none'}">
+          <div style="display:grid;grid-template-columns:14px 1fr;gap:2px 6px;align-items:center">
+            ${CHM_CLASSES.map(c=>`<div style="width:14px;height:9px;border-radius:2px;background:rgb(${c.r},${c.g},${c.b})"></div><span style="font-size:9px;opacity:.7">${c.label}</span>`).join('')}
+          </div>
+        </div>`;
 
     } else {
       // Default: elevation panel (DTM or DSM elevation)
@@ -1812,6 +1838,54 @@ export class BasemapManager {
         if (!layer) return;
         layer.hrdemTpiInvert = chk.checked;
         applyTpi(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    // ---- HRDEM CHM styling ----
+    const applyChmRamp = (iid: string, layer: StackLayer) => {
+      const entry = CHM_RAMPS[layer.hrdemChmRampId ?? 'canopy_green'] ?? CHM_RAMPS['canopy_green'];
+      const ramp = layer.hrdemChmInvert ? invertRamp(entry.ramp) : entry.ramp;
+      const preview = container.querySelector<HTMLElement>(`.bm-hrdem-chm-preview[data-iid="${iid}"]`);
+      if (preview) preview.style.background = rampToHorizontalGradient(ramp);
+      this.hrdemLayers.get(iid)?.setProductStyle({ chmRampId: layer.hrdemChmRampId ?? 'canopy_green', chmInvert: layer.hrdemChmInvert ?? false });
+    };
+
+    container.querySelectorAll<HTMLButtonElement>('.bm-hrdem-chm-mode').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemChmMode = btn.dataset.mode!;
+        container.querySelectorAll<HTMLButtonElement>(`.bm-hrdem-chm-mode[data-iid="${iid}"]`).forEach(b => b.classList.toggle('hdem-active', b.dataset.mode === layer.hrdemChmMode));
+        const stretchOpts = container.querySelector<HTMLElement>(`.bm-hrdem-chm-stretch-opts[data-iid="${iid}"]`);
+        const classOpts   = container.querySelector<HTMLElement>(`.bm-hrdem-chm-class-opts[data-iid="${iid}"]`);
+        if (stretchOpts) stretchOpts.style.display = layer.hrdemChmMode === 'stretch' ? '' : 'none';
+        if (classOpts)   classOpts.style.display   = layer.hrdemChmMode === 'classified' ? '' : 'none';
+        this.hrdemLayers.get(iid)?.setProductStyle({ chmMode: layer.hrdemChmMode as 'stretch' | 'classified' });
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('.bm-hrdem-chm-ramp-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemChmRampId = btn.dataset.ramp!;
+        container.querySelectorAll<HTMLButtonElement>(`.bm-hrdem-chm-ramp-chip[data-iid="${iid}"]`).forEach(b => b.classList.toggle('hdem-active', b.dataset.ramp === layer.hrdemChmRampId));
+        applyChmRamp(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-chm-invert').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const iid = chk.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemChmInvert = chk.checked;
+        applyChmRamp(iid, layer);
         this.saveStack();
       });
     });

@@ -130,15 +130,85 @@ export const SLOPE_RAMP: ColorRamp = {
 };
 
 /** CHM: transparent/dark (0 m) → lime-green → deep forest-green (40 m+). */
-export const CHM_RAMP: ColorRamp = {
+const CHM_DEFAULT_RAMP: ColorRamp = {
   stops: [
-    { t: 0.00, r:  20, g:  40, b:  20 },  // very dark (ground/bare)
-    { t: 0.10, r:  80, g: 160, b:  70 },  // shrub/low
-    { t: 0.35, r:  60, g: 160, b:  60 },  // young forest
-    { t: 0.65, r:  30, g: 120, b:  50 },  // mature forest
-    { t: 1.00, r:  10, g:  70, b:  35 },  // tall canopy
+    { t: 0.00, r:  30, g:  50, b:  20 },
+    { t: 0.10, r:  80, g: 155, b:  65 },
+    { t: 0.35, r:  60, g: 158, b:  55 },
+    { t: 0.65, r:  30, g: 120, b:  50 },
+    { t: 1.00, r:  10, g:  70, b:  35 },
   ],
 };
+
+// ---------------------------------------------------------------------------
+// CHM ramp catalogue and class breaks
+// ---------------------------------------------------------------------------
+
+export const CHM_RAMPS: Record<string, { label: string; ramp: ColorRamp }> = {
+  canopy_green: {
+    label: 'Canopy',
+    ramp: CHM_DEFAULT_RAMP,
+  },
+  height_map: {
+    label: 'Height',
+    ramp: { stops: [
+      { t: 0.00, r: 230, g: 215, b: 170 },  // cream/sand (bare)
+      { t: 0.20, r: 195, g: 225, b: 110 },  // yellow-green
+      { t: 0.50, r:  90, g: 185, b:  75 },  // medium green
+      { t: 0.80, r:  30, g: 130, b:  55 },  // forest green
+      { t: 1.00, r:   5, g:  60, b:  30 },  // dark forest
+    ]},
+  },
+  turbo: {
+    label: 'Turbo',
+    ramp: { stops: [
+      { t: 0.00, r:  48, g:  18, b:  59 },  // dark purple
+      { t: 0.25, r:  49, g: 167, b: 165 },  // teal
+      { t: 0.50, r: 122, g: 229, b:  86 },  // lime
+      { t: 0.75, r: 249, g: 156, b:  26 },  // orange
+      { t: 1.00, r: 178, g:  24, b:  43 },  // deep red
+    ]},
+  },
+  inferno: {
+    label: 'Inferno',
+    ramp: HRDEM_RAMPS.inferno.ramp,
+  },
+};
+
+/** Structural canopy height class breaks (CHM classified mode). */
+export const CHM_CLASSES: Array<{ max: number; label: string; r: number; g: number; b: number }> = [
+  { max: 0.10,     label: '<0.1 m',       r: 180, g: 162, b: 120 },  // bare/soil
+  { max: 0.25,     label: '0.1–0.25 m',   r: 210, g: 200, b:  90 },  // ground veg
+  { max: 0.50,     label: '0.25–0.5 m',   r: 165, g: 215, b:  80 },  // low shrub
+  { max: 2.00,     label: '0.5–2 m',      r:  95, g: 190, b:  60 },  // tall shrub
+  { max: 7.00,     label: '2–7 m',        r:  45, g: 155, b:  45 },  // pole/young tree
+  { max: 15.00,    label: '7–15 m',       r:  20, g: 110, b:  35 },  // mature forest
+  { max: Infinity, label: '>15 m',        r:   5, g:  65, b:  25 },  // tall forest
+];
+
+/** Render a CHM grid using the classified structural break scheme. */
+export function renderCHMClassified(
+  canvas: HTMLCanvasElement,
+  grid: Float32Array,
+  width: number,
+  height: number,
+): void {
+  canvas.width  = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  const imageData = ctx.createImageData(width, height);
+  const pixels = imageData.data;
+  const n = CHM_CLASSES.length;
+  for (let i = 0; i < grid.length; i++) {
+    const v  = grid[i];
+    const px = i * 4;
+    if (!isFinite(v)) { pixels[px + 3] = 0; continue; }
+    let cls = CHM_CLASSES[n - 1];
+    for (let c = 0; c < n; c++) { if (v < CHM_CLASSES[c].max) { cls = CHM_CLASSES[c]; break; } }
+    pixels[px] = cls.r; pixels[px + 1] = cls.g; pixels[px + 2] = cls.b; pixels[px + 3] = 255;
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
 
 /** TPI: deep-blue (valley) → light-blue → cream (midslope) → orange → red (peak). */
 export const TPI_RAMP: ColorRamp = {
