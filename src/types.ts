@@ -175,7 +175,7 @@ export interface VectorLayerConfig {
 export interface BasemapDef {
   id: string;
   label: string;
-  type: 'raster' | 'vector' | 'nsprd-vector' | 'nshn-vector' | 'hrdem-wcs';
+  type: 'raster' | 'vector' | 'nsprd-vector' | 'nshn-vector' | 'hrdem-wcs' | 'cog-contour';
   url: string;          // tile URL template or style URL
   attribution: string;
   min_zoom?: number;
@@ -185,6 +185,8 @@ export interface BasemapDef {
   vector_config?: VectorLayerConfig;
   // For COG raster layers: QGIS-style color stops [value, R, G, B, alpha 0-255]
   cog_colormap?: Array<[number, number, number, number, number]>;
+  // For cog-contour layers: default threshold value in native units
+  cog_contour_threshold?: number;
 }
 
 // ---- Online Data Connections ----

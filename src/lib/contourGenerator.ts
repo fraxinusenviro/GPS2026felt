@@ -243,3 +243,30 @@ export function generateContours(
 
   return { type: 'FeatureCollection', features };
 }
+
+/**
+ * Generate a single contour isoline at one specific threshold value.
+ * Useful for threshold-based tools (e.g. DTW = 0.5 m).
+ */
+export function generateThresholdContour(
+  result: HRDEMResult,
+  threshold: number,
+): GeoJSON.FeatureCollection<GeoJSON.MultiLineString> {
+  const { grid, width, height, bbox, nodata } = result;
+  const [west, south, east, north] = bbox;
+  const lonScale = (east  - west)  / width;
+  const latScale = (north - south) / height;
+
+  const segs   = marchLevel(grid, width, height, nodata, threshold, west, north, lonScale, latScale);
+  const chains = chainSegments(segs);
+  if (chains.length === 0) return { type: 'FeatureCollection', features: [] };
+
+  return {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      properties: { threshold },
+      geometry: { type: 'MultiLineString', coordinates: chains },
+    }],
+  };
+}
