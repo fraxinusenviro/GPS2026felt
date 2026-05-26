@@ -461,6 +461,10 @@ export class BasemapManager {
     if (def.type === 'cog-contour') {
       base.cogContourThreshold = def.cog_contour_threshold ?? 50;
     }
+    // Apply vector fill opacity default from definition
+    if ((def.type === 'nshn-vector' || def.type === 'nsprd-vector') && def.vector_config?.fillOpacity !== undefined) {
+      base.vecFillOpacityOverride = def.vector_config.fillOpacity;
+    }
     // Set per-product defaults for HRDEM layers
     if (def.type === 'hrdem-wcs') {
       const productMap: Record<string, string> = {
@@ -475,9 +479,11 @@ export class BasemapManager {
       base.hrdemSurface = surfaceMap[def.id] ?? 'dtm';
       const isContours = def.id === 'hrdem-contours';
       if (isContours) {
-        base.hrdemRasterVisible  = false;
-        base.hrdemContourEnabled = true;
-        base.hrdemContourInterval = 10;
+        base.hrdemRasterVisible   = false;
+        base.hrdemContourEnabled  = true;
+        base.hrdemContourInterval = 1;
+        base.hrdemContourColor    = '#000000';
+        base.hrdemContourWidth    = 0.5;
       } else {
         base.hrdemRasterVisible  = true;
         base.hrdemContourEnabled = false;
@@ -826,11 +832,12 @@ export class BasemapManager {
         hrdemInst.onLegendUpdate = () => this.refreshUnifiedLegend();
         hrdemInst.activate(l.instanceId, l.opacity, l.visible, this.resolveHrdemRamp(l));
         hrdemInst.setRasterVisible(l.hrdemRasterVisible ?? true);
+        const isContourLayer = l.defId === 'hrdem-contours' || l.defId === 'hrdem-dsm-contours';
         hrdemInst.setContour(
           l.hrdemContourEnabled  ?? false,
-          l.hrdemContourInterval ?? 10,
-          l.hrdemContourColor    ?? '#ffffff',
-          l.hrdemContourWidth    ?? 1.2,
+          l.hrdemContourInterval ?? (isContourLayer ? 1 : 10),
+          l.hrdemContourColor    ?? (isContourLayer ? '#000000' : '#ffffff'),
+          l.hrdemContourWidth    ?? (isContourLayer ? 0.5 : 1.2),
         );
         hrdemInst.setSurface(l.hrdemSurface ?? 'dtm');
         hrdemInst.setProduct((l.hrdemProduct ?? 'elevation') as HRDEMProduct);
@@ -1280,9 +1287,10 @@ export class BasemapManager {
     const hrdemInvert       = layer.hrdemRampInvert      ?? false;
     const hrdemRasterVis    = layer.hrdemRasterVisible   ?? (layer.defId === 'hrdem-contours' ? false : true);
     const hrdemContourEn    = layer.hrdemContourEnabled  ?? (layer.defId === 'hrdem-contours' ? true : false);
-    const hrdemContourIvl   = layer.hrdemContourInterval ?? 10;
-    const hrdemContourCol   = layer.hrdemContourColor    ?? '#ffffff';
-    const hrdemContourWid   = layer.hrdemContourWidth    ?? 1.2;
+    const isContourDef      = layer.defId === 'hrdem-contours' || layer.defId === 'hrdem-dsm-contours';
+    const hrdemContourIvl   = layer.hrdemContourInterval ?? (isContourDef ? 1 : 10);
+    const hrdemContourCol   = layer.hrdemContourColor    ?? (isContourDef ? '#000000' : '#ffffff');
+    const hrdemContourWid   = layer.hrdemContourWidth    ?? (isContourDef ? 0.5 : 1.2);
     const hrdemSlopeRampId  = layer.hrdemSlopeRampId     ?? 'classic';
     const hrdemSlopeUnit    = layer.hrdemSlopeUnit        ?? 'degrees';
     const hrdemSlopeStretch = layer.hrdemSlopeStretch    ?? 'auto';
@@ -2004,11 +2012,12 @@ export class BasemapManager {
     });
 
     const applyContour = (iid: string, layer: StackLayer) => {
+      const isCtour = layer.defId === 'hrdem-contours' || layer.defId === 'hrdem-dsm-contours';
       this.hrdemLayers.get(iid)?.setContour(
         layer.hrdemContourEnabled  ?? false,
-        layer.hrdemContourInterval ?? 10,
-        layer.hrdemContourColor    ?? '#ffffff',
-        layer.hrdemContourWidth    ?? 1.2,
+        layer.hrdemContourInterval ?? (isCtour ? 1 : 10),
+        layer.hrdemContourColor    ?? (isCtour ? '#000000' : '#ffffff'),
+        layer.hrdemContourWidth    ?? (isCtour ? 0.5 : 1.2),
       );
     };
 
@@ -2017,7 +2026,7 @@ export class BasemapManager {
         const iid = inp.dataset.iid!;
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
-        layer.hrdemContourInterval = Math.max(0.1, Number(inp.value) || 10);
+        layer.hrdemContourInterval = Math.max(0.1, Number(inp.value) || 1);
         applyContour(iid, layer);
         this.saveStack();
       });

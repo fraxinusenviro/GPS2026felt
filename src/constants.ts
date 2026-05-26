@@ -165,9 +165,10 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
     vector_config: {
       endpoint: 'https://nsgiwa2.novascotia.ca/arcgis/rest/services/PLAN/PLAN_NSPRD_UT83/MapServer/0/query',
       geomType: 'polygon',
-      lineColor: '#333333',
+      lineColor: '#cccccc',
       lineWidth: 0.8,
       fillColor: '#e8e0d0',
+      fillOpacity: 0,
       outFields: 'OBJECTID,PID',
       fieldLabels: { OBJECTID: 'OID', PID: 'PID' },
     }
@@ -202,9 +203,9 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
       geomType: 'polygon',
       where: "FEAT_CODE NOT LIKE '%SW%' AND FEAT_CODE NOT LIKE '%MARSH%' AND FEAT_CODE NOT LIKE '%BOG%'",
       outFields: 'OBJECTID,FEAT_CODE,FEAT_DESC,NAME_1,HID,SHAPE_Area,POLY_CLASS',
-      lineColor: '#4a90f0',
-      lineWidth: 1,
-      fillColor: '#1a4a90',
+      lineColor: '#0066cc',
+      lineWidth: 0.8,
+      fillColor: '#000000',
     }
   },
   {
@@ -220,9 +221,10 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
       geomType: 'polygon',
       where: "FEAT_CODE LIKE '%SW%' OR FEAT_CODE LIKE '%MARSH%' OR FEAT_CODE LIKE '%BOG%'",
       outFields: 'OBJECTID,FEAT_CODE,FEAT_DESC,NAME_1,HID,SHAPE_Area,POLY_CLASS',
-      lineColor: '#5aae6a',
-      lineWidth: 1,
-      fillColor: '#3a7a4a',
+      lineColor: '#000000',
+      lineWidth: 0.5,
+      fillColor: '#eab515',
+      fillOpacity: 0.6,
     }
   },
   // ---- NS Topographic ----
@@ -663,7 +665,7 @@ export function buildDefaultProjectStack(): string {
       type: nsprdDef.type, vector_config: nsprdDef.vector_config,
       tileSize: 256, maxZoom: nsprdDef.max_zoom ?? 20,
       opacity: 1, visible: true, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
-      vecLineColor: '#000000', vecFillOpacityOverride: 0,
+      vecLineColor: '#cccccc', vecFillOpacityOverride: 0,
     },
     // MIDDLE: ESRI imagery at 50% opacity
     {

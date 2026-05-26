@@ -90,6 +90,7 @@ const DEFAULT_STYLE: FieldStyle = { fontWeight: '400', fontSize: 11, color: '#1a
 export class LayoutMode {
   private overlay: HTMLElement | null = null;
   private isActive = false;
+  private isEditExtentMode = false;
   private fieldStyles = new Map<string, FieldStyle>();
   private selectedFieldId: string | null = null;
   private mapSnapshot: string | null = null;
@@ -152,6 +153,7 @@ export class LayoutMode {
     if (!this.isActive) return;
     this.saveState();
     this.isActive = false;
+    this.isEditExtentMode = false;
     if (this.escHandler) {
       document.removeEventListener('keydown', this.escHandler);
       this.escHandler = null;
@@ -326,6 +328,17 @@ export class LayoutMode {
           </div>
         </div>
 
+        <div class="lm-tb-section">
+          <button class="lm-icon-btn lm-toggle-btn ${this.isEditExtentMode ? 'lm-btn-active' : ''}" id="lm-edit-extent" title="Pan &amp; zoom the live map to update the layout extent">
+            <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><rect x="1" y="1" width="14" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 8h6M8 5v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="8" r="2.5" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+            Map Extent
+          </button>
+          <button class="lm-action-btn lm-capture-btn" id="lm-capture-extent" title="Capture current map view as layout extent" style="display:${this.isEditExtentMode ? 'flex' : 'none'}">
+            <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>
+            Capture
+          </button>
+        </div>
+
         <div class="lm-tb-section lm-actions-section">
           <button class="lm-action-btn lm-anno-btn" id="lm-add-anno" title="Add free text annotation">
             <svg viewBox="0 0 18 18" fill="currentColor" width="13" height="13"><path d="M3 14l2-5L12 2l3 3-7 7-5 2zm2-5l3 3"/></svg>
@@ -386,7 +399,10 @@ export class LayoutMode {
     ov.querySelector('#lm-close')?.addEventListener('click', () => this.close());
 
     this.escHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') this.close();
+      if (e.key === 'Escape') {
+        if (this.isEditExtentMode) { this.exitEditExtentMode(); return; }
+        this.close();
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const active = document.activeElement;
         if (this.selectedFieldId && this.annotations.has(this.selectedFieldId)) {
@@ -490,6 +506,10 @@ export class LayoutMode {
       this.saveExportSettings();
     });
 
+    // Map extent mode
+    ov.querySelector('#lm-edit-extent')?.addEventListener('click', () => this.toggleEditExtentMode());
+    ov.querySelector('#lm-capture-extent')?.addEventListener('click', () => this.captureExtent());
+
     // Annotation add
     ov.querySelector('#lm-add-anno')?.addEventListener('click', () => this.addAnnotationAtCenter());
 
@@ -582,6 +602,68 @@ export class LayoutMode {
       this.scale = Math.max(0.15, Math.min(4.0, this.scale * factor));
       this.applyTransform();
     }, { passive: false });
+  }
+
+  // ── Map extent editing ────────────────────────────────────────
+
+  private toggleEditExtentMode(): void {
+    this.isEditExtentMode = !this.isEditExtentMode;
+    const ov = this.overlay;
+    if (!ov) return;
+
+    const btn = ov.querySelector<HTMLElement>('#lm-edit-extent');
+    const captureBtn = ov.querySelector<HTMLElement>('#lm-capture-extent');
+
+    if (this.isEditExtentMode) {
+      // Allow pointer events to pass through to the live map beneath
+      ov.style.pointerEvents = 'none';
+      // Re-enable pointer events on toolbar and capture button
+      const toolbar = ov.querySelector<HTMLElement>('#lm-toolbar');
+      if (toolbar) toolbar.style.pointerEvents = 'all';
+      if (captureBtn) { captureBtn.style.pointerEvents = 'all'; captureBtn.style.display = 'flex'; }
+      // Dim the snapshot to show the live map beneath
+      const snap = ov.querySelector<HTMLElement>('#lm-map-snapshot');
+      if (snap) snap.style.opacity = '0.15';
+      const sheet = ov.querySelector<HTMLElement>('#lm-sheet');
+      if (sheet) sheet.classList.add('lm-extent-mode');
+      btn?.classList.add('lm-btn-active');
+      EventBus.emit('toast', { message: 'Pan & zoom the map, then click Capture', type: 'info', duration: 3000 });
+    } else {
+      this.exitEditExtentMode();
+    }
+  }
+
+  private exitEditExtentMode(): void {
+    this.isEditExtentMode = false;
+    const ov = this.overlay;
+    if (!ov) return;
+    ov.style.pointerEvents = '';
+    const toolbar = ov.querySelector<HTMLElement>('#lm-toolbar');
+    if (toolbar) toolbar.style.pointerEvents = '';
+    const captureBtn = ov.querySelector<HTMLElement>('#lm-capture-extent');
+    if (captureBtn) { captureBtn.style.display = 'none'; captureBtn.style.pointerEvents = ''; }
+    const snap = ov.querySelector<HTMLElement>('#lm-map-snapshot');
+    if (snap) snap.style.opacity = '';
+    const sheet = ov.querySelector<HTMLElement>('#lm-sheet');
+    if (sheet) sheet.classList.remove('lm-extent-mode');
+    ov.querySelector('#lm-edit-extent')?.classList.remove('lm-btn-active');
+  }
+
+  private captureExtent(): void {
+    try {
+      this.mapSnapshot = this.getMapCanvas().toDataURL('image/png');
+      if (this.getMapStateFn) {
+        try { this.mapState = this.getMapStateFn(); } catch { /* ok */ }
+      }
+      const snap = this.overlay?.querySelector<HTMLImageElement>('#lm-map-snapshot');
+      if (snap) snap.src = this.mapSnapshot;
+      this.cropBox = null; // clear any prior crop — full new view
+      this.exitEditExtentMode();
+      EventBus.emit('toast', { message: 'Map extent updated', type: 'success', duration: 1500 });
+    } catch (err) {
+      EventBus.emit('toast', { message: `Capture failed: ${(err as Error).message}`, type: 'error' });
+      this.exitEditExtentMode();
+    }
   }
 
   // ── Zoom / pan ─────────────────────────────────────────────────

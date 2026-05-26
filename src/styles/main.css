@@ -5118,6 +5118,21 @@ input[type=color] {
 #lm-workspace.is-panning  { cursor: grabbing; }
 #lm-workspace.is-pinching { cursor: zoom-in; }
 #lm-sheet { transform-origin: center center; will-change: transform; }
+#lm-sheet.lm-extent-mode { outline: 3px dashed rgba(250,204,21,0.75); outline-offset: -3px; }
+.lm-capture-btn {
+  background: #facc15;
+  color: #1a1a1a;
+  font-weight: 600;
+  font-size: 11px;
+  gap: 4px;
+  border: none;
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  pointer-events: all;
+}
 
 /* ── Export settings toolbar section ── */
 

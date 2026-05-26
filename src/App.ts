@@ -1248,17 +1248,125 @@ export class App {
   }
 
   private captureMapScreenshot(): void {
+    const srcCanvas = this.mapManager.getCanvas();
+    const out = document.createElement('canvas');
+    out.width  = srcCanvas.width;
+    out.height = srcCanvas.height;
+    const ctx = out.getContext('2d')!;
+
+    ctx.drawImage(srcCanvas, 0, 0);
+
+    const map     = this.mapManager.getMap();
+    const zoom    = map.getZoom();
+    const lat     = map.getCenter().lat;
+    const bearing = map.getBearing();
+    const W       = out.width;
+    const H       = out.height;
+
+    this.snapshotDrawScaleBar(ctx, zoom, lat, W, H);
+    this.snapshotDrawNorthArrow(ctx, bearing, W, H);
+
+    // Load and draw Fraxinus logo (80px, bottom right)
+    const logoImg = new Image();
+    logoImg.crossOrigin = 'anonymous';
+    logoImg.onload = () => {
+      const size   = 80;
+      const margin = 12;
+      ctx.globalAlpha = 0.88;
+      ctx.drawImage(logoImg, W - size - margin, H - size - margin, size, size);
+      ctx.globalAlpha = 1.0;
+      this.snapshotDownload(out);
+    };
+    logoImg.onerror = () => {
+      // Proceed without logo
+      this.snapshotDownload(out);
+    };
+    logoImg.src = '/logo.png';
+  }
+
+  private snapshotDownload(canvas: HTMLCanvasElement): void {
     try {
-      const canvas = this.mapManager.getCanvas();
-      const url = canvas.toDataURL('image/png');
       const a = document.createElement('a');
-      a.href = url;
+      a.href = canvas.toDataURL('image/png');
       a.download = `map-${new Date().toISOString().slice(0, 10)}.png`;
       a.click();
       EventBus.emit('toast', { message: 'Map screenshot saved', type: 'success', duration: 2000 });
     } catch (err) {
       EventBus.emit('toast', { message: `Screenshot failed: ${(err as Error).message}`, type: 'error' });
     }
+  }
+
+  private snapshotDrawScaleBar(ctx: CanvasRenderingContext2D, zoom: number, lat: number, W: number, H: number): void {
+    const metersPerPx = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+    const targetMeters = W * 0.18 * metersPerPx;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(targetMeters, 1))));
+    let niceMeters = magnitude;
+    for (const m of [1, 2, 5, 10]) {
+      if (magnitude * m <= targetMeters * 1.4) niceMeters = magnitude * m;
+    }
+    const barPx = niceMeters / metersPerPx;
+    const label  = niceMeters >= 1000 ? `${niceMeters / 1000} km` : `${Math.round(niceMeters)} m`;
+    const barX = 14, barY = H - 32, barH = 7;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.fillRect(barX - 6, barY - 18, barPx + 20, barH + 26);
+    ctx.fillStyle = '#333';
+    ctx.fillRect(barX, barY, barPx / 2, barH);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(barX + barPx / 2, barY, barPx / 2, barH);
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(barX, barY, barPx, barH);
+    ctx.beginPath();
+    ctx.moveTo(barX, barY - 3); ctx.lineTo(barX, barY + barH + 3);
+    ctx.moveTo(barX + barPx, barY - 3); ctx.lineTo(barX + barPx, barY + barH + 3);
+    ctx.stroke();
+    ctx.fillStyle = '#222';
+    ctx.font = `bold ${Math.max(10, W * 0.008)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('0', barX, barY - 1);
+    ctx.fillText(label, barX + barPx, barY - 1);
+    ctx.restore();
+  }
+
+  private snapshotDrawNorthArrow(ctx: CanvasRenderingContext2D, bearing: number, W: number, H: number): void {
+    const r  = Math.max(18, W * 0.018);
+    const cx = W - r - 14;
+    const cy = r + 14;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate((bearing * Math.PI) / 180);
+    ctx.beginPath();
+    ctx.arc(0, 0, r + 3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fill();
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, -r); ctx.lineTo(r * 0.38, 0); ctx.lineTo(0, -r * 0.18);
+    ctx.closePath();
+    ctx.fillStyle = '#222';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, r); ctx.lineTo(r * 0.38, 0); ctx.lineTo(0, -r * 0.18);
+    ctx.closePath();
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.strokeStyle = '#555'; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.restore();
+
+    const fontSize = Math.max(9, r * 0.7);
+    ctx.save();
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.fillStyle = '#222';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('N', cx, cy - r - 4);
+    ctx.restore();
   }
 
   private closeAllPanels(): void {
