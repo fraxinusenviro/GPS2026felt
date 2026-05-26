@@ -95,9 +95,9 @@ export class HRDEMLayer {
   private chmClassPaletteId: string = 'structural';
 
   private contourEnabled  = false;
-  private contourInterval = 10;
-  private contourColor    = '#ffffff';
-  private contourWidth    = 1.2;
+  private contourInterval = 1;
+  private contourColor    = '#000000';
+  private contourWidth    = 0.5;
 
   private instanceId     = '';
   private layerId        = '';
