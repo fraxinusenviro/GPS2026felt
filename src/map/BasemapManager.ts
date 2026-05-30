@@ -120,7 +120,7 @@ export class BasemapManager {
   private hrdemLayers = new Map<string, HRDEMLayer>();
   private cogContourLayers = new Map<string, CogContourLayer>();
   private unifiedLegendEl: HTMLElement | null = null;
-  private unifiedLegendCollapsed = false;
+  private unifiedLegendCollapsed = true;
 
   private identifyActive = false;
   private identifyClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
