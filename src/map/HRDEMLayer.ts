@@ -1088,11 +1088,10 @@ export class HRDEMLayer {
     valid2?: Array<{ dist: number; elev: number }>,  // optional DSM profile
     valid3?: Array<{ dist: number; elev: number }>,  // optional water table profile (DTM - DTW/100)
   ): string {
-    // When showing multiple lines, reserve 14 px inside padB for the horizontal legend row
-    const hasMultiCheck = (valid2 && valid2.length > 1) || (valid3 && valid3.length > 1);
-    const legRowReserve = hasMultiCheck ? 14 : 0;
+    // padB carries all bottom-area space (axis labels, optional legend row, segment row)
+    // No separate legRowReserve needed — padB is sized to fit everything
     const plotW = W - padL - padR;
-    const plotH = H - padT - padB - legRowReserve;
+    const plotH = H - padT - padB;
     const toX = (d: number) => padL + (d / Math.max(distMax, 1e-9)) * plotW;
     const toY = (e: number) => padT + plotH - ((e - elevMin) / (elevRange || 1)) * plotH;
 
@@ -1143,16 +1142,20 @@ export class HRDEMLayer {
                   <path d="${path3D}" fill="none" stroke="#1e88e5" stroke-width="1.5"/>`;
     }
 
-    const yTicks = [elevMin, elevMin + elevRange / 2, elevMax].map(e =>
-      `<text x="${padL - 3}" y="${toY(e).toFixed(1)}" text-anchor="end" dominant-baseline="middle" fill="#7aaa88" font-size="${fs}" font-family="sans-serif">${e.toFixed(0)}</text>
-       <line x1="${padL}" y1="${toY(e).toFixed(1)}" x2="${padL + plotW}" y2="${toY(e).toFixed(1)}" stroke="#1e3228" stroke-width="1"/>`,
-    ).join('');
+    // Y-axis: short tick marks + grid lines + labels offset to clear ticks
+    const yTicks = [elevMin, elevMin + elevRange / 2, elevMax].map(e => {
+      const ty = toY(e).toFixed(1);
+      return `<line x1="${padL - 5}" y1="${ty}" x2="${padL}" y2="${ty}" stroke="#6a9a78" stroke-width="1"/>
+              <line x1="${padL}" y1="${ty}" x2="${(padL + plotW).toFixed(1)}" y2="${ty}" stroke="#1e3228" stroke-width="1"/>
+              <text x="${padL - 9}" y="${ty}" text-anchor="end" dominant-baseline="middle" fill="#7aaa88" font-size="${fs}" font-family="sans-serif">${e.toFixed(0)}</text>`;
+    }).join('');
 
     // Cumulative distances at each vertex
     const vertexDists: number[] = [0];
     for (const d of segDists) vertexDists.push(vertexDists[vertexDists.length - 1] + d);
 
     const plotRight = padL + plotW;
+    const plotBottom = padT + plotH;
     const vertexSvg = vertexDists.map((vd, i) => {
       const lbl = String.fromCharCode(65 + i);
       const vx  = toX(vd);
@@ -1161,18 +1164,27 @@ export class HRDEMLayer {
       );
       const vy = toY(closestPt.elev);
       const elevLbl  = `${closestPt.elev.toFixed(0)}m`;
-      // Place elevation label right of dot, flip left if near right edge
       const nearRight = vx + 28 > plotRight;
       const lblAnchor = nearRight ? 'end' : 'start';
       const lblX      = nearRight ? vx - 6 : vx + 6;
-      const lblY      = vy - 7;  // above the dot
-      return `<line x1="${vx.toFixed(1)}" y1="${padT}" x2="${vx.toFixed(1)}" y2="${(padT + plotH).toFixed(1)}" stroke="${lineColor}" stroke-width="1" stroke-dasharray="2,2" opacity="0.55"/>
+      const lblY      = vy - 7;
+      return `<line x1="${vx.toFixed(1)}" y1="${padT}" x2="${vx.toFixed(1)}" y2="${plotBottom.toFixed(1)}" stroke="${lineColor}" stroke-width="1" stroke-dasharray="2,2" opacity="0.55"/>
               <circle cx="${vx.toFixed(1)}" cy="${vy.toFixed(1)}" r="3.5" fill="${lineColor}" stroke="#0c1c14" stroke-width="1.5"/>
               <text x="${vx.toFixed(1)}" y="${(padT - 3).toFixed(1)}" text-anchor="middle" fill="${lineColor}" font-size="${fs}" font-family="sans-serif" font-weight="bold">${lbl}</text>
               <text x="${lblX.toFixed(1)}" y="${lblY.toFixed(1)}" text-anchor="${lblAnchor}" fill="${lineColor}" font-size="${Math.max(7, fs - 1)}" font-family="sans-serif" opacity="0.85">${elevLbl}</text>`;
     }).join('');
 
-    // Horizontal legend row — placed between x-axis labels and segment labels
+    const lfs    = Math.max(7, fs - 1);
+    const xLabel = distMax < 1 ? `${(distMax * 1000).toFixed(0)} m` : `${distMax.toFixed(2)} km`;
+
+    // X-axis: tick marks at 0, mid, and max; labels offset below ticks
+    const xTickY2  = plotBottom + 5;
+    const xAxisY   = plotBottom + 17;
+    const xTicksSvg = [padL, padL + plotW / 2, padL + plotW].map(x =>
+      `<line x1="${x.toFixed(1)}" y1="${plotBottom}" x2="${x.toFixed(1)}" y2="${xTickY2}" stroke="#6a9a78" stroke-width="1"/>`,
+    ).join('');
+
+    // Bottom rows: legend frame then segment labels
     const hasMulti = (valid2 && valid2.length > 1) || (valid3 && valid3.length > 1);
     const legItems: Array<{ stroke: string; dash?: string; label: string }> = hasMulti
       ? [
@@ -1182,25 +1194,25 @@ export class HRDEMLayer {
         ]
       : [];
 
-    // Bottom layout (within padB):
-    //   xAxisY   — distance labels (0 … max)
-    //   legRowY  — horizontal legend (only when hasMulti)
-    //   segRowY  — segment length labels
-    const xAxisY  = padT + plotH + 12;
-    const legRowY = padT + plotH + 26;  // sits between axis and segment rows
-    const segRowY = H - 5;
-    const xLabel  = distMax < 1 ? `${(distMax * 1000).toFixed(0)} m` : `${distMax.toFixed(2)} km`;
-    const lfs     = Math.max(7, fs - 1);
+    const legFrameTop = plotBottom + 29;
+    const legFrameH   = 16;
+    const legItemY    = legFrameTop + legFrameH / 2 + 3;  // vertically centred in frame
+    const segRowY     = H - 8;
 
     let legendSvg = '';
     if (legItems.length > 0) {
-      const slotW   = plotW / legItems.length;
-      legendSvg = legItems.map((item, i) => {
-        const cx      = padL + slotW * (i + 0.5);
+      const slotW = plotW / legItems.length;
+      const items = legItems.map((item, i) => {
+        const cx       = padL + slotW * (i + 0.5);
+        const estTextW = item.label.length * lfs * 0.58;
+        const totalW   = 20 + 4 + estTextW;
+        const sx       = cx - totalW / 2;
         const dashAttr = item.dash ? ` stroke-dasharray="${item.dash}"` : '';
-        return `<line x1="${(cx - 10).toFixed(1)}" y1="${legRowY}" x2="${(cx + 10).toFixed(1)}" y2="${legRowY}" stroke="${item.stroke}" stroke-width="1.5"${dashAttr}/>
-                <text x="${(cx + 14).toFixed(1)}" y="${legRowY + 4}" fill="${item.stroke}" font-size="${lfs}" font-family="sans-serif">${item.label}</text>`;
+        return `<line x1="${sx.toFixed(1)}" y1="${legItemY - 3}" x2="${(sx + 20).toFixed(1)}" y2="${legItemY - 3}" stroke="${item.stroke}" stroke-width="1.5"${dashAttr}/>
+                <text x="${(sx + 24).toFixed(1)}" y="${legItemY}" fill="${item.stroke}" font-size="${lfs}" font-family="sans-serif">${item.label}</text>`;
       }).join('');
+      legendSvg = `<rect x="${padL}" y="${legFrameTop}" width="${plotW.toFixed(1)}" height="${legFrameH}" fill="rgba(0,0,0,0.25)" rx="3" stroke="rgba(255,255,255,0.07)" stroke-width="0.5"/>
+                   ${items}`;
     }
 
     // Segment lengths row
@@ -1218,8 +1230,9 @@ export class HRDEMLayer {
       ${vertexSvg}
       <path d="${areaD}" fill="rgba(91,175,130,0.13)"/>
       <path d="${pathD}" fill="none" stroke="${lineColor}" stroke-width="1.8"/>
+      ${xTicksSvg}
       <text x="${padL}" y="${xAxisY}" fill="#7aaa88" font-size="${fs}" font-family="sans-serif">0</text>
-      <text x="${padL + plotW}" y="${xAxisY}" fill="#7aaa88" font-size="${fs}" font-family="sans-serif" text-anchor="end">${xLabel}</text>
+      <text x="${plotRight.toFixed(1)}" y="${xAxisY}" fill="#7aaa88" font-size="${fs}" font-family="sans-serif" text-anchor="end">${xLabel}</text>
       ${legendSvg}
       <text x="${padL}" y="${segRowY}" fill="#5a7a60" font-size="${lfs}" font-family="sans-serif">${segLabels}</text>
     </svg>`;
@@ -1261,7 +1274,7 @@ export class HRDEMLayer {
     const container = this.mapManager.getMap().getContainer();
     // Full-width: 10 px margin each side, 10 px padding each side inside panel
     const W    = Math.max(320, container.clientWidth - 40);
-    const padL = 40, padR = 10, padT = 18, padB = 40;
+    const padL = 40, padR = 10, padT = 18, padB = 58;
 
     const buildSvg = () => this.buildProfileSvg(
       valid, elevMin, elevMax, elevRange, distMax, segDists,
@@ -1397,7 +1410,7 @@ export class HRDEMLayer {
     // hdrH covers: header row (~26px) + resize grip + margins (~10px)
     const hdrH   = Math.round(36 * scaleY);
     const padL   = Math.round(40 * scaleX), padR = Math.round(10 * scaleX);
-    const padT   = hdrH + Math.round(18 * scaleY), padB = Math.round(40 * scaleY);
+    const padT   = hdrH + Math.round(18 * scaleY), padB = Math.round(58 * scaleY);
     const fs     = Math.max(8, Math.round(9 * scale));
 
     const snapSvg = this.buildProfileSvg(
