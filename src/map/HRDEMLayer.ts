@@ -1317,8 +1317,8 @@ export class HRDEMLayer {
     resizeGrip.title = 'Drag to resize chart';
     resizeGrip.style.cssText = [
       'display:flex', 'justify-content:center', 'align-items:center',
-      'height:8px', 'cursor:ns-resize', 'user-select:none',
-      'margin:2px 0 1px', 'opacity:0.45',
+      'height:10px', 'cursor:ns-resize', 'user-select:none', 'touch-action:none',
+      'margin:2px 0 2px', 'opacity:0.55',
     ].join(';');
     resizeGrip.innerHTML = '<svg width="48" height="6" viewBox="0 0 48 6"><rect y="0.5" width="48" height="1.5" rx="1" fill="#7aaa88"/><rect y="4" width="48" height="1.5" rx="1" fill="#7aaa88"/></svg>';
 
@@ -1326,21 +1326,38 @@ export class HRDEMLayer {
     svgWrap.style.cssText = 'overflow:hidden;line-height:0';
     svgWrap.innerHTML = buildSvg();
 
-    resizeGrip.addEventListener('mousedown', (startEvt) => {
+    // Use Pointer Events + setPointerCapture so drag works even when the
+    // cursor moves over the MapLibre canvas, which otherwise intercepts events
+    resizeGrip.addEventListener('pointerdown', (startEvt) => {
       startEvt.preventDefault();
-      const startY  = startEvt.clientY;
-      const startH  = this.profileChartH;
-      const onMove  = (e: MouseEvent) => {
-        // Dragging up (negative delta) increases chart height
-        this.profileChartH = Math.max(80, Math.min(600, startH - (e.clientY - startY)));
-        svgWrap.innerHTML = buildSvg();
+      startEvt.stopPropagation();
+      resizeGrip.setPointerCapture(startEvt.pointerId);
+
+      const startY = startEvt.clientY;
+      const startH = this.profileChartH;
+      let rafPending = false;
+
+      const onMove = (e: PointerEvent) => {
+        e.preventDefault();
+        const newH = Math.max(80, Math.min(600, startH - (e.clientY - startY)));
+        if (newH === this.profileChartH) return;
+        this.profileChartH = newH;
+        if (!rafPending) {
+          rafPending = true;
+          requestAnimationFrame(() => {
+            svgWrap.innerHTML = buildSvg();
+            rafPending = false;
+          });
+        }
       };
+
       const onUp = () => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
+        resizeGrip.removeEventListener('pointermove', onMove);
+        resizeGrip.removeEventListener('pointerup', onUp);
       };
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+
+      resizeGrip.addEventListener('pointermove', onMove);
+      resizeGrip.addEventListener('pointerup', onUp);
     });
 
     el.appendChild(header);
