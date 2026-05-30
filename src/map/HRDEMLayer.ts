@@ -992,29 +992,41 @@ export class HRDEMLayer {
     }
 
     const needsDSM = this.profileMode === 'dsm' || this.profileMode === 'both' || this.profileMode === 'dtm+dsm+dtw';
+    const needsDTM = this.profileMode !== 'dsm';  // all modes except pure-DSM need DTM
     const needsDTW = this.profileMode === 'dtm+dtw' || this.profileMode === 'dtm+dsm+dtw';
 
-    // Fetch DSM on-demand when the profile mode requires it
-    if (needsDSM) {
-      try {
-        const bounds = map.getBounds();
-        const mc = map.getCanvas();
-        const dsm = await fetchHRDEM(
-          bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth(),
-          mc.width || 512, mc.height || 512, 'dsm',
-        );
-        this.lastDSMResult = dsm;
-      } catch (err) {
-        console.error('[HRDEMLayer] DSM fetch for profile failed:', err);
-      }
+    const bounds = map.getBounds();
+    const mc     = map.getCanvas();
+    const bW = bounds.getWest(), bS = bounds.getSouth(), bE = bounds.getEast(), bN = bounds.getNorth();
+    const sz = mc.width || 512;
+
+    // Always fetch fresh data for the current viewport so the bbox covers the drawn profile
+    const fetches: Promise<void>[] = [];
+
+    if (needsDTM) {
+      fetches.push(
+        fetchHRDEM(bW, bS, bE, bN, sz, sz, 'dtm')
+          .then(r => { this.lastDTMResult = r; })
+          .catch(err => console.error('[HRDEMLayer] DTM fetch for profile failed:', err)),
+      );
     }
+
+    if (needsDSM) {
+      fetches.push(
+        fetchHRDEM(bW, bS, bE, bN, sz, sz, 'dsm')
+          .then(r => { this.lastDSMResult = r; })
+          .catch(err => console.error('[HRDEMLayer] DSM fetch for profile failed:', err)),
+      );
+    }
+
+    await Promise.all(fetches);
 
     // Fetch DTW (depth to water) on-demand when required
     if (needsDTW) {
       this.lastDTWResult = await this.fetchDTWForViewport();
     }
 
-    const dtm = this.lastDTMResult ?? this.lastResult ?? undefined;
+    const dtmRes = this.lastDTMResult;
 
     let pts: Array<{ dist: number; elev: number | null }>;
     let pts2: Array<{ dist: number; elev: number | null }> | undefined;
@@ -1023,7 +1035,7 @@ export class HRDEMLayer {
     if (this.profileMode === 'dsm') {
       pts = this.sampleProfileLineMulti(savedPoints, 200, this.lastDSMResult);
     } else {
-      pts = this.sampleProfileLineMulti(savedPoints, 200, dtm);
+      pts = this.sampleProfileLineMulti(savedPoints, 200, dtmRes);
     }
 
     if ((this.profileMode === 'both' || this.profileMode === 'dtm+dsm+dtw') && this.lastDSMResult) {
