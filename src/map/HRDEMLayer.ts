@@ -7,6 +7,7 @@
  */
 
 import maplibregl from 'maplibre-gl';
+import proj4 from 'proj4';
 import type { MapManager } from './MapManager';
 import { fetchHRDEM, type HRDEMResult } from '../lib/hrdemWCS';
 import {
@@ -33,6 +34,10 @@ import { LAYER_IDS } from '../constants';
 
 const DEBOUNCE_MS = 300;
 const MIN_ZOOM    = 10;
+
+const DTW_COG_URL  = 'https://nswetlands-mapping.s3.us-east-2.amazonaws.com/COG/DTW_cog.tif';
+const DTW_CRS      = 'EPSG:22620';
+const DTW_CRS_DEF  = '+proj=utm +zone=20 +ellps=GRS80 +units=m +no_defs';
 
 const BLANK_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' +
@@ -130,9 +135,12 @@ export class HRDEMLayer {
   private profileVertexMarkers: any[] = [];
 
   private sampleMode:    'elevation' | 'slope' | 'aspect' | 'chm' = 'elevation';
-  private profileMode:   'dtm' | 'dsm' | 'both' = 'dtm';
+  private profileMode:   'dtm' | 'dsm' | 'both' | 'dtm+dtw' | 'dtm+dsm+dtw' = 'dtm';
   private lastDTMResult: HRDEMResult | null = null;
   private lastDSMResult: HRDEMResult | null = null;
+  private lastDTWResult: HRDEMResult | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private cachedDTWTiff: any = null;
 
   constructor(private readonly mapManager: MapManager) {}
 
@@ -724,6 +732,98 @@ export class HRDEMLayer {
     return result;
   }
 
+  /** Fetch the DTW COG for the current map viewport. Values are in cm. */
+  private async fetchDTWForViewport(): Promise<HRDEMResult | null> {
+    try {
+      // Register CRS once
+      try { proj4(DTW_CRS, 'EPSG:4326', [0, 0]); } catch {
+        proj4.defs(DTW_CRS, DTW_CRS_DEF);
+      }
+
+      if (!this.cachedDTWTiff) {
+        const { fromUrl } = await import('geotiff');
+        this.cachedDTWTiff = await fromUrl(DTW_COG_URL);
+      }
+
+      const map    = this.mapManager.getMap();
+      const bounds = map.getBounds();
+      const w4326  = bounds.getWest(),  e4326 = bounds.getEast();
+      const s4326  = bounds.getSouth(), n4326 = bounds.getNorth();
+
+      const image = await this.cachedDTWTiff.getImage();
+      const geoKeys  = (image as any).getGeoKeys?.() as Record<string, number> | undefined;
+      const epsgCode = geoKeys?.ProjectedCSTypeGeoKey ?? geoKeys?.GeographicTypeGeoKey ?? 22620;
+      const nativeCrs = `EPSG:${epsgCode}`;
+      try { proj4(nativeCrs, 'EPSG:4326', [0, 0]); } catch {
+        proj4.defs(nativeCrs, DTW_CRS_DEF);
+      }
+
+      const [ox, oy] = image.getOrigin();
+      const [rx, ry] = image.getResolution();
+      const imgW = image.getWidth(), imgH = image.getHeight();
+
+      const [swX, swY] = proj4('EPSG:4326', nativeCrs, [w4326, s4326]);
+      const [neX, neY] = proj4('EPSG:4326', nativeCrs, [e4326, n4326]);
+
+      const pxL = Math.max(0,    Math.floor((Math.min(swX, neX) - ox) / rx));
+      const pxR = Math.min(imgW, Math.ceil( (Math.max(swX, neX) - ox) / rx));
+      const pxT = Math.max(0,    Math.floor((Math.max(swY, neY) - oy) / ry));
+      const pxB = Math.min(imgH, Math.ceil( (Math.min(swY, neY) - oy) / ry));
+
+      if (pxL >= pxR || pxT >= pxB) return null;
+
+      const maxPx = 512;
+      const winW  = pxR - pxL, winH = pxB - pxT;
+      const scale = Math.min(1, maxPx / Math.max(winW, winH));
+      const outW  = Math.max(2, Math.round(winW * scale));
+      const outH  = Math.max(2, Math.round(winH * scale));
+
+      const rasters = await image.readRasters({
+        window: [pxL, pxT, pxR, pxB], width: outW, height: outH,
+        interleave: false, resampleMethod: 'bilinear',
+      }) as unknown as ArrayLike<number>[];
+
+      const nodata = (image as any).getGDALNoData?.() ?? null;
+      const raw    = rasters[0];
+      const grid   = raw instanceof Float32Array ? raw as Float32Array
+                                                 : Float32Array.from(raw as ArrayLike<number>);
+
+      const utmW = ox + pxL * rx;
+      const utmN = oy + pxT * ry;
+      const utmE = ox + pxR * rx;
+      const utmS = oy + pxB * ry;
+
+      const [geoW, geoS] = proj4(nativeCrs, 'EPSG:4326', [utmW, utmS]);
+      const [geoE, geoN] = proj4(nativeCrs, 'EPSG:4326', [utmE, utmN]);
+
+      return {
+        grid, width: outW, height: outH, nodata,
+        bbox: [geoW, geoS, geoE, geoN],
+        elevMin: 0, elevMax: 9999, stretchMin: 0, stretchMax: 9999,
+        validCount: outW * outH,
+      };
+    } catch (err) {
+      console.error('[HRDEMLayer] DTW COG fetch failed:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Compute water table elevation profile from DTM + DTW profiles.
+   * DTW values are in cm; result is in metres (same as DTM).
+   * Returns null for any sample where either input is null.
+   */
+  private computeWaterTableProfile(
+    dtmPts: Array<{ dist: number; elev: number | null }>,
+    dtwPts: Array<{ dist: number; elev: number | null }>,
+  ): Array<{ dist: number; elev: number | null }> {
+    return dtmPts.map((p, i) => {
+      const dtw = dtwPts[i]?.elev;
+      if (p.elev === null || dtw === null || dtw === undefined) return { dist: p.dist, elev: null };
+      return { dist: p.dist, elev: p.elev - dtw / 100.0 };
+    });
+  }
+
   private sampleProfileLineMulti(
     points: [number, number][], totalSamples = 200,
     overrideResult?: HRDEMResult | null,
@@ -891,8 +991,11 @@ export class HRDEMLayer {
       map.setPaintProperty(this.profileLineLayerId, 'line-dasharray', [1, 0]);
     }
 
+    const needsDSM = this.profileMode === 'dsm' || this.profileMode === 'both' || this.profileMode === 'dtm+dsm+dtw';
+    const needsDTW = this.profileMode === 'dtm+dtw' || this.profileMode === 'dtm+dsm+dtw';
+
     // Fetch DSM on-demand when the profile mode requires it
-    if (this.profileMode === 'dsm' || this.profileMode === 'both') {
+    if (needsDSM) {
       try {
         const bounds = map.getBounds();
         const mc = map.getCanvas();
@@ -906,10 +1009,16 @@ export class HRDEMLayer {
       }
     }
 
+    // Fetch DTW (depth to water) on-demand when required
+    if (needsDTW) {
+      this.lastDTWResult = await this.fetchDTWForViewport();
+    }
+
     const dtm = this.lastDTMResult ?? this.lastResult ?? undefined;
 
     let pts: Array<{ dist: number; elev: number | null }>;
     let pts2: Array<{ dist: number; elev: number | null }> | undefined;
+    let pts3: Array<{ dist: number; elev: number | null }> | undefined;
 
     if (this.profileMode === 'dsm') {
       pts = this.sampleProfileLineMulti(savedPoints, 200, this.lastDSMResult);
@@ -917,11 +1026,16 @@ export class HRDEMLayer {
       pts = this.sampleProfileLineMulti(savedPoints, 200, dtm);
     }
 
-    if (this.profileMode === 'both' && this.lastDSMResult) {
+    if ((this.profileMode === 'both' || this.profileMode === 'dtm+dsm+dtw') && this.lastDSMResult) {
       pts2 = this.sampleProfileLineMulti(savedPoints, 200, this.lastDSMResult);
     }
 
-    this.showProfilePanel(pts, segDists, pts2);
+    if (needsDTW && this.lastDTWResult) {
+      const dtwRaw = this.sampleProfileLineMulti(savedPoints, 200, this.lastDTWResult);
+      pts3 = this.computeWaterTableProfile(pts, dtwRaw);
+    }
+
+    this.showProfilePanel(pts, segDists, pts2, pts3);
   }
 
   private showSamplePopup(
@@ -959,6 +1073,7 @@ export class HRDEMLayer {
     padL: number, padR: number, padT: number, padB: number,
     fs: number,
     valid2?: Array<{ dist: number; elev: number }>,  // optional DSM profile
+    valid3?: Array<{ dist: number; elev: number }>,  // optional water table profile (DTM - DTW/100)
   ): string {
     const plotW = W - padL - padR, plotH = H - padT - padB;
     const toX = (d: number) => padL + (d / Math.max(distMax, 1e-9)) * plotW;
@@ -993,6 +1108,24 @@ export class HRDEMLayer {
                   <path d="${path2D}" fill="none" stroke="#88ccff" stroke-width="1.5" stroke-dasharray="4,2"/>`;
     }
 
+    // Optional third (water table) path — plotted below DTM
+    let path3Svg = '';
+    if (valid3 && valid3.length > 1) {
+      let path3D = '';
+      for (const p of valid3) {
+        const x = toX(p.dist).toFixed(1), y = toY(p.elev).toFixed(1);
+        path3D += path3D ? ` L${x},${y}` : `M${x},${y}`;
+      }
+      // Saturated zone fill: forward along DTM, backward along water table
+      let satD = pathD;
+      for (let i = valid3.length - 1; i >= 0; i--) {
+        satD += ` L${toX(valid3[i].dist).toFixed(1)},${toY(valid3[i].elev).toFixed(1)}`;
+      }
+      satD += ' Z';
+      path3Svg = `<path d="${satD}" fill="rgba(21,101,192,0.12)"/>
+                  <path d="${path3D}" fill="none" stroke="#1e88e5" stroke-width="1.5"/>`;
+    }
+
     const yTicks = [elevMin, elevMin + elevRange / 2, elevMax].map(e =>
       `<text x="${padL - 3}" y="${toY(e).toFixed(1)}" text-anchor="end" dominant-baseline="middle" fill="#7aaa88" font-size="${fs}" font-family="sans-serif">${e.toFixed(0)}</text>
        <line x1="${padL}" y1="${toY(e).toFixed(1)}" x2="${padL + plotW}" y2="${toY(e).toFixed(1)}" stroke="#1e3228" stroke-width="1"/>`,
@@ -1022,13 +1155,32 @@ export class HRDEMLayer {
               <text x="${lblX.toFixed(1)}" y="${lblY.toFixed(1)}" text-anchor="${lblAnchor}" fill="${lineColor}" font-size="${Math.max(7, fs - 1)}" font-family="sans-serif" opacity="0.85">${elevLbl}</text>`;
     }).join('');
 
-    // Legend for two-line mode
-    const legendSvg = valid2 && valid2.length > 1 ? `
-      <rect x="${plotRight - 80}" y="${padT + 2}" width="78" height="22" fill="rgba(0,0,0,0.35)" rx="3"/>
-      <line x1="${plotRight - 74}" y1="${padT + 10}" x2="${plotRight - 58}" y2="${padT + 10}" stroke="${lineColor}" stroke-width="1.5"/>
-      <text x="${plotRight - 55}" y="${padT + 13}" fill="${lineColor}" font-size="${Math.max(7,fs-1)}" font-family="sans-serif">DTM</text>
-      <line x1="${plotRight - 74}" y1="${padT + 20}" x2="${plotRight - 58}" y2="${padT + 20}" stroke="#88ccff" stroke-width="1.5" stroke-dasharray="3,2"/>
-      <text x="${plotRight - 55}" y="${padT + 23}" fill="#88ccff" font-size="${Math.max(7,fs-1)}" font-family="sans-serif">DSM</text>` : '';
+    // Legend: only shown when more than one line is present
+    const hasMulti = (valid2 && valid2.length > 1) || (valid3 && valid3.length > 1);
+    const legendEntries: string[] = [];
+    const lfs = Math.max(7, fs - 1);
+    const lx1 = plotRight - 80, lx2 = plotRight - 65, lxt = plotRight - 62;
+    if (hasMulti) {
+      let row = 0;
+      const ly = (r: number) => padT + 10 + r * 11;
+      legendEntries.push(`<line x1="${lx1}" y1="${ly(row)}" x2="${lx2}" y2="${ly(row)}" stroke="${lineColor}" stroke-width="1.5"/>`);
+      legendEntries.push(`<text x="${lxt}" y="${ly(row) + 3}" fill="${lineColor}" font-size="${lfs}" font-family="sans-serif">DTM</text>`);
+      row++;
+      if (valid2 && valid2.length > 1) {
+        legendEntries.push(`<line x1="${lx1}" y1="${ly(row)}" x2="${lx2}" y2="${ly(row)}" stroke="#88ccff" stroke-width="1.5" stroke-dasharray="3,2"/>`);
+        legendEntries.push(`<text x="${lxt}" y="${ly(row) + 3}" fill="#88ccff" font-size="${lfs}" font-family="sans-serif">DSM</text>`);
+        row++;
+      }
+      if (valid3 && valid3.length > 1) {
+        legendEntries.push(`<line x1="${lx1}" y1="${ly(row)}" x2="${lx2}" y2="${ly(row)}" stroke="#1e88e5" stroke-width="1.5"/>`);
+        legendEntries.push(`<text x="${lxt}" y="${ly(row) + 3}" fill="#1e88e5" font-size="${lfs}" font-family="sans-serif">W.Table</text>`);
+        row++;
+      }
+    }
+    const legendH = legendEntries.length > 0 ? Math.max(24, (legendEntries.length / 2) * 11 + 8) : 0;
+    const legendSvg = hasMulti ? `
+      <rect x="${plotRight - 84}" y="${padT + 2}" width="82" height="${legendH}" fill="rgba(0,0,0,0.35)" rx="3"/>
+      ${legendEntries.join('\n      ')}` : '';
 
     // Segment lengths row
     const segLabels = segDists.map((d, i) => {
@@ -1045,6 +1197,7 @@ export class HRDEMLayer {
       <rect width="${W}" height="${H}" fill="#0c1c14" rx="3"/>
       ${yTicks}
       ${path2Svg}
+      ${path3Svg}
       ${vertexSvg}
       ${legendSvg}
       <path d="${areaD}" fill="rgba(91,175,130,0.13)"/>
@@ -1059,6 +1212,7 @@ export class HRDEMLayer {
     pts: Array<{ dist: number; elev: number | null }>,
     segDists: number[],
     pts2?: Array<{ dist: number; elev: number | null }>,
+    pts3?: Array<{ dist: number; elev: number | null }>,
   ): void {
     this.profilePanelEl?.remove();
     this.profilePanelEl = null;
@@ -1069,6 +1223,9 @@ export class HRDEMLayer {
     const valid2 = pts2
       ? (pts2.filter(p => p.elev !== null) as Array<{ dist: number; elev: number }>)
       : undefined;
+    const valid3 = pts3
+      ? (pts3.filter(p => p.elev !== null) as Array<{ dist: number; elev: number }>)
+      : undefined;
 
     const distMax = valid[valid.length - 1].dist;
     let elevMin   = Math.min(...valid.map(p => p.elev));
@@ -1076,6 +1233,11 @@ export class HRDEMLayer {
     if (valid2 && valid2.length > 0) {
       elevMin = Math.min(elevMin, ...valid2.map(p => p.elev));
       elevMax = Math.max(elevMax, ...valid2.map(p => p.elev));
+    }
+    if (valid3 && valid3.length > 0) {
+      // Water table can extend below DTM — always include in range
+      elevMin = Math.min(elevMin, ...valid3.map(p => p.elev));
+      elevMax = Math.max(elevMax, ...valid3.map(p => p.elev));
     }
     const elevRange = elevMax - elevMin || 1;
 
@@ -1085,7 +1247,7 @@ export class HRDEMLayer {
     const H = 140, padL = 40, padR = 10, padT = 18, padB = 40;
     const svg = this.buildProfileSvg(
       valid, elevMin, elevMax, elevRange, distMax, segDists,
-      this.profileLineColor, W, H, padL, padR, padT, padB, 9, valid2,
+      this.profileLineColor, W, H, padL, padR, padT, padB, 9, valid2, valid3,
     );
 
     const el = document.createElement('div');
@@ -1114,7 +1276,7 @@ export class HRDEMLayer {
     snapBtn.style.cssText = 'background:none;border:1px solid rgba(91,175,130,0.3);border-radius:3px;color:#7a9;cursor:pointer;padding:2px 6px;line-height:1;display:inline-flex;align-items:center';
     snapBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M208,56H180.28L166.65,35.56A8,8,0,0,0,160,32H96a8,8,0,0,0-6.65,3.56L75.71,56H48A24,24,0,0,0,24,80V192a24,24,0,0,0,24,24H208a24,24,0,0,0,24-24V80A24,24,0,0,0,208,56Zm-44,76a36,36,0,1,1-36-36A36,36,0,0,1,164,132Z"/></svg>';
     snapBtn.addEventListener('click', () =>
-      this.takeSnapshot(valid, elevMin, elevMax, el, elevRange, distMax, segDists, valid2),
+      this.takeSnapshot(valid, elevMin, elevMax, el, elevRange, distMax, segDists, valid2, valid3),
     );
 
     const close = document.createElement('button');
@@ -1149,6 +1311,7 @@ export class HRDEMLayer {
     distMax: number,
     segDists: number[],
     pts2?: Array<{ dist: number; elev: number }>,
+    pts3?: Array<{ dist: number; elev: number }>,
   ): void {
     const map       = this.mapManager.getMap();
     const mapCanvas = map.getCanvas();
@@ -1173,7 +1336,7 @@ export class HRDEMLayer {
 
     const snapSvg = this.buildProfileSvg(
       pts, elevMin, elevMax, elevRange, distMax, segDists,
-      this.profileLineColor, W, H, padL, padR, padT, padB, fs, pts2,
+      this.profileLineColor, W, H, padL, padR, padT, padB, fs, pts2, pts3,
     );
 
     // Prepend a header row to the snapshot SVG
@@ -1311,9 +1474,11 @@ export class HRDEMLayer {
     profileSel.title = 'Profile elevation layer';
     profileSel.style.cssText = selectStyle;
     [
-      { value: 'dtm',  label: 'DTM Elev' },
-      { value: 'dsm',  label: 'DSM Elev' },
-      { value: 'both', label: 'DTM+DSM' },
+      { value: 'dtm',         label: 'DTM Elev' },
+      { value: 'dsm',         label: 'DSM Elev' },
+      { value: 'both',        label: 'DTM+DSM' },
+      { value: 'dtm+dtw',     label: 'DTM+Water' },
+      { value: 'dtm+dsm+dtw', label: 'DTM+DSM+Water' },
     ].forEach(({ value, label }) => {
       const opt = document.createElement('option');
       opt.value = value; opt.textContent = label;
