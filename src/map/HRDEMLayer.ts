@@ -136,6 +136,7 @@ export class HRDEMLayer {
 
   private sampleMode:    'elevation' | 'slope' | 'aspect' | 'chm' = 'elevation';
   private profileMode:   'dtm' | 'dsm' | 'both' | 'dtm+dtw' | 'dtm+dsm+dtw' = 'dtm';
+  private profileChartH  = 160;
   private lastDTMResult: HRDEMResult | null = null;
   private lastDSMResult: HRDEMResult | null = null;
   private lastDTWResult: HRDEMResult | null = null;
@@ -1087,7 +1088,11 @@ export class HRDEMLayer {
     valid2?: Array<{ dist: number; elev: number }>,  // optional DSM profile
     valid3?: Array<{ dist: number; elev: number }>,  // optional water table profile (DTM - DTW/100)
   ): string {
-    const plotW = W - padL - padR, plotH = H - padT - padB;
+    // When showing multiple lines, reserve 14 px inside padB for the horizontal legend row
+    const hasMultiCheck = (valid2 && valid2.length > 1) || (valid3 && valid3.length > 1);
+    const legRowReserve = hasMultiCheck ? 14 : 0;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB - legRowReserve;
     const toX = (d: number) => padL + (d / Math.max(distMax, 1e-9)) * plotW;
     const toY = (e: number) => padT + plotH - ((e - elevMin) / (elevRange || 1)) * plotH;
 
@@ -1167,32 +1172,36 @@ export class HRDEMLayer {
               <text x="${lblX.toFixed(1)}" y="${lblY.toFixed(1)}" text-anchor="${lblAnchor}" fill="${lineColor}" font-size="${Math.max(7, fs - 1)}" font-family="sans-serif" opacity="0.85">${elevLbl}</text>`;
     }).join('');
 
-    // Legend: only shown when more than one line is present
+    // Horizontal legend row — placed between x-axis labels and segment labels
     const hasMulti = (valid2 && valid2.length > 1) || (valid3 && valid3.length > 1);
-    const legendEntries: string[] = [];
-    const lfs = Math.max(7, fs - 1);
-    const lx1 = plotRight - 80, lx2 = plotRight - 65, lxt = plotRight - 62;
-    if (hasMulti) {
-      let row = 0;
-      const ly = (r: number) => padT + 10 + r * 11;
-      legendEntries.push(`<line x1="${lx1}" y1="${ly(row)}" x2="${lx2}" y2="${ly(row)}" stroke="${lineColor}" stroke-width="1.5"/>`);
-      legendEntries.push(`<text x="${lxt}" y="${ly(row) + 3}" fill="${lineColor}" font-size="${lfs}" font-family="sans-serif">DTM</text>`);
-      row++;
-      if (valid2 && valid2.length > 1) {
-        legendEntries.push(`<line x1="${lx1}" y1="${ly(row)}" x2="${lx2}" y2="${ly(row)}" stroke="#88ccff" stroke-width="1.5" stroke-dasharray="3,2"/>`);
-        legendEntries.push(`<text x="${lxt}" y="${ly(row) + 3}" fill="#88ccff" font-size="${lfs}" font-family="sans-serif">DSM</text>`);
-        row++;
-      }
-      if (valid3 && valid3.length > 1) {
-        legendEntries.push(`<line x1="${lx1}" y1="${ly(row)}" x2="${lx2}" y2="${ly(row)}" stroke="#1e88e5" stroke-width="1.5"/>`);
-        legendEntries.push(`<text x="${lxt}" y="${ly(row) + 3}" fill="#1e88e5" font-size="${lfs}" font-family="sans-serif">W.Table</text>`);
-        row++;
-      }
+    const legItems: Array<{ stroke: string; dash?: string; label: string }> = hasMulti
+      ? [
+          { stroke: lineColor, label: 'DTM' },
+          ...((valid2 && valid2.length > 1) ? [{ stroke: '#88ccff', dash: '4,2', label: 'DSM' }] : []),
+          ...((valid3 && valid3.length > 1) ? [{ stroke: '#1e88e5', label: 'Water Table' }] : []),
+        ]
+      : [];
+
+    // Bottom layout (within padB):
+    //   xAxisY   — distance labels (0 … max)
+    //   legRowY  — horizontal legend (only when hasMulti)
+    //   segRowY  — segment length labels
+    const xAxisY  = padT + plotH + 12;
+    const legRowY = padT + plotH + 26;  // sits between axis and segment rows
+    const segRowY = H - 5;
+    const xLabel  = distMax < 1 ? `${(distMax * 1000).toFixed(0)} m` : `${distMax.toFixed(2)} km`;
+    const lfs     = Math.max(7, fs - 1);
+
+    let legendSvg = '';
+    if (legItems.length > 0) {
+      const slotW   = plotW / legItems.length;
+      legendSvg = legItems.map((item, i) => {
+        const cx      = padL + slotW * (i + 0.5);
+        const dashAttr = item.dash ? ` stroke-dasharray="${item.dash}"` : '';
+        return `<line x1="${(cx - 10).toFixed(1)}" y1="${legRowY}" x2="${(cx + 10).toFixed(1)}" y2="${legRowY}" stroke="${item.stroke}" stroke-width="1.5"${dashAttr}/>
+                <text x="${(cx + 14).toFixed(1)}" y="${legRowY + 4}" fill="${item.stroke}" font-size="${lfs}" font-family="sans-serif">${item.label}</text>`;
+      }).join('');
     }
-    const legendH = legendEntries.length > 0 ? Math.max(24, (legendEntries.length / 2) * 11 + 8) : 0;
-    const legendSvg = hasMulti ? `
-      <rect x="${plotRight - 84}" y="${padT + 2}" width="82" height="${legendH}" fill="rgba(0,0,0,0.35)" rx="3"/>
-      ${legendEntries.join('\n      ')}` : '';
 
     // Segment lengths row
     const segLabels = segDists.map((d, i) => {
@@ -1201,22 +1210,18 @@ export class HRDEMLayer {
       return `${a}–${b}: ${dLbl}`;
     }).join('   ');
 
-    const xAxisY = padT + plotH + 13;
-    const segRowY = H - 5;
-    const xLabel  = distMax < 1 ? `${(distMax * 1000).toFixed(0)} m` : `${distMax.toFixed(2)} km`;
-
     return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
       <rect width="${W}" height="${H}" fill="#0c1c14" rx="3"/>
       ${yTicks}
       ${path2Svg}
       ${path3Svg}
       ${vertexSvg}
-      ${legendSvg}
       <path d="${areaD}" fill="rgba(91,175,130,0.13)"/>
       <path d="${pathD}" fill="none" stroke="${lineColor}" stroke-width="1.8"/>
       <text x="${padL}" y="${xAxisY}" fill="#7aaa88" font-size="${fs}" font-family="sans-serif">0</text>
       <text x="${padL + plotW}" y="${xAxisY}" fill="#7aaa88" font-size="${fs}" font-family="sans-serif" text-anchor="end">${xLabel}</text>
-      <text x="${padL}" y="${segRowY}" fill="#5a7a60" font-size="${Math.max(7, fs - 1)}" font-family="sans-serif">${segLabels}</text>
+      ${legendSvg}
+      <text x="${padL}" y="${segRowY}" fill="#5a7a60" font-size="${lfs}" font-family="sans-serif">${segLabels}</text>
     </svg>`;
   }
 
@@ -1255,11 +1260,12 @@ export class HRDEMLayer {
 
     const container = this.mapManager.getMap().getContainer();
     // Full-width: 10 px margin each side, 10 px padding each side inside panel
-    const W = Math.max(320, container.clientWidth - 40);
-    const H = 140, padL = 40, padR = 10, padT = 18, padB = 40;
-    const svg = this.buildProfileSvg(
+    const W    = Math.max(320, container.clientWidth - 40);
+    const padL = 40, padR = 10, padT = 18, padB = 40;
+
+    const buildSvg = () => this.buildProfileSvg(
       valid, elevMin, elevMax, elevRange, distMax, segDists,
-      this.profileLineColor, W, H, padL, padR, padT, padB, 9, valid2, valid3,
+      this.profileLineColor, W, this.profileChartH, padL, padR, padT, padB, 9, valid2, valid3,
     );
 
     const el = document.createElement('div');
@@ -1306,9 +1312,39 @@ export class HRDEMLayer {
     header.appendChild(titleWrap);
     header.appendChild(btnWrap);
 
-    el.appendChild(header);
+    // Drag-to-resize grip: dragging up grows the chart, dragging down shrinks it
+    const resizeGrip = document.createElement('div');
+    resizeGrip.title = 'Drag to resize chart';
+    resizeGrip.style.cssText = [
+      'display:flex', 'justify-content:center', 'align-items:center',
+      'height:8px', 'cursor:ns-resize', 'user-select:none',
+      'margin:2px 0 1px', 'opacity:0.45',
+    ].join(';');
+    resizeGrip.innerHTML = '<svg width="48" height="6" viewBox="0 0 48 6"><rect y="0.5" width="48" height="1.5" rx="1" fill="#7aaa88"/><rect y="4" width="48" height="1.5" rx="1" fill="#7aaa88"/></svg>';
+
     const svgWrap = document.createElement('div');
-    svgWrap.innerHTML = svg;
+    svgWrap.style.cssText = 'overflow:hidden;line-height:0';
+    svgWrap.innerHTML = buildSvg();
+
+    resizeGrip.addEventListener('mousedown', (startEvt) => {
+      startEvt.preventDefault();
+      const startY  = startEvt.clientY;
+      const startH  = this.profileChartH;
+      const onMove  = (e: MouseEvent) => {
+        // Dragging up (negative delta) increases chart height
+        this.profileChartH = Math.max(80, Math.min(600, startH - (e.clientY - startY)));
+        svgWrap.innerHTML = buildSvg();
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    el.appendChild(header);
+    el.appendChild(resizeGrip);
     el.appendChild(svgWrap);
 
     container.appendChild(el);
@@ -1341,7 +1377,8 @@ export class HRDEMLayer {
 
     const scale  = Math.min(scaleX, scaleY);
     const W      = Math.round(pw), H = Math.round(ph);
-    const hdrH   = Math.round(26 * scaleY);
+    // hdrH covers: header row (~26px) + resize grip + margins (~10px)
+    const hdrH   = Math.round(36 * scaleY);
     const padL   = Math.round(40 * scaleX), padR = Math.round(10 * scaleX);
     const padT   = hdrH + Math.round(18 * scaleY), padB = Math.round(40 * scaleY);
     const fs     = Math.max(8, Math.round(9 * scale));
