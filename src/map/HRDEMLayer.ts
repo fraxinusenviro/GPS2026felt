@@ -122,8 +122,12 @@ export class HRDEMLayer {
   private profileClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
   private profilePanelEl: HTMLElement | null = null;
   private samplePopupEl: HTMLElement | null = null;
-  private profileLineSrcId   = '';
-  private profileLineLayerId = '';
+  private profileLineSrcId      = '';
+  private profileLineLayerId    = '';
+  private profileLineBorderLayerId = '';
+  private profileLineColor      = '#ffdd00';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private profileVertexMarkers: any[] = [];
 
   constructor(private readonly mapManager: MapManager) {}
 
@@ -137,13 +141,14 @@ export class HRDEMLayer {
     this.intendedOpacity = visible ? opacity : 0;
     this.removeMapLayers();
 
-    this.instanceId        = instanceId;
-    this.layerId           = `bm-ov-${instanceId}`;
-    this.srcId             = `bmsrc-${instanceId}`;
-    this.contourLayerId    = `bm-ov-${instanceId}-contour`;
-    this.contourSrcId      = `bmsrc-${instanceId}-contour`;
-    this.profileLineSrcId  = `bmsrc-${instanceId}-profline`;
-    this.profileLineLayerId = `bm-ov-${instanceId}-profline`;
+    this.instanceId              = instanceId;
+    this.layerId                 = `bm-ov-${instanceId}`;
+    this.srcId                   = `bmsrc-${instanceId}`;
+    this.contourLayerId          = `bm-ov-${instanceId}-contour`;
+    this.contourSrcId            = `bmsrc-${instanceId}-contour`;
+    this.profileLineSrcId        = `bmsrc-${instanceId}-profline`;
+    this.profileLineBorderLayerId = `bm-ov-${instanceId}-profborder`;
+    this.profileLineLayerId      = `bm-ov-${instanceId}-profline`;
     this.active         = true;
 
     const map = this.mapManager.getMap();
@@ -188,17 +193,33 @@ export class HRDEMLayer {
     );
 
     map.addSource(this.profileLineSrcId, { type: 'geojson', data: EMPTY_FC });
+    // Dark casing layer beneath the colored line for contrast
+    map.addLayer(
+      {
+        id:     this.profileLineBorderLayerId,
+        type:   'line',
+        source: this.profileLineSrcId,
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'visible' },
+        paint: {
+          'line-color':   'rgba(0,0,0,0.55)',
+          'line-width':   8,
+          'line-opacity': 0.8,
+        },
+      },
+      LAYER_IDS.USER_ACCURACY,
+    );
+    // Colored line on top
     map.addLayer(
       {
         id:     this.profileLineLayerId,
         type:   'line',
         source: this.profileLineSrcId,
-        layout: { visibility: 'visible' },
+        layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'visible' },
         paint: {
-          'line-color':      '#5baf82',
-          'line-width':      2.5,
-          'line-dasharray':  [4, 2],
-          'line-opacity':    0.9,
+          'line-color':      this.profileLineColor,
+          'line-width':      4,
+          'line-dasharray':  [5, 2],
+          'line-opacity':    0.95,
         },
       },
       LAYER_IDS.USER_ACCURACY,
@@ -487,9 +508,10 @@ export class HRDEMLayer {
       this.debounceTimer = null;
     }
     const map = this.mapManager.getMap();
-    if (this.profileLineLayerId && map.getLayer(this.profileLineLayerId)) map.removeLayer(this.profileLineLayerId);
-    if (this.profileLineSrcId   && map.getSource(this.profileLineSrcId))  map.removeSource(this.profileLineSrcId);
-    if (this.contourLayerId     && map.getLayer(this.contourLayerId))     map.removeLayer(this.contourLayerId);
+    if (this.profileLineBorderLayerId && map.getLayer(this.profileLineBorderLayerId)) map.removeLayer(this.profileLineBorderLayerId);
+    if (this.profileLineLayerId       && map.getLayer(this.profileLineLayerId))       map.removeLayer(this.profileLineLayerId);
+    if (this.profileLineSrcId         && map.getSource(this.profileLineSrcId))        map.removeSource(this.profileLineSrcId);
+    if (this.contourLayerId           && map.getLayer(this.contourLayerId))           map.removeLayer(this.contourLayerId);
     if (this.contourSrcId       && map.getSource(this.contourSrcId))      map.removeSource(this.contourSrcId);
     if (this.layerId            && map.getLayer(this.layerId))            map.removeLayer(this.layerId);
     if (this.srcId              && map.getSource(this.srcId))             map.removeSource(this.srcId);
@@ -617,6 +639,19 @@ export class HRDEMLayer {
     return v;
   }
 
+  private computeSegDists(points: [number, number][]): number[] {
+    const result: number[] = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const [lon1, lat1] = points[i], [lon2, lat2] = points[i + 1];
+      const dlon = lon2 - lon1, dlat = lat2 - lat1;
+      const latMid = (lat1 + lat2) / 2;
+      result.push(Math.sqrt(
+        (dlat * 110.54) ** 2 + (dlon * 111.32 * Math.cos(latMid * Math.PI / 180)) ** 2,
+      ));
+    }
+    return result;
+  }
+
   private sampleProfileLineMulti(
     points: [number, number][], totalSamples = 200,
   ): Array<{ dist: number; elev: number | null }> {
@@ -624,15 +659,7 @@ export class HRDEMLayer {
     const { grid, width, height, bbox, nodata } = this.lastResult;
     const [west, south, east, north] = bbox;
 
-    const segDists: number[] = [];
-    for (let i = 0; i < points.length - 1; i++) {
-      const [lon1, lat1] = points[i], [lon2, lat2] = points[i + 1];
-      const dlon = lon2 - lon1, dlat = lat2 - lat1;
-      const latMid = (lat1 + lat2) / 2;
-      segDists.push(Math.sqrt(
-        (dlat * 110.54) ** 2 + (dlon * 111.32 * Math.cos(latMid * Math.PI / 180)) ** 2,
-      ));
-    }
+    const segDists = this.computeSegDists(points);
     const totalDist = segDists.reduce((a, b) => a + b, 0);
     if (totalDist === 0) return [];
 
@@ -682,6 +709,8 @@ export class HRDEMLayer {
   }
 
   private clearProfileLine(): void {
+    for (const m of this.profileVertexMarkers) m.remove();
+    this.profileVertexMarkers = [];
     if (!this.profileLineSrcId) return;
     const src = this.mapManager.getMap().getSource(this.profileLineSrcId) as maplibregl.GeoJSONSource | undefined;
     if (src) src.setData(EMPTY_FC);
@@ -693,6 +722,7 @@ export class HRDEMLayer {
     if (!src) return;
     if (this.profilePoints.length < 2) {
       src.setData(EMPTY_FC);
+      this.updateVertexMarkers();
       return;
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -704,6 +734,33 @@ export class HRDEMLayer {
         properties: {},
       }],
     } as any);
+    this.updateVertexMarkers();
+  }
+
+  private updateVertexMarkers(): void {
+    for (const m of this.profileVertexMarkers) m.remove();
+    this.profileVertexMarkers = [];
+    if (!this.profileLineSrcId) return;
+    const map = this.mapManager.getMap();
+    this.profilePoints.forEach(([lon, lat], i) => {
+      const label = String.fromCharCode(65 + i);
+      const el = document.createElement('div');
+      el.style.cssText = [
+        `background:${this.profileLineColor}`,
+        'color:#000', 'width:18px', 'height:18px', 'border-radius:50%',
+        'display:flex', 'align-items:center', 'justify-content:center',
+        'font-size:9px', 'font-weight:bold', 'font-family:sans-serif',
+        'border:2px solid rgba(0,0,0,0.45)',
+        'box-shadow:0 1px 6px rgba(0,0,0,0.55)',
+        'pointer-events:none', 'user-select:none',
+      ].join(';');
+      el.textContent = label;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const marker = new (maplibregl as any).Marker({ element: el, anchor: 'center' })
+        .setLngLat([lon, lat])
+        .addTo(map);
+      this.profileVertexMarkers.push(marker);
+    });
   }
 
   private activateSampleTool(): void {
@@ -723,6 +780,9 @@ export class HRDEMLayer {
 
   private activateProfileTool(): void {
     if (this.activeTool === 'profile') { this.cancelTool(); return; }
+    // Clear any existing completed profile before starting a new one
+    this.profilePanelEl?.remove();
+    this.profilePanelEl = null;
     this.cancelTool();
     this.activeTool = 'profile';
     this.profilePoints = [];
@@ -740,7 +800,8 @@ export class HRDEMLayer {
 
   private finishProfileTool(): void {
     if (this.profilePoints.length < 2) return;
-    const pts = this.sampleProfileLineMulti(this.profilePoints);
+    const segDists   = this.computeSegDists(this.profilePoints);
+    const pts        = this.sampleProfileLineMulti(this.profilePoints);
 
     const map = this.mapManager.getMap();
     if (this.profileClickHandler) {
@@ -752,7 +813,12 @@ export class HRDEMLayer {
     this.profilePoints = [];
     this.refreshToolbarButtons();
 
-    this.showProfilePanel(pts);
+    // Switch line to solid now that the profile is complete
+    if (map.getLayer(this.profileLineLayerId)) {
+      map.setPaintProperty(this.profileLineLayerId, 'line-dasharray', [1, 0]);
+    }
+
+    this.showProfilePanel(pts, segDists);
   }
 
   private showSamplePopup(lon: number, lat: number, elev: number | null): void {
@@ -778,7 +844,77 @@ export class HRDEMLayer {
     setTimeout(() => { el.remove(); if (this.samplePopupEl === el) this.samplePopupEl = null; }, 4000);
   }
 
-  private showProfilePanel(pts: Array<{ dist: number; elev: number | null }>): void {
+  private buildProfileSvg(
+    valid: Array<{ dist: number; elev: number }>,
+    elevMin: number, elevMax: number, elevRange: number, distMax: number,
+    segDists: number[],
+    lineColor: string,
+    W: number, H: number,
+    padL: number, padR: number, padT: number, padB: number,
+    fs: number,
+  ): string {
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const toX = (d: number) => padL + (d / Math.max(distMax, 1e-9)) * plotW;
+    const toY = (e: number) => padT + plotH - ((e - elevMin) / (elevRange || 1)) * plotH;
+
+    let pathD = '';
+    for (const p of valid) {
+      const x = toX(p.dist).toFixed(1), y = toY(p.elev).toFixed(1);
+      pathD += pathD ? ` L${x},${y}` : `M${x},${y}`;
+    }
+    const firstX = toX(valid[0].dist).toFixed(1);
+    const lastX  = toX(valid[valid.length - 1].dist).toFixed(1);
+    const baseY  = (padT + plotH).toFixed(1);
+    const areaD  = `${pathD} L${lastX},${baseY} L${firstX},${baseY} Z`;
+
+    const yTicks = [elevMin, elevMin + elevRange / 2, elevMax].map(e =>
+      `<text x="${padL - 3}" y="${toY(e).toFixed(1)}" text-anchor="end" dominant-baseline="middle" fill="#7aaa88" font-size="${fs}" font-family="sans-serif">${e.toFixed(0)}</text>
+       <line x1="${padL}" y1="${toY(e).toFixed(1)}" x2="${padL + plotW}" y2="${toY(e).toFixed(1)}" stroke="#1e3228" stroke-width="1"/>`,
+    ).join('');
+
+    // Cumulative distances at each vertex
+    const vertexDists: number[] = [0];
+    for (const d of segDists) vertexDists.push(vertexDists[vertexDists.length - 1] + d);
+
+    const vertexSvg = vertexDists.map((vd, i) => {
+      const lbl = String.fromCharCode(65 + i);
+      const vx  = toX(vd);
+      const closestPt = valid.reduce((best, p) =>
+        Math.abs(p.dist - vd) < Math.abs(best.dist - vd) ? p : best,
+      );
+      const vy = toY(closestPt.elev);
+      return `<line x1="${vx.toFixed(1)}" y1="${padT}" x2="${vx.toFixed(1)}" y2="${(padT + plotH).toFixed(1)}" stroke="${lineColor}" stroke-width="1" stroke-dasharray="2,2" opacity="0.55"/>
+              <circle cx="${vx.toFixed(1)}" cy="${vy.toFixed(1)}" r="3.5" fill="${lineColor}" stroke="#0c1c14" stroke-width="1.5"/>
+              <text x="${vx.toFixed(1)}" y="${(padT - 3).toFixed(1)}" text-anchor="middle" fill="${lineColor}" font-size="${fs}" font-family="sans-serif" font-weight="bold">${lbl}</text>`;
+    }).join('');
+
+    // Segment lengths row
+    const segLabels = segDists.map((d, i) => {
+      const a = String.fromCharCode(65 + i), b = String.fromCharCode(66 + i);
+      const dLbl = d < 1 ? `${(d * 1000).toFixed(0)} m` : `${d.toFixed(2)} km`;
+      return `${a}–${b}: ${dLbl}`;
+    }).join('   ');
+
+    const xAxisY   = padT + plotH + 13;
+    const segRowY  = H - 5;
+    const xLabel   = distMax < 1 ? `${(distMax * 1000).toFixed(0)} m` : `${distMax.toFixed(2)} km`;
+
+    return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${W}" height="${H}" fill="#0c1c14" rx="3"/>
+      ${yTicks}
+      ${vertexSvg}
+      <path d="${areaD}" fill="rgba(91,175,130,0.13)"/>
+      <path d="${pathD}" fill="none" stroke="${lineColor}" stroke-width="1.8"/>
+      <text x="${padL}" y="${xAxisY}" fill="#7aaa88" font-size="${fs}" font-family="sans-serif">0</text>
+      <text x="${padL + plotW}" y="${xAxisY}" fill="#7aaa88" font-size="${fs}" font-family="sans-serif" text-anchor="end">${xLabel}</text>
+      <text x="${padL}" y="${segRowY}" fill="#5a7a60" font-size="${Math.max(7, fs - 1)}" font-family="sans-serif">${segLabels}</text>
+    </svg>`;
+  }
+
+  private showProfilePanel(
+    pts: Array<{ dist: number; elev: number | null }>,
+    segDists: number[],
+  ): void {
     this.profilePanelEl?.remove();
     this.profilePanelEl = null;
 
@@ -790,37 +926,12 @@ export class HRDEMLayer {
     const elevMax   = Math.max(...valid.map(p => p.elev));
     const elevRange = elevMax - elevMin || 1;
 
-    const W = 340, H = 110, padL = 38, padR = 8, padT = 6, padB = 22;
-    const plotW = W - padL - padR, plotH = H - padT - padB;
-    const toX = (d: number) => padL + (d / Math.max(distMax, 1e-9)) * plotW;
-    const toY = (e: number) => padT + plotH - ((e - elevMin) / elevRange) * plotH;
-
-    let pathD = '';
-    for (const p of valid) {
-      const x = toX(p.dist).toFixed(1), y = toY(p.elev).toFixed(1);
-      pathD += pathD ? ` L${x},${y}` : `M${x},${y}`;
-    }
-
-    const firstX = toX(valid[0].dist).toFixed(1);
-    const lastX  = toX(valid[valid.length - 1].dist).toFixed(1);
-    const baseY  = (padT + plotH).toFixed(1);
-    const areaD  = `${pathD} L${lastX},${baseY} L${firstX},${baseY} Z`;
-
-    const yTicks = [elevMin, elevMin + elevRange / 2, elevMax].map(e =>
-      `<text x="${padL - 3}" y="${toY(e).toFixed(1)}" text-anchor="end" dominant-baseline="middle" fill="#7a9" font-size="9">${e.toFixed(0)}</text>
-       <line x1="${padL}" y1="${toY(e).toFixed(1)}" x2="${padL + plotW}" y2="${toY(e).toFixed(1)}" stroke="#1e3228" stroke-width="1"/>`,
-    ).join('');
-
-    const xLabel = distMax < 1 ? `${(distMax * 1000).toFixed(0)} m` : `${distMax.toFixed(2)} km`;
-
-    const svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-      <rect width="${W}" height="${H}" fill="#0c1c14" rx="3"/>
-      ${yTicks}
-      <path d="${areaD}" fill="rgba(91,175,130,0.15)"/>
-      <path d="${pathD}" fill="none" stroke="#5baf82" stroke-width="1.5"/>
-      <text x="${padL}" y="${H - 5}" fill="#7a9" font-size="9">0</text>
-      <text x="${padL + plotW}" y="${H - 5}" fill="#7a9" font-size="9" text-anchor="end">${xLabel}</text>
-    </svg>`;
+    // Layout: extra top padding for vertex labels, extra bottom for segment row
+    const W = 360, H = 140, padL = 40, padR = 10, padT = 18, padB = 40;
+    const svg = this.buildProfileSvg(
+      valid, elevMin, elevMax, elevRange, distMax, segDists,
+      this.profileLineColor, W, H, padL, padR, padT, padB, 9,
+    );
 
     const container = this.mapManager.getMap().getContainer();
     const el = document.createElement('div');
@@ -843,17 +954,20 @@ export class HRDEMLayer {
     titleWrap.innerHTML = `<span style="font-size:10px;color:#7a9;letter-spacing:.04em;text-transform:uppercase">Elevation Profile</span><span style="font-size:10px;color:#5baf82">${elevMin.toFixed(0)}–${elevMax.toFixed(0)} m</span>`;
 
     const btnWrap = document.createElement('span');
-    btnWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px';
+    btnWrap.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:8px';
 
     const snapBtn = document.createElement('button');
     snapBtn.title = 'Save snapshot (map + profile)';
-    snapBtn.style.cssText = 'background:none;border:1px solid rgba(91,175,130,0.3);border-radius:3px;color:#7a9;cursor:pointer;font-size:10px;padding:1px 5px;line-height:1.4';
+    snapBtn.style.cssText = 'background:none;border:1px solid rgba(91,175,130,0.3);border-radius:3px;color:#7a9;cursor:pointer;font-size:12px;padding:2px 6px;line-height:1.3';
     snapBtn.innerHTML = '&#128247;';
-    snapBtn.addEventListener('click', () => this.takeSnapshot(valid, elevMin, elevMax, el, elevRange, distMax, svg));
+    snapBtn.addEventListener('click', () =>
+      this.takeSnapshot(valid, elevMin, elevMax, el, elevRange, distMax, segDists),
+    );
 
     const close = document.createElement('button');
-    close.textContent = '✕';
-    close.style.cssText = 'background:none;border:none;color:#7a9;cursor:pointer;font-size:11px;padding:0 0 0 4px;line-height:1';
+    close.innerHTML = '&#10005;';
+    close.title = 'Close';
+    close.style.cssText = 'background:none;border:none;color:#aac8aa;cursor:pointer;font-size:15px;padding:0;line-height:1';
     close.addEventListener('click', () => {
       el.remove();
       this.profilePanelEl = null;
@@ -880,7 +994,7 @@ export class HRDEMLayer {
     panelEl: HTMLElement,
     elevRange: number,
     distMax: number,
-    _inlineSvg: string,
+    segDists: number[],
   ): void {
     const map       = this.mapManager.getMap();
     const mapCanvas = map.getCanvas();
@@ -891,49 +1005,32 @@ export class HRDEMLayer {
 
     const panelRect = panelEl.getBoundingClientRect();
     const contRect  = container.getBoundingClientRect();
-    const px = (panelRect.left   - contRect.left) * scaleX;
-    const py = (panelRect.top    - contRect.top)  * scaleY;
-    const pw = panelRect.width   * scaleX;
-    const ph = panelRect.height  * scaleY;
+    const px = (panelRect.left - contRect.left) * scaleX;
+    const py = (panelRect.top  - contRect.top)  * scaleY;
+    const pw = panelRect.width  * scaleX;
+    const ph = panelRect.height * scaleY;
 
-    // Build a standalone snapshot SVG that fills pw × ph
-    const W = Math.round(pw), H = Math.round(ph);
-    const hdrH = Math.round(26 * scaleY);
-    const padL = Math.round(38 * scaleX), padR = Math.round(10 * scaleX);
-    const padT = hdrH + Math.round(6 * scaleY), padB = Math.round(22 * scaleY);
-    const plotW = W - padL - padR, plotH = H - padT - padB;
-    const fs = Math.max(8, Math.round(9 * Math.min(scaleX, scaleY)));
+    const scale  = Math.min(scaleX, scaleY);
+    const W      = Math.round(pw), H = Math.round(ph);
+    const hdrH   = Math.round(26 * scaleY);
+    const padL   = Math.round(40 * scaleX), padR = Math.round(10 * scaleX);
+    const padT   = hdrH + Math.round(18 * scaleY), padB = Math.round(40 * scaleY);
+    const fs     = Math.max(8, Math.round(9 * scale));
 
-    const toX = (d: number) => padL + (d / Math.max(distMax, 1e-9)) * plotW;
-    const toY = (e: number) => padT + plotH - ((e - elevMin) / (elevRange || 1)) * plotH;
+    const snapSvg = this.buildProfileSvg(
+      pts, elevMin, elevMax, elevRange, distMax, segDists,
+      this.profileLineColor, W, H, padL, padR, padT, padB, fs,
+    );
 
-    let pathD = '';
-    for (const p of pts) {
-      const x = toX(p.dist).toFixed(1), y = toY(p.elev).toFixed(1);
-      pathD += pathD ? ` L${x},${y}` : `M${x},${y}`;
-    }
-    const firstX = toX(pts[0].dist).toFixed(1);
-    const lastX  = toX(pts[pts.length - 1].dist).toFixed(1);
-    const baseY  = (padT + plotH).toFixed(1);
-    const areaD  = `${pathD} L${lastX},${baseY} L${firstX},${baseY} Z`;
-
-    const yTicks = [elevMin, elevMin + (elevRange || 1) / 2, elevMax].map(e =>
-      `<text x="${padL - 3}" y="${toY(e).toFixed(1)}" text-anchor="end" dominant-baseline="middle" fill="#88aa99" font-size="${fs}" font-family="sans-serif">${e.toFixed(0)}</text>
-       <line x1="${padL}" y1="${toY(e).toFixed(1)}" x2="${padL + plotW}" y2="${toY(e).toFixed(1)}" stroke="#1e3228" stroke-width="1"/>`,
-    ).join('');
-
-    const xLabel = distMax < 1 ? `${(distMax * 1000).toFixed(0)} m` : `${distMax.toFixed(2)} km`;
-
-    const snapSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-      <rect width="${W}" height="${H}" fill="rgba(10,22,16,0.96)" rx="${Math.round(6 * scaleX)}"/>
-      <text x="${padL}" y="${Math.round(hdrH * 0.72)}" fill="#88aa99" font-size="${fs}" font-family="sans-serif" letter-spacing="1">ELEVATION PROFILE</text>
-      <text x="${W - padR}" y="${Math.round(hdrH * 0.72)}" text-anchor="end" fill="#5baf82" font-size="${fs}" font-family="sans-serif">${elevMin.toFixed(0)}–${elevMax.toFixed(0)} m</text>
-      ${yTicks}
-      <path d="${areaD}" fill="rgba(91,175,130,0.15)"/>
-      <path d="${pathD}" fill="none" stroke="#5baf82" stroke-width="${Math.max(1, 1.5 * Math.min(scaleX, scaleY))}"/>
-      <text x="${padL}" y="${H - Math.round(5 * scaleY)}" fill="#88aa99" font-size="${fs}" font-family="sans-serif">0</text>
-      <text x="${padL + plotW}" y="${H - Math.round(5 * scaleY)}" fill="#88aa99" font-size="${fs}" font-family="sans-serif" text-anchor="end">${xLabel}</text>
-    </svg>`;
+    // Prepend a header row to the snapshot SVG
+    const fullSvg = snapSvg.replace(
+      '<rect ',
+      `<rect /><rect `,
+    ).replace(
+      '<rect />',
+      `<text x="${padL}" y="${Math.round(hdrH * 0.72)}" fill="#88aa99" font-size="${fs}" font-family="sans-serif" letter-spacing="1">ELEVATION PROFILE</text>
+       <text x="${W - padR}" y="${Math.round(hdrH * 0.72)}" text-anchor="end" fill="#5baf82" font-size="${fs}" font-family="sans-serif">${elevMin.toFixed(0)}–${elevMax.toFixed(0)} m</text>`,
+    );
 
     const out = document.createElement('canvas');
     out.width  = mapCanvas.width;
@@ -941,7 +1038,7 @@ export class HRDEMLayer {
     const ctx  = out.getContext('2d')!;
     ctx.drawImage(mapCanvas, 0, 0);
 
-    const blob = new Blob([snapSvg], { type: 'image/svg+xml;charset=utf-8' });
+    const blob = new Blob([fullSvg], { type: 'image/svg+xml;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const img  = new Image();
     img.onload = () => {
@@ -1035,15 +1132,40 @@ export class HRDEMLayer {
       wrap.className = 'hrdem-tb-hint';
       wrap.style.cssText = 'display:inline-flex;align-items:center;gap:5px;margin-left:2px';
 
+      // Color picker — always visible while tool is active
+      const colorPick = document.createElement('input');
+      colorPick.type  = 'color';
+      colorPick.value = this.profileLineColor;
+      colorPick.title = 'Line color';
+      colorPick.style.cssText = [
+        'width:20px', 'height:20px', 'padding:1px',
+        'border:1px solid rgba(255,255,255,0.25)', 'border-radius:3px',
+        'background:none', 'cursor:pointer', 'vertical-align:middle',
+      ].join(';');
+      colorPick.addEventListener('input', (ev) => {
+        this.profileLineColor = (ev.target as HTMLInputElement).value;
+        const map = this.mapManager.getMap();
+        if (map.getLayer(this.profileLineLayerId)) {
+          map.setPaintProperty(this.profileLineLayerId, 'line-color', this.profileLineColor);
+        }
+        this.updateVertexMarkers();
+      });
+
       const hint = document.createElement('span');
       hint.style.cssText = 'font-size:9px;opacity:0.55';
       const n = this.profilePoints.length;
       if (n === 0) {
         hint.textContent = 'Click to add points…';
       } else if (n === 1) {
-        hint.textContent = '1 point — keep clicking';
+        hint.textContent = '1 pt — keep clicking';
       } else {
-        hint.textContent = `${n} points`;
+        hint.textContent = `${n} pts`;
+      }
+
+      wrap.appendChild(colorPick);
+      wrap.appendChild(hint);
+
+      if (n >= 2) {
         const finishBtn = document.createElement('button');
         finishBtn.textContent = 'Finish';
         finishBtn.style.cssText = [
@@ -1056,7 +1178,7 @@ export class HRDEMLayer {
         finishBtn.addEventListener('click', (e) => { e.stopPropagation(); this.finishProfileTool(); });
         wrap.appendChild(finishBtn);
       }
-      wrap.insertBefore(hint, wrap.firstChild);
+
       this.toolbarEl.appendChild(wrap);
     }
   }
