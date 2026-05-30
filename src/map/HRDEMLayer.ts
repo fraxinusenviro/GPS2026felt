@@ -926,18 +926,18 @@ export class HRDEMLayer {
     const elevMax   = Math.max(...valid.map(p => p.elev));
     const elevRange = elevMax - elevMin || 1;
 
-    // Layout: extra top padding for vertex labels, extra bottom for segment row
-    const W = 360, H = 140, padL = 40, padR = 10, padT = 18, padB = 40;
+    const container = this.mapManager.getMap().getContainer();
+    // Full-width: 10 px margin each side, 10 px padding each side inside panel
+    const W = Math.max(320, container.clientWidth - 40);
+    const H = 140, padL = 40, padR = 10, padT = 18, padB = 40;
     const svg = this.buildProfileSvg(
       valid, elevMin, elevMax, elevRange, distMax, segDists,
       this.profileLineColor, W, H, padL, padR, padT, padB, 9,
     );
 
-    const container = this.mapManager.getMap().getContainer();
     const el = document.createElement('div');
     el.style.cssText = [
-      'position:absolute', 'bottom:70px', 'left:50%',
-      'transform:translateX(-50%)',
+      'position:absolute', 'bottom:70px', 'left:10px', 'right:10px',
       'z-index:30',
       'background:rgba(10,22,16,0.96)',
       'border:1px solid rgba(91,175,130,0.25)',
@@ -1036,8 +1036,33 @@ export class HRDEMLayer {
     out.width  = mapCanvas.width;
     out.height = mapCanvas.height;
     const ctx  = out.getContext('2d')!;
+
+    // 1. Map (WebGL canvas)
     ctx.drawImage(mapCanvas, 0, 0);
 
+    // 2. Vertex markers (DOM elements not captured by drawImage — redraw manually)
+    const mscale = Math.min(scaleX, scaleY);
+    const r      = 9 * mscale;
+    ctx.save();
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font         = `bold ${Math.round(9 * mscale)}px sans-serif`;
+    for (let i = 0; i < this.profileVertexMarkers.length; i++) {
+      const m      = this.profileVertexMarkers[i];
+      const ll     = m.getLngLat();
+      const pt     = map.project([ll.lng, ll.lat]);
+      const cx     = pt.x * scaleX;
+      const cy     = pt.y * scaleY;
+      ctx.beginPath(); ctx.arc(cx, cy, r + 2 * mscale, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = this.profileLineColor; ctx.fill();
+      ctx.fillStyle = '#000000';
+      ctx.fillText(String.fromCharCode(65 + i), cx, cy);
+    }
+    ctx.restore();
+
+    // 3. Profile panel SVG (on top of map + markers)
     const blob = new Blob([fullSvg], { type: 'image/svg+xml;charset=utf-8' });
     const url  = URL.createObjectURL(blob);
     const img  = new Image();
