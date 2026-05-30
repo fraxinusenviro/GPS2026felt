@@ -122,6 +122,8 @@ export class HRDEMLayer {
   private profileClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
   private profilePanelEl: HTMLElement | null = null;
   private samplePopupEl: HTMLElement | null = null;
+  private profileLineSrcId   = '';
+  private profileLineLayerId = '';
 
   constructor(private readonly mapManager: MapManager) {}
 
@@ -135,11 +137,13 @@ export class HRDEMLayer {
     this.intendedOpacity = visible ? opacity : 0;
     this.removeMapLayers();
 
-    this.instanceId     = instanceId;
-    this.layerId        = `bm-ov-${instanceId}`;
-    this.srcId          = `bmsrc-${instanceId}`;
-    this.contourLayerId = `bm-ov-${instanceId}-contour`;
-    this.contourSrcId   = `bmsrc-${instanceId}-contour`;
+    this.instanceId        = instanceId;
+    this.layerId           = `bm-ov-${instanceId}`;
+    this.srcId             = `bmsrc-${instanceId}`;
+    this.contourLayerId    = `bm-ov-${instanceId}-contour`;
+    this.contourSrcId      = `bmsrc-${instanceId}-contour`;
+    this.profileLineSrcId  = `bmsrc-${instanceId}-profline`;
+    this.profileLineLayerId = `bm-ov-${instanceId}-profline`;
     this.active         = true;
 
     const map = this.mapManager.getMap();
@@ -178,6 +182,23 @@ export class HRDEMLayer {
           'line-color':   this.contourColor,
           'line-width':   this.contourWidth,
           'line-opacity': this.intendedOpacity,
+        },
+      },
+      LAYER_IDS.USER_ACCURACY,
+    );
+
+    map.addSource(this.profileLineSrcId, { type: 'geojson', data: EMPTY_FC });
+    map.addLayer(
+      {
+        id:     this.profileLineLayerId,
+        type:   'line',
+        source: this.profileLineSrcId,
+        layout: { visibility: 'visible' },
+        paint: {
+          'line-color':      '#5baf82',
+          'line-width':      2.5,
+          'line-dasharray':  [4, 2],
+          'line-opacity':    0.9,
         },
       },
       LAYER_IDS.USER_ACCURACY,
@@ -466,10 +487,12 @@ export class HRDEMLayer {
       this.debounceTimer = null;
     }
     const map = this.mapManager.getMap();
-    if (this.contourLayerId && map.getLayer(this.contourLayerId)) map.removeLayer(this.contourLayerId);
-    if (this.contourSrcId   && map.getSource(this.contourSrcId))  map.removeSource(this.contourSrcId);
-    if (this.layerId        && map.getLayer(this.layerId))         map.removeLayer(this.layerId);
-    if (this.srcId          && map.getSource(this.srcId))          map.removeSource(this.srcId);
+    if (this.profileLineLayerId && map.getLayer(this.profileLineLayerId)) map.removeLayer(this.profileLineLayerId);
+    if (this.profileLineSrcId   && map.getSource(this.profileLineSrcId))  map.removeSource(this.profileLineSrcId);
+    if (this.contourLayerId     && map.getLayer(this.contourLayerId))     map.removeLayer(this.contourLayerId);
+    if (this.contourSrcId       && map.getSource(this.contourSrcId))      map.removeSource(this.contourSrcId);
+    if (this.layerId            && map.getLayer(this.layerId))            map.removeLayer(this.layerId);
+    if (this.srcId              && map.getSource(this.srcId))             map.removeSource(this.srcId);
   }
 
   private scheduleFetch(): void {
@@ -594,30 +617,50 @@ export class HRDEMLayer {
     return v;
   }
 
-  private sampleProfileLine(
-    lon1: number, lat1: number, lon2: number, lat2: number, n = 200,
+  private sampleProfileLineMulti(
+    points: [number, number][], totalSamples = 200,
   ): Array<{ dist: number; elev: number | null }> {
-    if (!this.lastResult) return [];
+    if (!this.lastResult || points.length < 2) return [];
     const { grid, width, height, bbox, nodata } = this.lastResult;
     const [west, south, east, north] = bbox;
-    const dlon = lon2 - lon1, dlat = lat2 - lat1;
-    const latMid = (lat1 + lat2) / 2;
-    const distKm = Math.sqrt(
-      (dlat * 110.54) ** 2 + (dlon * 111.32 * Math.cos(latMid * Math.PI / 180)) ** 2,
-    );
 
-    return Array.from({ length: n + 1 }, (_, i) => {
-      const t = i / n;
-      const lon = lon1 + t * dlon, lat = lat1 + t * dlat;
-      const col = Math.round((lon - west)  / (east - west)   * (width  - 1));
-      const row = Math.round((north - lat) / (north - south) * (height - 1));
-      let elev: number | null = null;
-      if (col >= 0 && col < width && row >= 0 && row < height) {
-        const v = grid[row * width + col];
-        if (isFinite(v) && (nodata === null || Math.abs(v - nodata) >= 0.001)) elev = v;
+    const segDists: number[] = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const [lon1, lat1] = points[i], [lon2, lat2] = points[i + 1];
+      const dlon = lon2 - lon1, dlat = lat2 - lat1;
+      const latMid = (lat1 + lat2) / 2;
+      segDists.push(Math.sqrt(
+        (dlat * 110.54) ** 2 + (dlon * 111.32 * Math.cos(latMid * Math.PI / 180)) ** 2,
+      ));
+    }
+    const totalDist = segDists.reduce((a, b) => a + b, 0);
+    if (totalDist === 0) return [];
+
+    const result: Array<{ dist: number; elev: number | null }> = [];
+    let accDist = 0;
+
+    for (let seg = 0; seg < points.length - 1; seg++) {
+      const [lon1, lat1] = points[seg], [lon2, lat2] = points[seg + 1];
+      const segLen = segDists[seg];
+      const isLast = seg === points.length - 2;
+      const n = Math.max(2, Math.round((segLen / totalDist) * totalSamples));
+
+      for (let i = 0; i <= (isLast ? n : n - 1); i++) {
+        const t = i / n;
+        const lon = lon1 + t * (lon2 - lon1), lat = lat1 + t * (lat2 - lat1);
+        const col = Math.round((lon - west)  / (east - west)   * (width  - 1));
+        const row = Math.round((north - lat) / (north - south) * (height - 1));
+        let elev: number | null = null;
+        if (col >= 0 && col < width && row >= 0 && row < height) {
+          const v = grid[row * width + col];
+          if (isFinite(v) && (nodata === null || Math.abs(v - nodata) >= 0.001)) elev = v;
+        }
+        result.push({ dist: accDist + t * segLen, elev });
       }
-      return { dist: t * distKm, elev };
-    });
+      accDist += segLen;
+    }
+
+    return result;
   }
 
   // --------------------------------------------------------------------------
@@ -633,8 +676,34 @@ export class HRDEMLayer {
     map.getCanvas().style.cursor = '';
     this.samplePopupEl?.remove();
     this.samplePopupEl = null;
+    this.clearProfileLine();
     // Note: profilePanelEl is intentionally NOT removed here — it has its own close button.
     this.refreshToolbarButtons();
+  }
+
+  private clearProfileLine(): void {
+    if (!this.profileLineSrcId) return;
+    const src = this.mapManager.getMap().getSource(this.profileLineSrcId) as maplibregl.GeoJSONSource | undefined;
+    if (src) src.setData(EMPTY_FC);
+  }
+
+  private updateProfileLineOnMap(): void {
+    if (!this.profileLineSrcId) return;
+    const src = this.mapManager.getMap().getSource(this.profileLineSrcId) as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+    if (this.profilePoints.length < 2) {
+      src.setData(EMPTY_FC);
+      return;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    src.setData({
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: this.profilePoints },
+        properties: {},
+      }],
+    } as any);
   }
 
   private activateSampleTool(): void {
@@ -662,30 +731,28 @@ export class HRDEMLayer {
 
     this.profileClickHandler = (e: maplibregl.MapMouseEvent) => {
       this.profilePoints.push([e.lngLat.lng, e.lngLat.lat]);
-
-      if (this.profilePoints.length >= 2) {
-        const [p1, p2] = this.profilePoints;
-        const pts = this.sampleProfileLine(p1[0], p1[1], p2[0], p2[1]);
-
-        // Reset tool input state WITHOUT removing the profile panel
-        if (this.profileClickHandler) {
-          map.off('click', this.profileClickHandler);
-          this.profileClickHandler = null;
-        }
-        map.getCanvas().style.cursor = '';
-        this.activeTool = 'none';
-        this.profilePoints = [];
-        this.refreshToolbarButtons();
-
-        // Show panel after resetting state (so cancelTool won't see it)
-        this.showProfilePanel(pts);
-      } else {
-        // After first click, update hint
-        this.refreshToolbarButtons();
-      }
+      this.updateProfileLineOnMap();
+      this.refreshToolbarButtons();
     };
     map.on('click', this.profileClickHandler);
     this.refreshToolbarButtons();
+  }
+
+  private finishProfileTool(): void {
+    if (this.profilePoints.length < 2) return;
+    const pts = this.sampleProfileLineMulti(this.profilePoints);
+
+    const map = this.mapManager.getMap();
+    if (this.profileClickHandler) {
+      map.off('click', this.profileClickHandler);
+      this.profileClickHandler = null;
+    }
+    map.getCanvas().style.cursor = '';
+    this.activeTool = 'none';
+    this.profilePoints = [];
+    this.refreshToolbarButtons();
+
+    this.showProfilePanel(pts);
   }
 
   private showSamplePopup(lon: number, lat: number, elev: number | null): void {
@@ -718,9 +785,9 @@ export class HRDEMLayer {
     const valid = pts.filter(p => p.elev !== null) as Array<{ dist: number; elev: number }>;
     if (valid.length < 2) return;
 
-    const distMax  = valid[valid.length - 1].dist;
-    const elevMin  = Math.min(...valid.map(p => p.elev));
-    const elevMax  = Math.max(...valid.map(p => p.elev));
+    const distMax   = valid[valid.length - 1].dist;
+    const elevMin   = Math.min(...valid.map(p => p.elev));
+    const elevMax   = Math.max(...valid.map(p => p.elev));
     const elevRange = elevMax - elevMin || 1;
 
     const W = 340, H = 110, padL = 38, padR = 8, padT = 6, padB = 22;
@@ -734,7 +801,6 @@ export class HRDEMLayer {
       pathD += pathD ? ` L${x},${y}` : `M${x},${y}`;
     }
 
-    // Filled area under the profile
     const firstX = toX(valid[0].dist).toFixed(1);
     const lastX  = toX(valid[valid.length - 1].dist).toFixed(1);
     const baseY  = (padT + plotH).toFixed(1);
@@ -771,13 +837,33 @@ export class HRDEMLayer {
 
     const header = document.createElement('div');
     header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px';
-    header.innerHTML = `<span style="font-size:10px;color:#7a9;letter-spacing:.04em;text-transform:uppercase">Elevation Profile</span><span style="font-size:10px;color:#5baf82;margin-left:8px">${elevMin.toFixed(0)}–${elevMax.toFixed(0)} m</span>`;
+
+    const titleWrap = document.createElement('span');
+    titleWrap.style.cssText = 'display:flex;align-items:center;gap:6px';
+    titleWrap.innerHTML = `<span style="font-size:10px;color:#7a9;letter-spacing:.04em;text-transform:uppercase">Elevation Profile</span><span style="font-size:10px;color:#5baf82">${elevMin.toFixed(0)}–${elevMax.toFixed(0)} m</span>`;
+
+    const btnWrap = document.createElement('span');
+    btnWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px';
+
+    const snapBtn = document.createElement('button');
+    snapBtn.title = 'Save snapshot (map + profile)';
+    snapBtn.style.cssText = 'background:none;border:1px solid rgba(91,175,130,0.3);border-radius:3px;color:#7a9;cursor:pointer;font-size:10px;padding:1px 5px;line-height:1.4';
+    snapBtn.innerHTML = '&#128247;';
+    snapBtn.addEventListener('click', () => this.takeSnapshot(valid, elevMin, elevMax, el, elevRange, distMax, svg));
 
     const close = document.createElement('button');
     close.textContent = '✕';
-    close.style.cssText = 'background:none;border:none;color:#7a9;cursor:pointer;font-size:11px;padding:0 0 0 10px;line-height:1';
-    close.addEventListener('click', () => { el.remove(); this.profilePanelEl = null; });
-    header.appendChild(close);
+    close.style.cssText = 'background:none;border:none;color:#7a9;cursor:pointer;font-size:11px;padding:0 0 0 4px;line-height:1';
+    close.addEventListener('click', () => {
+      el.remove();
+      this.profilePanelEl = null;
+      this.clearProfileLine();
+    });
+
+    btnWrap.appendChild(snapBtn);
+    btnWrap.appendChild(close);
+    header.appendChild(titleWrap);
+    header.appendChild(btnWrap);
 
     el.appendChild(header);
     const svgWrap = document.createElement('div');
@@ -786,6 +872,88 @@ export class HRDEMLayer {
 
     container.appendChild(el);
     this.profilePanelEl = el;
+  }
+
+  private takeSnapshot(
+    pts: Array<{ dist: number; elev: number }>,
+    elevMin: number, elevMax: number,
+    panelEl: HTMLElement,
+    elevRange: number,
+    distMax: number,
+    _inlineSvg: string,
+  ): void {
+    const map       = this.mapManager.getMap();
+    const mapCanvas = map.getCanvas();
+    const container = map.getContainer();
+
+    const scaleX = mapCanvas.width  / container.clientWidth;
+    const scaleY = mapCanvas.height / container.clientHeight;
+
+    const panelRect = panelEl.getBoundingClientRect();
+    const contRect  = container.getBoundingClientRect();
+    const px = (panelRect.left   - contRect.left) * scaleX;
+    const py = (panelRect.top    - contRect.top)  * scaleY;
+    const pw = panelRect.width   * scaleX;
+    const ph = panelRect.height  * scaleY;
+
+    // Build a standalone snapshot SVG that fills pw × ph
+    const W = Math.round(pw), H = Math.round(ph);
+    const hdrH = Math.round(26 * scaleY);
+    const padL = Math.round(38 * scaleX), padR = Math.round(10 * scaleX);
+    const padT = hdrH + Math.round(6 * scaleY), padB = Math.round(22 * scaleY);
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const fs = Math.max(8, Math.round(9 * Math.min(scaleX, scaleY)));
+
+    const toX = (d: number) => padL + (d / Math.max(distMax, 1e-9)) * plotW;
+    const toY = (e: number) => padT + plotH - ((e - elevMin) / (elevRange || 1)) * plotH;
+
+    let pathD = '';
+    for (const p of pts) {
+      const x = toX(p.dist).toFixed(1), y = toY(p.elev).toFixed(1);
+      pathD += pathD ? ` L${x},${y}` : `M${x},${y}`;
+    }
+    const firstX = toX(pts[0].dist).toFixed(1);
+    const lastX  = toX(pts[pts.length - 1].dist).toFixed(1);
+    const baseY  = (padT + plotH).toFixed(1);
+    const areaD  = `${pathD} L${lastX},${baseY} L${firstX},${baseY} Z`;
+
+    const yTicks = [elevMin, elevMin + (elevRange || 1) / 2, elevMax].map(e =>
+      `<text x="${padL - 3}" y="${toY(e).toFixed(1)}" text-anchor="end" dominant-baseline="middle" fill="#88aa99" font-size="${fs}" font-family="sans-serif">${e.toFixed(0)}</text>
+       <line x1="${padL}" y1="${toY(e).toFixed(1)}" x2="${padL + plotW}" y2="${toY(e).toFixed(1)}" stroke="#1e3228" stroke-width="1"/>`,
+    ).join('');
+
+    const xLabel = distMax < 1 ? `${(distMax * 1000).toFixed(0)} m` : `${distMax.toFixed(2)} km`;
+
+    const snapSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${W}" height="${H}" fill="rgba(10,22,16,0.96)" rx="${Math.round(6 * scaleX)}"/>
+      <text x="${padL}" y="${Math.round(hdrH * 0.72)}" fill="#88aa99" font-size="${fs}" font-family="sans-serif" letter-spacing="1">ELEVATION PROFILE</text>
+      <text x="${W - padR}" y="${Math.round(hdrH * 0.72)}" text-anchor="end" fill="#5baf82" font-size="${fs}" font-family="sans-serif">${elevMin.toFixed(0)}–${elevMax.toFixed(0)} m</text>
+      ${yTicks}
+      <path d="${areaD}" fill="rgba(91,175,130,0.15)"/>
+      <path d="${pathD}" fill="none" stroke="#5baf82" stroke-width="${Math.max(1, 1.5 * Math.min(scaleX, scaleY))}"/>
+      <text x="${padL}" y="${H - Math.round(5 * scaleY)}" fill="#88aa99" font-size="${fs}" font-family="sans-serif">0</text>
+      <text x="${padL + plotW}" y="${H - Math.round(5 * scaleY)}" fill="#88aa99" font-size="${fs}" font-family="sans-serif" text-anchor="end">${xLabel}</text>
+    </svg>`;
+
+    const out = document.createElement('canvas');
+    out.width  = mapCanvas.width;
+    out.height = mapCanvas.height;
+    const ctx  = out.getContext('2d')!;
+    ctx.drawImage(mapCanvas, 0, 0);
+
+    const blob = new Blob([snapSvg], { type: 'image/svg+xml;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const img  = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, px, py, pw, ph);
+      URL.revokeObjectURL(url);
+      const a = document.createElement('a');
+      a.download = 'elevation-profile.png';
+      a.href = out.toDataURL('image/png');
+      a.click();
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
   }
 
   // --------------------------------------------------------------------------
@@ -863,11 +1031,33 @@ export class HRDEMLayer {
     const existing = this.toolbarEl.querySelector('.hrdem-tb-hint');
     existing?.remove();
     if (this.activeTool === 'profile') {
+      const wrap = document.createElement('span');
+      wrap.className = 'hrdem-tb-hint';
+      wrap.style.cssText = 'display:inline-flex;align-items:center;gap:5px;margin-left:2px';
+
       const hint = document.createElement('span');
-      hint.className = 'hrdem-tb-hint';
-      hint.style.cssText = 'font-size:9px;opacity:0.55;margin-left:2px';
-      hint.textContent = this.profilePoints.length === 0 ? 'Click start…' : 'Click end point…';
-      this.toolbarEl.appendChild(hint);
+      hint.style.cssText = 'font-size:9px;opacity:0.55';
+      const n = this.profilePoints.length;
+      if (n === 0) {
+        hint.textContent = 'Click to add points…';
+      } else if (n === 1) {
+        hint.textContent = '1 point — keep clicking';
+      } else {
+        hint.textContent = `${n} points`;
+        const finishBtn = document.createElement('button');
+        finishBtn.textContent = 'Finish';
+        finishBtn.style.cssText = [
+          'background:rgba(91,175,130,0.2)',
+          'border:1px solid rgba(91,175,130,0.55)',
+          'border-radius:3px', 'color:#5baf82',
+          'cursor:pointer', 'padding:1px 6px',
+          'font-family:inherit', 'font-size:9px',
+        ].join(';');
+        finishBtn.addEventListener('click', (e) => { e.stopPropagation(); this.finishProfileTool(); });
+        wrap.appendChild(finishBtn);
+      }
+      wrap.insertBefore(hint, wrap.firstChild);
+      this.toolbarEl.appendChild(wrap);
     }
   }
 
