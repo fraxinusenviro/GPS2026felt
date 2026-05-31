@@ -5,39 +5,39 @@ import type { BasemapDef } from '../types';
 
 const LAYER_THUMBS: Record<string, string> = {
 
-  'esri-imagery': '/layer-thumbs/esri-imagery.png',
-  'esri-hybrid': '/layer-thumbs/esri-hybrid.png',
-  'osm': '/layer-thumbs/osm.png',
-  'topo': '/layer-thumbs/topo.png',
-  'default': '/layer-thumbs/default.png',
-  'default-line': '/layer-thumbs/default-line.png',
-  'default-polygon': '/layer-thumbs/default-polygon.png',
-  'hrdem-dtm-hillshade': '/layer-thumbs/hrdem-dtm-hillshade.png',
-  'hrdem-dsm-hillshade': '/layer-thumbs/hrdem-dsm-hillshade.png',
-  'ns-plan-nsprd': '/layer-thumbs/ns-plan-nsprd.png',
-  'ns-nshn-watercourses': '/layer-thumbs/ns-nshn-watercourses.png',
-  'ns-nshn-waterbodies': '/layer-thumbs/ns-nshn-waterbodies.png',
-  'ns-nshn-wetlands': '/layer-thumbs/ns-nshn-wetlands.png',
-  'ns-base-contours': '/layer-thumbs/ns-base-contours.png',
-  'ns-base-parks': '/layer-thumbs/ns-base-parks.png',
-  'ns-base-designated': '/layer-thumbs/ns-base-designated.png',
-  'ns-bio-habitat': '/layer-thumbs/ns-bio-habitat.png',
-  'ns-bio-nsnrr-wetlands': '/layer-thumbs/ns-bio-nsnrr-wetlands.png',
-  'ns-for-old-growth': '/layer-thumbs/ns-for-old-growth.png',
-  'ns-for-fec-soil': '/layer-thumbs/ns-for-fec-soil.png',
-  'ns-trns-roads': '/layer-thumbs/ns-trns-roads.png',
-  'ns-crown-parcels': '/layer-thumbs/ns-crown-parcels.png',
-  'hrdem-elevation': '/layer-thumbs/hrdem-elevation.png',
-  'hrdem-slope': '/layer-thumbs/hrdem-slope.png',
-  'hrdem-aspect': '/layer-thumbs/hrdem-aspect.png',
-  'hrdem-tpi': '/layer-thumbs/hrdem-tpi.png',
-  'hrdem-contours': '/layer-thumbs/hrdem-contours.png',
-  'hrdem-dsm-elevation': '/layer-thumbs/hrdem-dsm-elevation.png',
-  'hrdem-chm': '/layer-thumbs/hrdem-chm.png',
-  'wi-dtw': '/layer-thumbs/wi-dtw.png',
-  'wi-gei': '/layer-thumbs/wi-gei.png',
-  'wi-dtw-contour': '/layer-thumbs/wi-dtw-contour.png',
-  'wi-pdep': '/layer-thumbs/wi-pdep.png',
+  'esri-imagery': './layer-thumbs/esri-imagery.png',
+  'esri-hybrid': './layer-thumbs/esri-hybrid.png',
+  'osm': './layer-thumbs/osm.png',
+  'topo': './layer-thumbs/topo.png',
+  'default': './layer-thumbs/default.png',
+  'default-line': './layer-thumbs/default-line.png',
+  'default-polygon': './layer-thumbs/default-polygon.png',
+  'hrdem-dtm-hillshade': './layer-thumbs/hrdem-dtm-hillshade.png',
+  'hrdem-dsm-hillshade': './layer-thumbs/hrdem-dsm-hillshade.png',
+  'ns-plan-nsprd': './layer-thumbs/ns-plan-nsprd.png',
+  'ns-nshn-watercourses': './layer-thumbs/ns-nshn-watercourses.png',
+  'ns-nshn-waterbodies': './layer-thumbs/ns-nshn-waterbodies.png',
+  'ns-nshn-wetlands': './layer-thumbs/ns-nshn-wetlands.png',
+  'ns-base-contours': './layer-thumbs/ns-base-contours.png',
+  'ns-base-parks': './layer-thumbs/ns-base-parks.png',
+  'ns-base-designated': './layer-thumbs/ns-base-designated.png',
+  'ns-bio-habitat': './layer-thumbs/ns-bio-habitat.png',
+  'ns-bio-nsnrr-wetlands': './layer-thumbs/ns-bio-nsnrr-wetlands.png',
+  'ns-for-old-growth': './layer-thumbs/ns-for-old-growth.png',
+  'ns-for-fec-soil': './layer-thumbs/ns-for-fec-soil.png',
+  'ns-trns-roads': './layer-thumbs/ns-trns-roads.png',
+  'ns-crown-parcels': './layer-thumbs/ns-crown-parcels.png',
+  'hrdem-elevation': './layer-thumbs/hrdem-elevation.png',
+  'hrdem-slope': './layer-thumbs/hrdem-slope.png',
+  'hrdem-aspect': './layer-thumbs/hrdem-aspect.png',
+  'hrdem-tpi': './layer-thumbs/hrdem-tpi.png',
+  'hrdem-contours': './layer-thumbs/hrdem-contours.png',
+  'hrdem-dsm-elevation': './layer-thumbs/hrdem-dsm-elevation.png',
+  'hrdem-chm': './layer-thumbs/hrdem-chm.png',
+  'wi-dtw': './layer-thumbs/wi-dtw.png',
+  'wi-gei': './layer-thumbs/wi-gei.png',
+  'wi-dtw-contour': './layer-thumbs/wi-dtw-contour.png',
+  'wi-pdep': './layer-thumbs/wi-pdep.png',
 };
 
 // ── Layer label overrides for the Data Library ────────────────────────────────
@@ -97,7 +97,7 @@ function getThumb(def: BasemapDef): { src: string; isTile: boolean } {
     const src = def.url.replace('{z}', '4').replace('{x}', '4').replace('{y}', '5').replace('{r}', '');
     return { src, isTile: true };
   }
-  return { src: '/layer-thumbs/default.png', isTile: false };
+  return { src: './layer-thumbs/default.png', isTile: false };
 }
 
 function typeLabel(def: BasemapDef): string {
