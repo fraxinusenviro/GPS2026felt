@@ -5589,3 +5589,104 @@ input[type=color] {
   .dl-modal { border-radius: 0; height: 100dvh; max-width: 100%; }
   .dl-sidebar { width: 120px; }
 }
+
+/* ── Flip card ── */
+.dl-card-thumb {
+  perspective: 600px;
+  cursor: pointer;
+}
+.dl-thumb-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.dl-card-thumb.dl-flipped .dl-thumb-inner {
+  transform: rotateY(180deg);
+}
+.dl-thumb-front,
+.dl-thumb-back {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  overflow: hidden;
+}
+.dl-thumb-front {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dl-thumb-back {
+  transform: rotateY(180deg);
+  background: var(--color-surface-3, #1e2f27);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px;
+  gap: 4px;
+}
+
+/* ⓘ badge on front face */
+.dl-thumb-info-badge {
+  position: absolute;
+  bottom: 5px;
+  right: 6px;
+  font-size: 13px;
+  line-height: 1;
+  color: rgba(255,255,255,0.55);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Back face content */
+.dl-info-desc {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--color-text, #e2e8f0);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  flex: 1;
+  margin: 0;
+}
+.dl-info-attrs {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.dl-info-attr {
+  display: flex;
+  gap: 4px;
+  font-size: 9px;
+  line-height: 1.3;
+}
+.dl-attr-key {
+  color: var(--color-text-muted, #94a3b8);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.dl-attr-val {
+  color: var(--color-accent, #4ade80);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-thumb-back-hint {
+  font-size: 8px;
+  color: rgba(255,255,255,0.35);
+  text-align: center;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+/* Global flip hint shown at first open */
+.dl-flip-hint-global {
+  text-align: center;
+  font-size: 11px;
+  color: var(--color-text-muted, #94a3b8);
+  padding: 4px 0 0;
+  opacity: 0.8;
+}
