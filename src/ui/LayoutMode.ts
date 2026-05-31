@@ -90,7 +90,8 @@ const DEFAULT_STYLE: FieldStyle = { fontWeight: '400', fontSize: 11, color: '#1a
 export class LayoutMode {
   private overlay: HTMLElement | null = null;
   private isActive = false;
-  private isEditExtentMode = false;
+  private isMapPanMode = false;
+  private showFieldsPanel = false;
   private fieldStyles = new Map<string, FieldStyle>();
   private selectedFieldId: string | null = null;
   private mapSnapshot: string | null = null;
@@ -99,7 +100,7 @@ export class LayoutMode {
   private cropBox: CropBox | null = null;
   private mapState: MapState | null = null;
 
-  // Zoom / pan state
+  // Layout-view zoom / pan state (zooms the preview canvas, not the map)
   private scale = 1.0;
   private panX = 0;
   private panY = 0;
@@ -120,6 +121,8 @@ export class LayoutMode {
     private getMapCanvas: () => HTMLCanvasElement,
     private getMapStateFn?: () => MapState,
     private getHighResSnapshot?: () => Promise<string>,
+    private mapZoomIn?: () => void,
+    private mapZoomOut?: () => void,
   ) {
     for (const f of FIELDS) {
       this.fieldStyles.set(f.id, {
@@ -153,7 +156,8 @@ export class LayoutMode {
     if (!this.isActive) return;
     this.saveState();
     this.isActive = false;
-    this.isEditExtentMode = false;
+    this.isMapPanMode = false;
+    this.showFieldsPanel = false;
     if (this.escHandler) {
       document.removeEventListener('keydown', this.escHandler);
       this.escHandler = null;
@@ -216,12 +220,18 @@ export class LayoutMode {
     requestAnimationFrame(() => {
       const sheet = this.overlay?.querySelector<HTMLElement>('#lm-sheet');
       if (sheet) {
+        // Apply correct aspect ratio for the selected paper/orientation
+        const ps = PAPER_SIZES[this.exportSettings.paperSize] ?? PAPER_SIZES.tabloid;
+        const pw = this.exportSettings.landscape ? Math.max(ps.w, ps.h) : Math.min(ps.w, ps.h);
+        const ph = this.exportSettings.landscape ? Math.min(ps.w, ps.h) : Math.max(ps.w, ps.h);
+        sheet.style.aspectRatio = `${pw} / ${ph}`;
         this.sheetBaseW = sheet.offsetWidth;
         this.sheetBaseH = sheet.offsetHeight;
         this.fitSheet();
       }
       this.restoreState();
       this.updateVectorOverlay();
+      this.updatePreviewFontSizes();
     });
   }
 
@@ -231,20 +241,89 @@ export class LayoutMode {
       .map(([k, v]) => `<option value="${k}" ${k === this.exportSettings.paperSize ? 'selected' : ''}>${v.label}</option>`)
       .join('');
 
+    const fieldsPanelItems = FIELDS.map(f => `
+      <div class="lm-fp-item">
+        <label class="lm-fp-label">${f.label}</label>
+        <textarea class="lm-fp-textarea" data-fid="${f.id}" placeholder="${f.placeholder}" rows="3" spellcheck="false"></textarea>
+      </div>`).join('');
+
     return `
       <div id="lm-toolbar">
-        <div class="lm-tb-section">
+
+        <!-- ① Identity + Panel toggle -->
+        <div class="lm-tb-section lm-section-identity">
           <span class="lm-title-badge">
             <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><rect x="2" y="2" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="13" y="2" width="5" height="16" rx="0" fill="currentColor" opacity=".25"/><rect x="5" y="5" width="6" height="1.2" rx=".5"/><rect x="5" y="8" width="4" height="1.2" rx=".5"/></svg>
             Layout
           </span>
+          <button class="lm-icon-btn lm-toggle-btn ${this.showFieldsPanel ? 'lm-btn-active' : ''}" id="lm-toggle-panel"
+            title="Toggle text-fields panel (edit all fields without clicking the map)">
+            <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13">
+              <rect x="1" y="1" width="14" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+              <rect x="4" y="4" width="8" height="1.2" rx=".4"/>
+              <rect x="4" y="7" width="8" height="1.2" rx=".4"/>
+              <rect x="4" y="10" width="5" height="1.2" rx=".4"/>
+            </svg>
+          </button>
         </div>
 
-        <div class="lm-tb-section lm-field-section">
-          <span class="lm-tb-dimmed" id="lm-field-name">Click a field</span>
+        <!-- ② Layout-view zoom (zooms the preview canvas, not the map) -->
+        <div class="lm-tb-section">
+          <div class="lm-ctrl-group">
+            <label class="lm-ctrl-label">View</label>
+            <div class="lm-size-row">
+              <button class="lm-icon-btn" id="lm-zoom-out" title="Zoom layout view out">−</button>
+              <button class="lm-icon-btn lm-zoom-fit-btn" id="lm-zoom-fit" title="Fit layout to window">
+                <svg viewBox="0 0 14 14" fill="currentColor" width="12" height="12"><rect x="1" y="1" width="12" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="4" y="4" width="6" height="6" rx=".5"/></svg>
+              </button>
+              <button class="lm-icon-btn" id="lm-zoom-in" title="Zoom layout view in">+</button>
+            </div>
+          </div>
         </div>
 
+        <!-- ③ Map Extent — pan the map + zoom map in/out (separate from view zoom) -->
+        <div class="lm-tb-section lm-map-extent-section">
+          <label class="lm-ctrl-label">Map Extent</label>
+          <div class="lm-align-row">
+            <button class="lm-icon-btn lm-toggle-btn ${this.isMapPanMode ? 'lm-btn-active' : ''}"
+              id="lm-map-pan" title="Pan map extent — drag the live map to reposition, then Capture">
+              <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13">
+                <path d="M8 1.5v13M1.5 8h13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/>
+                <path d="M8 2.5 L6 4.5 M8 2.5 L10 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>
+                <path d="M8 13.5 L6 11.5 M8 13.5 L10 11.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>
+                <path d="M2.5 8 L4.5 6 M2.5 8 L4.5 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>
+                <path d="M13.5 8 L11.5 6 M13.5 8 L11.5 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>
+              </svg>
+            </button>
+            <button class="lm-icon-btn" id="lm-map-zoom-out" title="Zoom map out (shrinks the map extent)">
+              <svg viewBox="0 0 14 14" fill="currentColor" width="12" height="12">
+                <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                <line x1="3.5" y1="6" x2="8.5" y2="6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                <line x1="9.5" y1="9.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button class="lm-icon-btn" id="lm-map-zoom-in" title="Zoom map in (enlarges map detail)">
+              <svg viewBox="0 0 14 14" fill="currentColor" width="12" height="12">
+                <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                <line x1="3.5" y1="6" x2="8.5" y2="6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                <line x1="6" y1="3.5" x2="6" y2="8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                <line x1="9.5" y1="9.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button class="lm-capture-btn" id="lm-capture-extent" title="Capture current map view as layout extent">
+              <svg viewBox="0 0 14 14" fill="currentColor" width="11" height="11"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="7" cy="7" r="2.2"/></svg>
+              Capture
+            </button>
+          </div>
+        </div>
+
+        <!-- ④ Field style controls (shown when a field is active) -->
         <div class="lm-tb-section lm-style-section" id="lm-style-controls">
+          <div class="lm-ctrl-group">
+            <label class="lm-ctrl-label" id="lm-field-name-label">Text Style</label>
+            <span class="lm-tb-dimmed" id="lm-field-name">Select a field</span>
+          </div>
+
           <div class="lm-ctrl-group">
             <label class="lm-ctrl-label">Weight</label>
             <select id="lm-font-weight" class="lm-select">
@@ -257,7 +336,7 @@ export class LayoutMode {
           </div>
 
           <div class="lm-ctrl-group">
-            <label class="lm-ctrl-label">Size</label>
+            <label class="lm-ctrl-label">Size (pt)</label>
             <div class="lm-size-row">
               <button class="lm-icon-btn" id="lm-size-dec" title="Smaller">−</button>
               <span id="lm-size-display" class="lm-size-val">--</span>
@@ -286,13 +365,7 @@ export class LayoutMode {
           </div>
         </div>
 
-        <div class="lm-tb-section">
-          <label class="lm-ctrl-label" style="align-self:center;margin-right:2px">Zoom</label>
-          <button class="lm-icon-btn" id="lm-zoom-out" title="Zoom Out">−</button>
-          <button class="lm-icon-btn" id="lm-zoom-fit" title="Fit to window" style="font-size:11px;width:auto;padding:0 5px;">⊡</button>
-          <button class="lm-icon-btn" id="lm-zoom-in" title="Zoom In">+</button>
-        </div>
-
+        <!-- ⑤ Page setup -->
         <div class="lm-tb-section lm-export-settings-section">
           <div class="lm-ctrl-group">
             <label class="lm-ctrl-label">Paper</label>
@@ -306,14 +379,17 @@ export class LayoutMode {
           <div class="lm-ctrl-group">
             <label class="lm-ctrl-label">Orient</label>
             <button class="lm-icon-btn lm-orient-btn ${this.exportSettings.landscape ? 'lm-btn-active' : ''}" id="lm-orient" title="Toggle landscape/portrait">
-              ${this.exportSettings.landscape ? 'Land' : 'Port'}
+              ${this.exportSettings.landscape
+                ? `<svg viewBox="0 0 16 10" fill="none" width="22" height="14" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="14" height="8" rx="1"/></svg>`
+                : `<svg viewBox="0 0 10 16" fill="none" width="14" height="22" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="8" height="14" rx="1"/></svg>`}
             </button>
           </div>
         </div>
 
+        <!-- ⑥ Map overlays -->
         <div class="lm-tb-section lm-map-options-section">
           <div class="lm-ctrl-group">
-            <label class="lm-ctrl-label">Map Options</label>
+            <label class="lm-ctrl-label">Overlays</label>
             <div class="lm-align-row">
               <button class="lm-icon-btn lm-toggle-btn ${this.showScaleBar ? 'lm-btn-active' : ''}" id="lm-toggle-scalebar" title="Toggle scale bar">
                 <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><rect x="1" y="7" width="14" height="2" rx=".5"/><rect x="1" y="5" width="2" height="6" rx=".5"/><rect x="13" y="5" width="2" height="6" rx=".5"/><rect x="7" y="6" width="2" height="4" rx=".5"/></svg>
@@ -328,51 +404,55 @@ export class LayoutMode {
           </div>
         </div>
 
-        <div class="lm-tb-section">
-          <button class="lm-icon-btn lm-toggle-btn ${this.isEditExtentMode ? 'lm-btn-active' : ''}" id="lm-edit-extent" title="Pan &amp; zoom the live map to update the layout extent">
-            <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><rect x="1" y="1" width="14" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 8h6M8 5v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="8" r="2.5" fill="none" stroke="currentColor" stroke-width="1"/></svg>
-            Map Extent
-          </button>
-          <button class="lm-action-btn lm-capture-btn" id="lm-capture-extent" title="Capture current map view as layout extent" style="display:${this.isEditExtentMode ? 'flex' : 'none'}">
-            <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>
-            Capture
-          </button>
-        </div>
-
+        <!-- ⑦ Actions (right-aligned) -->
         <div class="lm-tb-section lm-actions-section">
           <button class="lm-action-btn lm-anno-btn" id="lm-add-anno" title="Add free text annotation">
-            <svg viewBox="0 0 18 18" fill="currentColor" width="13" height="13"><path d="M3 14l2-5L12 2l3 3-7 7-5 2zm2-5l3 3"/></svg>
-            Text
+            <svg viewBox="0 0 18 18" fill="currentColor" width="13" height="13"><path d="M3 14l2-5L12 2l3 3-7 7-5 2z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10 4l3 3" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>
+            + Text
           </button>
-          <button class="lm-action-btn lm-export-btn" id="lm-export-png">
-            <svg viewBox="0 0 18 18" fill="currentColor" width="14" height="14"><path d="M9 1a8 8 0 1 0 0 16A8 8 0 0 0 9 1zm0 2a6 6 0 1 1 0 12A6 6 0 0 1 9 3zm-.5 3v3.3H6l3 3.7 3-3.7H9.5V6h-1z"/></svg>
+          <button class="lm-action-btn lm-export-btn" id="lm-export-png" title="Export high-resolution PNG">
+            <svg viewBox="0 0 18 18" fill="currentColor" width="13" height="13"><rect x="1" y="1" width="16" height="16" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 12l3-4 2.5 3 2-2.5L15 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="6" cy="6" r="1.2"/></svg>
             PNG
           </button>
-          <button class="lm-action-btn lm-export-btn" id="lm-export-pdf">
-            <svg viewBox="0 0 18 18" fill="currentColor" width="14" height="14"><path d="M4 2h7l3 3v11H4V2zm7 0v3h3M7 9h4M7 12h4M7 6h2"/></svg>
+          <button class="lm-action-btn lm-export-btn" id="lm-export-pdf" title="Export print-ready PDF">
+            <svg viewBox="0 0 18 18" fill="currentColor" width="13" height="13"><path d="M4 2h7l3 3v11H4V2z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M11 2v3h3" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="6.5" y="9" width="5" height="1" rx=".4"/><rect x="6.5" y="11.5" width="3.5" height="1" rx=".4"/></svg>
             PDF
           </button>
           <button class="lm-action-btn lm-export-btn lm-svg-btn" id="lm-export-svg" title="Export as vector SVG">
-            <svg viewBox="0 0 18 18" fill="currentColor" width="14" height="14"><rect x="2" y="2" width="14" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5 11l3-6 3 6" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="5.5" y1="9.5" x2="10.5" y2="9.5" stroke="currentColor" stroke-width="1"/></svg>
+            <svg viewBox="0 0 18 18" fill="currentColor" width="13" height="13"><rect x="2" y="2" width="14" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 11l3-6 3 6" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="5.5" y1="9.5" x2="10.5" y2="9.5" stroke="currentColor" stroke-width="1"/></svg>
             SVG
           </button>
           <button class="lm-action-btn lm-close-btn" id="lm-close" title="Exit Layout Mode (Esc)">✕ Exit</button>
         </div>
       </div>
 
-      <div id="lm-workspace">
-        <div id="lm-sheet">
-          ${this.mapSnapshot
-            ? `<img id="lm-map-snapshot" src="${this.mapSnapshot}" alt="" />`
-            : `<div id="lm-map-placeholder"><span>Map snapshot unavailable<br><small>Enable preserveDrawingBuffer in map settings</small></span></div>`
-          }
-          <img id="lm-template" alt="" style="${this.useVectorLayout ? 'display:none;' : ''}" />
-          <div id="lm-vector-overlay" style="display:${this.useVectorLayout ? 'block' : 'none'};position:absolute;inset:0;pointer-events:none;"></div>
-          <div id="lm-fields-layer">
-            ${FIELDS.map(f => this.buildFieldEl(f)).join('\n')}
+      <div id="lm-main-area">
+        <div id="lm-workspace">
+          <div id="lm-sheet">
+            ${this.mapSnapshot
+              ? `<img id="lm-map-snapshot" src="${this.mapSnapshot}" alt="" />`
+              : `<div id="lm-map-placeholder"><span>Map snapshot unavailable<br><small>Enable preserveDrawingBuffer in map settings</small></span></div>`
+            }
+            <img id="lm-template" alt="" style="${this.useVectorLayout ? 'display:none;' : ''}" />
+            <div id="lm-vector-overlay" style="display:${this.useVectorLayout ? 'block' : 'none'};position:absolute;inset:0;pointer-events:none;"></div>
+            <div id="lm-fields-layer">
+              ${FIELDS.map(f => this.buildFieldEl(f)).join('\n')}
+            </div>
+          </div>
+          <div id="lm-tmpl-notice" style="display:none"></div>
+        </div>
+
+        <div id="lm-fields-panel" style="display:${this.showFieldsPanel ? 'flex' : 'none'}">
+          <div class="lm-fp-header">
+            <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><rect x="1" y="1" width="14" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="3.5" y="4" width="9" height="1.2" rx=".4"/><rect x="3.5" y="7" width="9" height="1.2" rx=".4"/><rect x="3.5" y="10" width="6" height="1.2" rx=".4"/></svg>
+            <span>Text Fields</span>
+            <button class="lm-fp-close-btn" id="lm-fp-close" title="Close fields panel">✕</button>
+          </div>
+          <div class="lm-fp-hint">Edit field content here — changes appear live on the layout.</div>
+          <div class="lm-fp-body">
+            ${fieldsPanelItems}
           </div>
         </div>
-        <div id="lm-tmpl-notice" style="display:none"></div>
       </div>
     `;
   }
@@ -400,7 +480,7 @@ export class LayoutMode {
 
     this.escHandler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (this.isEditExtentMode) { this.exitEditExtentMode(); return; }
+        if (this.isMapPanMode) { this.exitMapPanMode(); return; }
         this.close();
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -413,10 +493,13 @@ export class LayoutMode {
     };
     document.addEventListener('keydown', this.escHandler);
 
-    // Field focus
+    // Canvas field focus / edit
     ov.querySelectorAll<HTMLElement>('.lm-field').forEach(el => {
       el.addEventListener('focus', () => this.selectField(el.dataset.fid!));
-      el.addEventListener('blur', () => this.saveState());
+      el.addEventListener('blur', () => {
+        this.saveState();
+        this.syncPanelFromField(el.dataset.fid!);
+      });
       el.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.execCommand('insertLineBreak'); }
       });
@@ -430,7 +513,7 @@ export class LayoutMode {
     ov.querySelector('#lm-size-inc')?.addEventListener('click', () => {
       if (!this.selectedFieldId) return;
       const cur = this.getSelectedStyle();
-      this.applyProp('fontSize', String(Math.min(72, cur.fontSize + 1)));
+      this.applyProp('fontSize', String(Math.min(144, cur.fontSize + 1)));
     });
     ov.querySelector('#lm-size-dec')?.addEventListener('click', () => {
       if (!this.selectedFieldId) return;
@@ -447,16 +530,23 @@ export class LayoutMode {
     const colorInput = ov.querySelector<HTMLInputElement>('#lm-color');
     colorInput?.addEventListener('input', () => this.applyProp('color', colorInput.value));
 
-    // Zoom
+    // Layout-view zoom (zooms the preview canvas, NOT the map)
     ov.querySelector('#lm-zoom-in')?.addEventListener('click', () => this.zoomBy(1.2));
     ov.querySelector('#lm-zoom-out')?.addEventListener('click', () => this.zoomBy(1 / 1.2));
     ov.querySelector('#lm-zoom-fit')?.addEventListener('click', () => this.fitSheet());
+
+    // Map extent tools
+    ov.querySelector('#lm-map-pan')?.addEventListener('click', () => this.toggleMapPanMode());
+    ov.querySelector('#lm-map-zoom-in')?.addEventListener('click', () => this.zoomMapIn());
+    ov.querySelector('#lm-map-zoom-out')?.addEventListener('click', () => this.zoomMapOut());
+    ov.querySelector('#lm-capture-extent')?.addEventListener('click', () => this.captureExtent());
 
     // Paper size
     const paperSel = ov.querySelector<HTMLSelectElement>('#lm-paper-size');
     paperSel?.addEventListener('change', () => {
       this.exportSettings.paperSize = paperSel.value;
       this.saveExportSettings();
+      this.updateSheetAspectRatio();
     });
 
     // DPI
@@ -475,9 +565,12 @@ export class LayoutMode {
       this.saveExportSettings();
       const btn = ov.querySelector<HTMLElement>('#lm-orient');
       if (btn) {
-        btn.textContent = this.exportSettings.landscape ? 'Land' : 'Port';
         btn.classList.toggle('lm-btn-active', this.exportSettings.landscape);
+        btn.innerHTML = this.exportSettings.landscape
+          ? `<svg viewBox="0 0 16 10" fill="none" width="22" height="14" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="14" height="8" rx="1"/></svg>`
+          : `<svg viewBox="0 0 10 16" fill="none" width="14" height="22" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="8" height="14" rx="1"/></svg>`;
       }
+      this.updateSheetAspectRatio();
     });
 
     // Scale bar toggle
@@ -506,9 +599,26 @@ export class LayoutMode {
       this.saveExportSettings();
     });
 
-    // Map extent mode
-    ov.querySelector('#lm-edit-extent')?.addEventListener('click', () => this.toggleEditExtentMode());
-    ov.querySelector('#lm-capture-extent')?.addEventListener('click', () => this.captureExtent());
+    // Fields panel toggle
+    ov.querySelector('#lm-toggle-panel')?.addEventListener('click', () => this.toggleFieldsPanel());
+    ov.querySelector('#lm-fp-close')?.addEventListener('click', () => this.toggleFieldsPanel());
+
+    // Fields panel textareas → sync to canvas fields
+    ov.querySelectorAll<HTMLTextAreaElement>('.lm-fp-textarea').forEach(ta => {
+      ta.addEventListener('input', () => {
+        const fid = ta.dataset.fid!;
+        const canvasEl = ov.querySelector<HTMLElement>(`#lm-f-${fid}`);
+        if (canvasEl) {
+          canvasEl.innerText = ta.value;
+          this.saveState();
+        }
+      });
+      // Clicking in panel textarea selects the corresponding field in toolbar
+      ta.addEventListener('focus', () => {
+        const fid = ta.dataset.fid!;
+        this.selectField(fid);
+      });
+    });
 
     // Annotation add
     ov.querySelector('#lm-add-anno')?.addEventListener('click', () => this.addAnnotationAtCenter());
@@ -518,7 +628,7 @@ export class LayoutMode {
     ov.querySelector('#lm-export-pdf')?.addEventListener('click', () => void this.exportPDF());
     ov.querySelector('#lm-export-svg')?.addEventListener('click', () => void this.exportSVG());
 
-    // Workspace pan + pinch zoom
+    // Workspace pan + pinch zoom (layout view)
     const workspace = ov.querySelector<HTMLElement>('#lm-workspace')!;
     this.wireWorkspacePan(workspace);
   }
@@ -604,49 +714,69 @@ export class LayoutMode {
     }, { passive: false });
   }
 
-  // ── Map extent editing ────────────────────────────────────────
+  // ── Map extent tools ─────────────────────────────────────────
 
-  private toggleEditExtentMode(): void {
-    this.isEditExtentMode = !this.isEditExtentMode;
-    const ov = this.overlay;
-    if (!ov) return;
-
-    const btn = ov.querySelector<HTMLElement>('#lm-edit-extent');
-    const captureBtn = ov.querySelector<HTMLElement>('#lm-capture-extent');
-
-    if (this.isEditExtentMode) {
-      // Allow pointer events to pass through to the live map beneath
-      ov.style.pointerEvents = 'none';
-      // Re-enable pointer events on toolbar and capture button
-      const toolbar = ov.querySelector<HTMLElement>('#lm-toolbar');
-      if (toolbar) toolbar.style.pointerEvents = 'all';
-      if (captureBtn) { captureBtn.style.pointerEvents = 'all'; captureBtn.style.display = 'flex'; }
-      // Dim the snapshot to show the live map beneath
-      const snap = ov.querySelector<HTMLElement>('#lm-map-snapshot');
-      if (snap) snap.style.opacity = '0.15';
-      const sheet = ov.querySelector<HTMLElement>('#lm-sheet');
-      if (sheet) sheet.classList.add('lm-extent-mode');
-      btn?.classList.add('lm-btn-active');
-      EventBus.emit('toast', { message: 'Pan & zoom the map, then click Capture', type: 'info', duration: 3000 });
+  private toggleMapPanMode(): void {
+    this.isMapPanMode = !this.isMapPanMode;
+    if (this.isMapPanMode) {
+      this.enterMapPanMode();
     } else {
-      this.exitEditExtentMode();
+      this.exitMapPanMode();
     }
   }
 
-  private exitEditExtentMode(): void {
-    this.isEditExtentMode = false;
+  private enterMapPanMode(): void {
+    this.isMapPanMode = true;
+    const ov = this.overlay;
+    if (!ov) return;
+    // Pass pointer events through the overlay to the live map underneath
+    ov.style.pointerEvents = 'none';
+    // Keep toolbar and capture button interactive
+    const toolbar = ov.querySelector<HTMLElement>('#lm-toolbar');
+    if (toolbar) toolbar.style.pointerEvents = 'all';
+    const mapExtentSection = ov.querySelector<HTMLElement>('.lm-map-extent-section');
+    if (mapExtentSection) mapExtentSection.style.pointerEvents = 'all';
+    // Fade snapshot to reveal live map beneath
+    const snap = ov.querySelector<HTMLElement>('#lm-map-snapshot');
+    if (snap) snap.style.opacity = '0.08';
+    const sheet = ov.querySelector<HTMLElement>('#lm-sheet');
+    if (sheet) sheet.classList.add('lm-extent-mode');
+    ov.querySelector('#lm-map-pan')?.classList.add('lm-btn-active');
+    EventBus.emit('toast', { message: 'Drag the map to pan, then click Capture', type: 'info', duration: 3000 });
+  }
+
+  private exitMapPanMode(): void {
+    this.isMapPanMode = false;
     const ov = this.overlay;
     if (!ov) return;
     ov.style.pointerEvents = '';
     const toolbar = ov.querySelector<HTMLElement>('#lm-toolbar');
     if (toolbar) toolbar.style.pointerEvents = '';
-    const captureBtn = ov.querySelector<HTMLElement>('#lm-capture-extent');
-    if (captureBtn) { captureBtn.style.display = 'none'; captureBtn.style.pointerEvents = ''; }
+    const mapExtentSection = ov.querySelector<HTMLElement>('.lm-map-extent-section');
+    if (mapExtentSection) mapExtentSection.style.pointerEvents = '';
     const snap = ov.querySelector<HTMLElement>('#lm-map-snapshot');
     if (snap) snap.style.opacity = '';
     const sheet = ov.querySelector<HTMLElement>('#lm-sheet');
     if (sheet) sheet.classList.remove('lm-extent-mode');
-    ov.querySelector('#lm-edit-extent')?.classList.remove('lm-btn-active');
+    ov.querySelector('#lm-map-pan')?.classList.remove('lm-btn-active');
+  }
+
+  private zoomMapIn(): void {
+    if (this.mapZoomIn) {
+      this.mapZoomIn();
+      EventBus.emit('toast', { message: 'Map zoomed in — click Capture to update layout', type: 'info', duration: 1800 });
+    } else {
+      EventBus.emit('toast', { message: 'Map zoom not available in this context', type: 'info', duration: 1500 });
+    }
+  }
+
+  private zoomMapOut(): void {
+    if (this.mapZoomOut) {
+      this.mapZoomOut();
+      EventBus.emit('toast', { message: 'Map zoomed out — click Capture to update layout', type: 'info', duration: 1800 });
+    } else {
+      EventBus.emit('toast', { message: 'Map zoom not available in this context', type: 'info', duration: 1500 });
+    }
   }
 
   private captureExtent(): void {
@@ -657,12 +787,75 @@ export class LayoutMode {
       }
       const snap = this.overlay?.querySelector<HTMLImageElement>('#lm-map-snapshot');
       if (snap) snap.src = this.mapSnapshot;
-      this.cropBox = null; // clear any prior crop — full new view
-      this.exitEditExtentMode();
-      EventBus.emit('toast', { message: 'Map extent updated', type: 'success', duration: 1500 });
+      this.cropBox = null;
+      if (this.isMapPanMode) this.exitMapPanMode();
+      EventBus.emit('toast', { message: 'Map extent captured', type: 'success', duration: 1500 });
     } catch (err) {
       EventBus.emit('toast', { message: `Capture failed: ${(err as Error).message}`, type: 'error' });
-      this.exitEditExtentMode();
+      if (this.isMapPanMode) this.exitMapPanMode();
+    }
+  }
+
+  // ── Fields panel ──────────────────────────────────────────────
+
+  private toggleFieldsPanel(): void {
+    this.showFieldsPanel = !this.showFieldsPanel;
+    const panel = this.overlay?.querySelector<HTMLElement>('#lm-fields-panel');
+    const btn   = this.overlay?.querySelector<HTMLElement>('#lm-toggle-panel');
+    if (panel) panel.style.display = this.showFieldsPanel ? 'flex' : 'none';
+    if (btn)   btn.classList.toggle('lm-btn-active', this.showFieldsPanel);
+    if (this.showFieldsPanel) this.syncAllPanelFromCanvas();
+  }
+
+  private syncAllPanelFromCanvas(): void {
+    for (const f of FIELDS) {
+      this.syncPanelFromField(f.id);
+    }
+  }
+
+  private syncPanelFromField(fid: string): void {
+    const canvasEl = this.overlay?.querySelector<HTMLElement>(`#lm-f-${fid}`);
+    const panelEl  = this.overlay?.querySelector<HTMLTextAreaElement>(`.lm-fp-textarea[data-fid="${fid}"]`);
+    if (canvasEl && panelEl) {
+      panelEl.value = canvasEl.innerText ?? '';
+    }
+  }
+
+  // ── Sheet aspect ratio ────────────────────────────────────────
+
+  private updateSheetAspectRatio(): void {
+    const sheet = this.overlay?.querySelector<HTMLElement>('#lm-sheet');
+    if (!sheet) return;
+    const ps = PAPER_SIZES[this.exportSettings.paperSize] ?? PAPER_SIZES.tabloid;
+    const pw = this.exportSettings.landscape ? Math.max(ps.w, ps.h) : Math.min(ps.w, ps.h);
+    const ph = this.exportSettings.landscape ? Math.min(ps.w, ps.h) : Math.max(ps.w, ps.h);
+    sheet.style.aspectRatio = `${pw} / ${ph}`;
+    // Refit after ratio change
+    requestAnimationFrame(() => {
+      this.sheetBaseW = sheet.offsetWidth;
+      this.sheetBaseH = sheet.offsetHeight;
+      this.fitSheet();
+      this.updatePreviewFontSizes();
+    });
+  }
+
+  // Scale preview font-sizes so they look proportional to the printed page
+  private updatePreviewFontSizes(): void {
+    if (!this.sheetBaseW) return;
+    const ps = PAPER_SIZES[this.exportSettings.paperSize] ?? PAPER_SIZES.tabloid;
+    const pageW = this.exportSettings.landscape ? Math.max(ps.w, ps.h) : Math.min(ps.w, ps.h);
+    // px-per-pt in the preview: sheetBaseW / (pageWidthInches * 72)
+    const pxPerPt = this.sheetBaseW / (pageW * 72);
+    for (const f of FIELDS) {
+      const el = this.overlay?.querySelector<HTMLElement>(`#lm-f-${f.id}`);
+      if (!el) continue;
+      const s = this.fieldStyles.get(f.id)!;
+      el.style.fontSize = `${Math.max(6, s.fontSize * pxPerPt)}px`;
+    }
+    for (const [, anno] of this.annotations) {
+      const el = this.overlay?.querySelector<HTMLElement>(`#lm-a-${anno.id} .lm-anno-content`);
+      if (!el) continue;
+      el.style.fontSize = `${Math.max(6, anno.style.fontSize * pxPerPt)}px`;
     }
   }
 
@@ -728,7 +921,7 @@ export class LayoutMode {
     const weightSel = this.overlay?.querySelector<HTMLSelectElement>('#lm-font-weight');
     if (weightSel) weightSel.value = s.fontWeight;
     const sizeDisplay = this.overlay?.querySelector('#lm-size-display');
-    if (sizeDisplay) sizeDisplay.textContent = `${s.fontSize}px`;
+    if (sizeDisplay) sizeDisplay.textContent = `${s.fontSize}`;
     const colorInput = this.overlay?.querySelector<HTMLInputElement>('#lm-color');
     if (colorInput) colorInput.value = s.color;
 
@@ -742,6 +935,16 @@ export class LayoutMode {
     this.overlay?.querySelectorAll<HTMLElement>('.lm-anno').forEach(el => {
       el.classList.toggle('lm-anno--selected', el.dataset.aid === id);
     });
+
+    // Scroll corresponding panel textarea into view if panel is open
+    if (this.showFieldsPanel && !isAnno) {
+      const panelEl = this.overlay?.querySelector<HTMLTextAreaElement>(`.lm-fp-textarea[data-fid="${id}"]`);
+      panelEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      panelEl?.classList.add('lm-fp-textarea--active');
+      this.overlay?.querySelectorAll<HTMLElement>('.lm-fp-textarea').forEach(el => {
+        if (el !== panelEl) el.classList.remove('lm-fp-textarea--active');
+      });
+    }
   }
 
   private applyProp(prop: 'fontWeight' | 'fontSize' | 'color' | 'textAlign', value: string): void {
@@ -767,14 +970,15 @@ export class LayoutMode {
     const elId = isAnno ? `#lm-a-${this.selectedFieldId} .lm-anno-content` : `#lm-f-${this.selectedFieldId}`;
     const el = this.overlay?.querySelector<HTMLElement>(elId);
     if (el) {
-      if (prop === 'fontSize')   el.style.fontSize   = `${s.fontSize}px`;
+      // fontSize is applied via updatePreviewFontSizes() to keep the preview scale correct
       if (prop === 'fontWeight') el.style.fontWeight = s.fontWeight;
       if (prop === 'color')      el.style.color      = s.color;
       if (prop === 'textAlign')  el.style.textAlign  = s.textAlign;
     }
     if (prop === 'fontSize') {
       const sizeDisplay = this.overlay?.querySelector('#lm-size-display');
-      if (sizeDisplay) sizeDisplay.textContent = `${s.fontSize}px`;
+      if (sizeDisplay) sizeDisplay.textContent = `${s.fontSize}`;
+      this.updatePreviewFontSizes();
     }
   }
 
@@ -819,6 +1023,7 @@ export class LayoutMode {
     el.style.height = `${anno.h}px`;
 
     const s = anno.style;
+    // fontSize set via updatePreviewFontSizes(); use a placeholder px here
     el.innerHTML = `
       <div class="lm-anno-content" contenteditable="true" spellcheck="false"
         style="font-family:'Oswald',sans-serif;font-weight:${s.fontWeight};font-size:${s.fontSize}px;color:${s.color};text-align:${s.textAlign};"
@@ -826,6 +1031,8 @@ export class LayoutMode {
       <button class="lm-anno-delete" title="Delete annotation">✕</button>
       <div class="lm-anno-resize"></div>
     `;
+    // Schedule a preview-scale update after the element is attached
+    requestAnimationFrame(() => this.updatePreviewFontSizes());
 
     el.querySelector('.lm-anno-content')?.addEventListener('focus', () => this.selectField(anno.id));
     el.querySelector('.lm-anno-content')?.addEventListener('blur',  () => this.saveState());
@@ -934,7 +1141,7 @@ export class LayoutMode {
         if (el && saved.html) {
           el.innerHTML = saved.html;
           el.style.fontWeight = saved.style.fontWeight;
-          el.style.fontSize   = `${saved.style.fontSize}px`;
+          // fontSize applied by updatePreviewFontSizes()
           el.style.color      = saved.style.color;
           el.style.textAlign  = saved.style.textAlign;
         }
@@ -946,6 +1153,9 @@ export class LayoutMode {
         this.annotations.set(anno.id, anno);
         this.mountAnnotation(anno, html);
       }
+
+      // Re-apply scaled preview font sizes after state is restored
+      this.updatePreviewFontSizes();
     } catch { /* corrupt storage */ }
   }
 
@@ -995,6 +1205,9 @@ export class LayoutMode {
     const out = document.createElement('canvas');
     out.width = EW; out.height = EH;
     const ctx = out.getContext('2d')!;
+    // High-quality image scaling for all drawImage calls
+    ctx.imageSmoothingEnabled = true;
+    (ctx as CanvasRenderingContext2D & { imageSmoothingQuality: string }).imageSmoothingQuality = 'high';
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, EW, EH);
 
@@ -1003,6 +1216,10 @@ export class LayoutMode {
     const my = EH * MAP_VP.top    / 100;
     const mw = EW * MAP_VP.width  / 100;
     const mh = EH * MAP_VP.height / 100;
+
+    // Font scale: preview font sizes (stored in pt) → export canvas pixels
+    // pt → px at the given DPI: pxPerPt = DPI / 72
+    const pxPerPt = this.exportSettings.dpi / 72;
 
     // 1) Map snapshot with crop or auto-letterbox
     if (snapshot) {
@@ -1039,15 +1256,17 @@ export class LayoutMode {
       } catch { /* no template */ }
     }
 
-    // 5) Text fields
+    // 5) Text fields — scale font sizes from pt → export canvas pixels
     const scaleX = this.sheetBaseW ? EW / this.sheetBaseW : 1;
     const scaleY = this.sheetBaseH ? EH / this.sheetBaseH : 1;
+    void scaleX; void scaleY; // kept for annotation positional scaling below
 
     for (const f of FIELDS) {
       const el = this.overlay?.querySelector<HTMLElement>(`#lm-f-${f.id}`);
       const rawText = el?.innerText?.trim() ?? '';
       if (!rawText) continue;
-      const s = this.fieldStyles.get(f.id)!;
+      const s = { ...this.fieldStyles.get(f.id)! };
+      s.fontSize = Math.round(s.fontSize * pxPerPt);
       const x = EW * f.left   / 100;
       const y = EH * f.top    / 100;
       const w = EW * f.width  / 100;
@@ -1055,14 +1274,18 @@ export class LayoutMode {
       this.drawTextBlock(ctx, rawText, s, x, y, w, h);
     }
 
-    // 6) Annotations
+    // 6) Annotations — scale both position and font size
     for (const [, anno] of this.annotations) {
       const content = this.overlay?.querySelector<HTMLElement>(`#lm-a-${anno.id} .lm-anno-content`);
       const rawText = content?.innerText?.trim() ?? '';
       if (!rawText) continue;
-      this.drawTextBlock(ctx, rawText, anno.style,
-        anno.x * scaleX, anno.y * scaleY,
-        anno.w * scaleX, anno.h * scaleY);
+      const scaledStyle = { ...anno.style, fontSize: Math.round(anno.style.fontSize * pxPerPt) };
+      // Annotation positions are in preview-sheet pixels; scale to export canvas pixels
+      const sx2 = this.sheetBaseW ? EW / this.sheetBaseW : 1;
+      const sy2 = this.sheetBaseH ? EH / this.sheetBaseH : 1;
+      this.drawTextBlock(ctx, rawText, scaledStyle,
+        anno.x * sx2, anno.y * sy2,
+        anno.w * sx2, anno.h * sy2);
     }
 
     return out;
@@ -1350,13 +1573,11 @@ export class LayoutMode {
   // ── PNG Export ────────────────────────────────────────────────
 
   async exportPNG(): Promise<void> {
-    EventBus.emit('toast', { message: 'Generating PNG…', type: 'info', duration: 1500 });
+    EventBus.emit('toast', { message: 'Generating high-resolution PNG…', type: 'info', duration: 2000 });
     try {
       let highRes: string | undefined;
       if (this.getHighResSnapshot) {
-        try {
-          highRes = await this.getHighResSnapshot();
-        } catch { /* fall back to existing snapshot */ }
+        try { highRes = await this.getHighResSnapshot(); } catch { /* fall back */ }
       }
       const canvas = await this.buildExportCanvas(highRes);
       const { EW, EH } = this.getExportDimensions();
@@ -1366,8 +1587,8 @@ export class LayoutMode {
       a.href = canvas.toDataURL('image/png');
       a.click();
       EventBus.emit('toast', {
-        message: `PNG exported (${EW}×${EH}px, ${this.exportSettings.dpi} DPI, ${ps.label})`,
-        type: 'success', duration: 3000,
+        message: `PNG exported — ${EW}×${EH}px at ${this.exportSettings.dpi} DPI (${ps.label})`,
+        type: 'success', duration: 3500,
       });
     } catch (err) {
       EventBus.emit('toast', { message: `Export failed: ${(err as Error).message}`, type: 'error' });
@@ -1377,14 +1598,15 @@ export class LayoutMode {
   // ── PDF Export ────────────────────────────────────────────────
 
   async exportPDF(): Promise<void> {
-    EventBus.emit('toast', { message: 'Generating PDF…', type: 'info', duration: 2000 });
+    EventBus.emit('toast', { message: 'Generating PDF…', type: 'info', duration: 2500 });
     try {
       let highRes: string | undefined;
       if (this.getHighResSnapshot) {
         try { highRes = await this.getHighResSnapshot(); } catch { /* ok */ }
       }
       const canvas = await this.buildExportCanvas(highRes);
-      const imgData = canvas.toDataURL('image/jpeg', 0.92);
+      // Use high-quality JPEG (0.95) — avoids PNG file-size overhead while keeping text sharp
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
       const { default: jsPDF } = await import('jspdf');
 
       const ps = PAPER_SIZES[this.exportSettings.paperSize] ?? PAPER_SIZES.tabloid;
