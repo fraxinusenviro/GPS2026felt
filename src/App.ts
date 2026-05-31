@@ -95,7 +95,7 @@ export class App {
         canvasH: this.mapManager.getCanvas().height,
       }),
       async () => {
-        // Capture at zoom+1 for higher-resolution tiles, then restore
+        // Capture at higher zoom for sharper tiles, then restore
         const map = this.mapManager.getMap();
         const origZoom = map.getZoom();
         const targetZoom = Math.min(origZoom + 1, 22);
@@ -103,11 +103,10 @@ export class App {
           const onIdle = () => { map.off('idle', onIdle); resolve(); };
           map.on('idle', onIdle);
           map.setZoom(targetZoom);
-          // Timeout fallback in case idle never fires
           setTimeout(resolve, 2500);
         });
         const dataUrl = this.mapManager.getCanvas().toDataURL('image/png');
-        // Restore original zoom
+        // Restore zoom
         await new Promise<void>(resolve => {
           const onIdle = () => { map.off('idle', onIdle); resolve(); };
           map.on('idle', onIdle);
@@ -116,6 +115,8 @@ export class App {
         });
         return dataUrl;
       },
+      () => this.mapManager.zoomIn(),
+      () => this.mapManager.zoomOut(),
     );
 
     this.basemapManager = new BasemapManager(this.mapManager);
