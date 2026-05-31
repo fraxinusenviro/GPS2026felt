@@ -594,7 +594,4 @@ export class DataLibraryModal {
     });
   }
 
-  private get allDefs(): BasemapDef[] {
-    return [...BASEMAPS, ...BASEMAP_OVERLAYS];
-  }
 }
