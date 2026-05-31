@@ -448,6 +448,16 @@ export class BasemapManager {
     </div>`;
   }
 
+  /** Returns true if the given definition ID is already present in the active stack. */
+  isDefInStack(defId: string): boolean {
+    return this.stack.some(l => l.defId === defId);
+  }
+
+  /** Public entry-point used by DataLibraryModal to add a layer to the active stack. */
+  addDefToStack(def: BasemapDef): void {
+    this.addToStack(def);
+  }
+
   private addToStack(def: BasemapDef): void {
     const instanceId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
     const base: StackLayer = {
@@ -1539,32 +1549,19 @@ export class BasemapManager {
   private renderContent(container: HTMLElement, onClose: () => void): void {
     container.innerHTML = `
       <div class="panel-header">
-        <h3>Basemap &amp; Overlays</h3>
+        <h3>Active Layers</h3>
         <button class="panel-close" id="bm-close">✕</button>
       </div>
       <div class="panel-body bm-panel-body">
 
-        ${this.sectionToggle('active-layers', 'Active Layers', 'drag to reorder · top = drawn on top', false)}
+        ${this.sectionToggle('active-layers', 'Basemap Stack', 'drag to reorder · top = drawn on top', false)}
         ${this.sectionBody('active-layers', `<div class="bm-stack" id="bm-stack">
           ${this.stack.map((layer, idx) => this.renderStackItem(layer, idx)).join('')}
         </div>`)}
 
+        ${this.renderFeatureLayersSection()}
         ${this.renderCollectedDataSection()}
         ${this.renderUserLayersSection()}
-
-        ${this.sectionToggle('basemaps', 'Standard Basemaps', 'click + to add', true)}
-        ${this.sectionBody('basemaps', `<div class="bm-palette">
-          ${BASEMAPS.map(bm => `
-            <div class="bm-palette-row">
-              <img class="bm-thumb" src="${thumbUrl(bm.url)}" loading="lazy"
-                onerror="this.style.display='none'" alt="" />
-              <span class="bm-palette-label">${bm.label}</span>
-              <button class="bm-add-btn" data-def-id="${bm.id}" title="Add to stack">+</button>
-            </div>
-          `).join('')}
-        </div>`)}
-
-        ${this.renderOverlayPalette()}
         ${this.renderPDFSection()}
 
       </div>
@@ -1572,6 +1569,7 @@ export class BasemapManager {
 
     container.querySelector('#bm-close')?.addEventListener('click', onClose);
     this.wireCollectedData(container);
+    this.wireFeatureLayers(container);
     this.wireContent(container, onClose);
   }
 

@@ -204,7 +204,10 @@
         <button id="btn-crosshair" class="map-ctrl-btn" title="Toggle Crosshair" data-active="true">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M176,136h23.54A72.11,72.11,0,0,1,136,199.54V176a8,8,0,0,0-16,0v23.54A72.11,72.11,0,0,1,56.46,136H80a8,8,0,0,0,0-16H56.46A72.11,72.11,0,0,1,120,56.46V80a8,8,0,0,0,16,0V56.46A72.11,72.11,0,0,1,199.54,120H176a8,8,0,0,0,0,16Zm56-8A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>
         </button>
-        <button id="btn-basemap" class="map-ctrl-btn" title="Basemap &amp; Layers">
+        <button id="btn-data-library" class="map-ctrl-btn" title="Data Library — browse &amp; add layers">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M231.65,194.55,198.46,36.75a16,16,0,0,0-19-12.39L132.65,34.42a16.08,16.08,0,0,0-12.3,19.05L153.6,211.28a16,16,0,0,0,15.65,12.72,16.2,16.2,0,0,0,3.38-.36l46.81-10.06A16.09,16.09,0,0,0,231.65,194.55ZM168.94,208,136,50.25l46.81-10.06h0L216,198Z"/><path d="M115.86,26.47A16,16,0,0,0,96,13.17L49.19,23.23A16.09,16.09,0,0,0,37,42.45L70.14,200.25A16,16,0,0,0,85.79,212a16.25,16.25,0,0,0,3.38-.36L120,205.46a8,8,0,0,0-3.38-15.64L86,197.56,53.37,40.1,100.18,30l30,128a8,8,0,1,0,15.64-3.38Z"/></svg>
+        </button>
+        <button id="btn-basemap" class="map-ctrl-btn" title="Active Layers">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M220,169.09l-92,53.65L36,169.09A8,8,0,0,0,28,182.91l96,56a8,8,0,0,0,8.06,0l96-56A8,8,0,1,0,220,169.09Z"/><path d="M220,121.09l-92,53.65L36,121.09A8,8,0,0,0,28,134.91l96,56a8,8,0,0,0,8.06,0l96-56A8,8,0,1,0,220,121.09Z"/><path d="M28,86.91l96,56a8,8,0,0,0,8.06,0l96-56a8,8,0,0,0,0-13.82l-96-56a8,8,0,0,0-8.06,0l-96,56a8,8,0,0,0,0,13.82Z"/></svg>
         </button>
         <button id="btn-grid" class="map-ctrl-btn" title="Toggle Grid" data-active="false">
@@ -327,6 +330,9 @@
     <div id="modal-overlay" style="display:none">
       <div id="modal-content"></div>
     </div>
+
+    <!-- Data Library Modal -->
+    <div id="data-library-overlay" style="display:none"></div>
   </div>
 
   <script type="module" src="/src/main.ts"></script>

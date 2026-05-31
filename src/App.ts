@@ -26,6 +26,7 @@ import { StatsPanel } from './ui/StatsPanel';
 import { UndoManager } from './utils/UndoManager';
 import { SymbolRenderer } from './ui/SymbolRenderer';
 import { LayoutMode } from './ui/LayoutMode';
+import { DataLibraryModal } from './ui/DataLibraryModal';
 import * as turf from '@turf/turf';
 
 export class App {
@@ -57,6 +58,7 @@ export class App {
   private measurePanel!: MeasurePanel;
   private featureListPanel!: FeatureListPanel;
   private statsPanel!: StatsPanel;
+  private dataLibraryModal!: DataLibraryModal;
   private undoManager = UndoManager.getInstance();
   private symbolRenderer!: SymbolRenderer;
   private layoutMode!: LayoutMode;
@@ -157,6 +159,7 @@ export class App {
       (f) => EventBus.emit('feature-selected', { feature: f }),
     );
     this.statsPanel = new StatsPanel();
+    this.dataLibraryModal = new DataLibraryModal();
 
     // Load project-scoped data
     const activeProjectId = this.settings.active_project_id || 'default';
@@ -592,6 +595,58 @@ export class App {
 
     document.getElementById('btn-wakelock')?.addEventListener('click', () => {
       this.toggleWakeLock();
+    });
+
+    document.getElementById('btn-data-library')?.addEventListener('click', () => {
+      this.dataLibraryModal.open({
+        onAddToMap: (def) => {
+          this.basemapManager.addDefToStack(def);
+          // Refresh the basemap panel if it's open
+          const basemapPanel = document.getElementById('basemap-panel');
+          if (basemapPanel && basemapPanel.style.display !== 'none') {
+            void (async () => {
+              const activeProjectId = this.settings.active_project_id || 'default';
+              const [imported, online] = await Promise.all([
+                this.storage.getImportedLayersByProject(activeProjectId),
+                this.storage.getAllOnlineLayers(),
+              ]);
+              const pdfLayers = imported
+                .filter(l => l.file_type === 'geopdf' && l.image_data_url && l.bounds)
+                .map(l => ({ id: l.id, name: l.name, visible: l.visible, opacity: l.opacity, bounds: l.bounds }));
+              const userLayers = imported
+                .filter(l => l.file_type !== 'geopdf')
+                .map(l => ({
+                  id: l.id, name: l.name,
+                  kind: (l.file_type === 'mbtiles' ? 'raster' : 'vector') as 'vector' | 'raster',
+                  visible: l.visible, opacity: l.opacity,
+                  mapLayerId: l.file_type === 'mbtiles' ? l.id : `${l.id}-fill`,
+                  bounds: l.bounds, fileType: l.file_type,
+                  tileUrl: l.file_type === 'mbtiles' ? `mbtiles://${l.id}/{z}/{x}/{y}` : undefined,
+                }));
+              const onlineUserLayers = online.map(l => ({
+                id: l.id, name: l.name, kind: 'raster' as 'vector' | 'raster',
+                visible: l.visible, opacity: l.opacity,
+                mapLayerId: l.map_layer_id, fileType: l.type, tileUrl: l.tileUrl,
+              }));
+              this.basemapManager.renderPanel(basemapPanel, () => { basemapPanel.style.display = 'none'; },
+                [...userLayers, ...onlineUserLayers], pdfLayers, undefined, undefined, undefined,
+                this.projectLayerPresets, (p) => EventBus.emit('layer-preset-updated', p),
+                this.presetManager.getPresets(),
+                async (p) => {
+                  await this.storage.saveTypePreset(p);
+                  const idx = this.presetManager.getPresets().findIndex(x => x.id === p.id);
+                  if (idx >= 0) this.presetManager.getPresets()[idx] = p;
+                  EventBus.emit('presets-changed', {});
+                },
+                this.features,
+              );
+            })();
+          }
+        },
+        onImport: () => { this.closeAllPanels(); this.importDataPanel.toggle(); },
+        onExport: () => { this.closeAllPanels(); this.exportPanel.toggle(); },
+        isInStack: (defId) => this.basemapManager.isDefInStack(defId),
+      });
     });
 
     document.getElementById('btn-import')?.addEventListener('click', () => {
