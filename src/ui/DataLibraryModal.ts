@@ -11,22 +11,22 @@ const P = './layer-thumbs/type-polygon.png';
 
 const LAYER_THUMBS: Record<string, string> = {
   // ── Raster / continuous field
-  'hrdem-dtm-hillshade':  R,
-  'hrdem-dsm-hillshade':  R,
+  'hrdem-dtm-hillshade':  './layer-thumbs/hrdem-dtm-hillshade.png',
+  'hrdem-dsm-hillshade':  './layer-thumbs/hrdem-dsm-hillshade.png',
   'hrdem-elevation':      R,
   'hrdem-slope':          R,
   'hrdem-aspect':         R,
   'hrdem-tpi':            R,
   'hrdem-dsm-elevation':  R,
   'hrdem-chm':            R,
-  'wi-dtw':               R,
-  'wi-gei':               R,
-  'wi-pdep':              R,
+  'wi-dtw':               './layer-thumbs/wi-dtw.png',
+  'wi-gei':               './layer-thumbs/wi-gei.png',
+  'wi-pdep':              './layer-thumbs/wi-pdep.png',
   'ns-crown-parcels':     R,  // WMS raster
 
   // ── Line vector features
   'default-line':         L,
-  'ns-nshn-watercourses': L,
+  'ns-nshn-watercourses': './layer-thumbs/ns-nshn-watercourses.png',
   'ns-base-contours':     L,
   'ns-trns-roads':        L,
   'hrdem-contours':       L,
@@ -35,13 +35,13 @@ const LAYER_THUMBS: Record<string, string> = {
   // ── Polygon vector features
   'default':              P,
   'default-polygon':      P,
-  'ns-plan-nsprd':        P,
-  'ns-nshn-waterbodies':  P,
-  'ns-nshn-wetlands':     P,
-  'ns-base-parks':        P,
+  'ns-plan-nsprd':        './layer-thumbs/ns-plan-nsprd.png',
+  'ns-nshn-waterbodies':  './layer-thumbs/ns-nshn-waterbodies.png',
+  'ns-nshn-wetlands':     './layer-thumbs/ns-nshn-wetlands.png',
+  'ns-base-parks':        './layer-thumbs/ns-base-parks.png',
   'ns-base-designated':   P,
   'ns-bio-habitat':       P,
-  'ns-bio-nsnrr-wetlands':P,
+  'ns-bio-nsnrr-wetlands':'./layer-thumbs/ns-bio-nsnrr-wetlands.png',
   'ns-for-old-growth':    P,
   'ns-for-fec-soil':      P,
 };
