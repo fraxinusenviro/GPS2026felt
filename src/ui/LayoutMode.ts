@@ -48,6 +48,14 @@ export interface MapState {
   canvasH: number;
 }
 
+export interface LayoutLayerInfo {
+  id: string;
+  name: string;
+  color: string;
+  visible: boolean;
+  geometryType?: string;
+}
+
 interface ExportSettings {
   dpi: number;
   paperSize: string;
@@ -91,7 +99,7 @@ export class LayoutMode {
   private overlay: HTMLElement | null = null;
   private isActive = false;
   private isMapPanMode = false;
-  private showFieldsPanel = false;
+  private activeTab: 'fields' | 'layers' = 'fields';
   private fieldStyles = new Map<string, FieldStyle>();
   private selectedFieldId: string | null = null;
   private mapSnapshot: string | null = null;
@@ -106,6 +114,13 @@ export class LayoutMode {
   private panY = 0;
   private sheetBaseW = 0;
   private sheetBaseH = 0;
+
+  // Live map preview (rAF canvas mirroring during map pan/zoom)
+  private liveRafId: number | null = null;
+  private moveEndUnsubscribe: (() => void) | null = null;
+
+  // Side panel state
+  private isSidePanelCollapsed = false;
 
   // Annotations
   private annotations = new Map<string, AnnoState>();
@@ -123,6 +138,8 @@ export class LayoutMode {
     private getHighResSnapshot?: () => Promise<string>,
     private mapZoomIn?: () => void,
     private mapZoomOut?: () => void,
+    private getLayersFn?: () => LayoutLayerInfo[],
+    private setLayerVisibilityFn?: (id: string, visible: boolean) => void,
   ) {
     for (const f of FIELDS) {
       this.fieldStyles.set(f.id, {
@@ -157,7 +174,7 @@ export class LayoutMode {
     this.saveState();
     this.isActive = false;
     this.isMapPanMode = false;
-    this.showFieldsPanel = false;
+    this.stopLivePreview();
     if (this.escHandler) {
       document.removeEventListener('keydown', this.escHandler);
       this.escHandler = null;
@@ -236,8 +253,7 @@ export class LayoutMode {
   }
 
   private buildHTML(): string {
-    const ps = PAPER_SIZES;
-    const paperOpts = Object.entries(ps)
+    const paperOpts = Object.entries(PAPER_SIZES)
       .map(([k, v]) => `<option value="${k}" ${k === this.exportSettings.paperSize ? 'selected' : ''}>${v.label}</option>`)
       .join('');
 
@@ -247,84 +263,132 @@ export class LayoutMode {
         <textarea class="lm-fp-textarea" data-fid="${f.id}" placeholder="${f.placeholder}" rows="3" spellcheck="false"></textarea>
       </div>`).join('');
 
+    const layersPanelContent = `<div id="lm-layers-list" class="lm-fp-body">
+      <div class="lm-fp-hint" style="border-bottom:none;padding:10px 12px;">Loading map layers…</div>
+    </div>`;
+
     return `
+      <!-- ══ TOOLBAR (2 rows) ══ -->
       <div id="lm-toolbar">
 
-        <!-- ① Identity + Panel toggle -->
-        <div class="lm-tb-section lm-section-identity">
-          <span class="lm-title-badge">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><rect x="2" y="2" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="13" y="2" width="5" height="16" rx="0" fill="currentColor" opacity=".25"/><rect x="5" y="5" width="6" height="1.2" rx=".5"/><rect x="5" y="8" width="4" height="1.2" rx=".5"/></svg>
-            Layout
-          </span>
-          <button class="lm-icon-btn lm-toggle-btn ${this.showFieldsPanel ? 'lm-btn-active' : ''}" id="lm-toggle-panel"
-            title="Toggle text-fields panel (edit all fields without clicking the map)">
-            <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13">
-              <rect x="1" y="1" width="14" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
-              <rect x="4" y="4" width="8" height="1.2" rx=".4"/>
-              <rect x="4" y="7" width="8" height="1.2" rx=".4"/>
-              <rect x="4" y="10" width="5" height="1.2" rx=".4"/>
-            </svg>
-          </button>
-        </div>
+        <!-- Row 1: primary controls -->
+        <div class="lm-tb-row lm-tb-row-primary">
+          <div class="lm-tb-section lm-section-identity">
+            <span class="lm-title-badge">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><rect x="2" y="2" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="13" y="2" width="5" height="16" fill="currentColor" opacity=".25"/><rect x="5" y="5" width="6" height="1.2" rx=".5"/><rect x="5" y="8" width="4" height="1.2" rx=".5"/></svg>
+              Layout
+            </span>
+          </div>
 
-        <!-- ② Layout-view zoom (zooms the preview canvas, not the map) -->
-        <div class="lm-tb-section">
-          <div class="lm-ctrl-group">
-            <label class="lm-ctrl-label">View</label>
-            <div class="lm-size-row">
-              <button class="lm-icon-btn" id="lm-zoom-out" title="Zoom layout view out">−</button>
-              <button class="lm-icon-btn lm-zoom-fit-btn" id="lm-zoom-fit" title="Fit layout to window">
-                <svg viewBox="0 0 14 14" fill="currentColor" width="12" height="12"><rect x="1" y="1" width="12" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="4" y="4" width="6" height="6" rx=".5"/></svg>
-              </button>
-              <button class="lm-icon-btn" id="lm-zoom-in" title="Zoom layout view in">+</button>
+          <div class="lm-tb-section">
+            <div class="lm-ctrl-group">
+              <label class="lm-ctrl-label">View</label>
+              <div class="lm-size-row">
+                <button class="lm-icon-btn" id="lm-zoom-out" title="Zoom layout view out">−</button>
+                <button class="lm-icon-btn lm-zoom-fit-btn" id="lm-zoom-fit" title="Fit layout to window">
+                  <svg viewBox="0 0 14 14" fill="currentColor" width="11" height="11"><rect x="1" y="1" width="12" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="3.5" y="3.5" width="7" height="7" rx=".4"/></svg>
+                </button>
+                <button class="lm-icon-btn" id="lm-zoom-in" title="Zoom layout view in">+</button>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- ③ Map Extent — pan the map + zoom map in/out (separate from view zoom) -->
-        <div class="lm-tb-section lm-map-extent-section">
-          <label class="lm-ctrl-label">Map Extent</label>
-          <div class="lm-align-row">
-            <button class="lm-icon-btn lm-toggle-btn ${this.isMapPanMode ? 'lm-btn-active' : ''}"
-              id="lm-map-pan" title="Pan map extent — drag the live map to reposition, then Capture">
-              <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13">
-                <path d="M8 1.5v13M1.5 8h13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/>
-                <path d="M8 2.5 L6 4.5 M8 2.5 L10 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>
-                <path d="M8 13.5 L6 11.5 M8 13.5 L10 11.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>
-                <path d="M2.5 8 L4.5 6 M2.5 8 L4.5 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>
-                <path d="M13.5 8 L11.5 6 M13.5 8 L11.5 10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/>
-              </svg>
+          <div class="lm-tb-section lm-map-extent-section">
+            <div class="lm-ctrl-group">
+              <label class="lm-ctrl-label">Map Extent</label>
+              <div class="lm-size-row">
+                <button class="lm-icon-btn lm-toggle-btn ${this.isMapPanMode ? 'lm-btn-active' : ''}" id="lm-map-pan"
+                  title="Pan mode — drag the live map to reposition. Preview updates live.">
+                  <svg viewBox="0 0 16 16" fill="none" width="13" height="13" stroke="currentColor" stroke-linecap="round">
+                    <path d="M8 1v14M1 8h14" stroke-width="1.5"/>
+                    <path d="M6 3l2-2 2 2M6 13l2 2 2-2M3 6l-2 2 2 2M13 6l2 2-2 2" stroke-width="1.1"/>
+                  </svg>
+                </button>
+                <button class="lm-icon-btn" id="lm-map-zoom-out" title="Zoom map out — preview updates live">
+                  <svg viewBox="0 0 14 14" fill="none" width="12" height="12" stroke="currentColor" stroke-linecap="round">
+                    <circle cx="5.8" cy="5.8" r="4.3" stroke-width="1.3"/>
+                    <line x1="3.3" y1="5.8" x2="8.3" y2="5.8" stroke-width="1.3"/>
+                    <line x1="9" y1="9" x2="12.5" y2="12.5" stroke-width="1.5"/>
+                  </svg>
+                </button>
+                <button class="lm-icon-btn" id="lm-map-zoom-in" title="Zoom map in — preview updates live">
+                  <svg viewBox="0 0 14 14" fill="none" width="12" height="12" stroke="currentColor" stroke-linecap="round">
+                    <circle cx="5.8" cy="5.8" r="4.3" stroke-width="1.3"/>
+                    <line x1="3.3" y1="5.8" x2="8.3" y2="5.8" stroke-width="1.3"/>
+                    <line x1="5.8" y1="3.3" x2="5.8" y2="8.3" stroke-width="1.3"/>
+                    <line x1="9" y1="9" x2="12.5" y2="12.5" stroke-width="1.5"/>
+                  </svg>
+                </button>
+                <button class="lm-capture-btn" id="lm-capture-extent" title="Capture current live map view as layout snapshot">
+                  <svg viewBox="0 0 13 13" fill="currentColor" width="11" height="11"><circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="6.5" cy="6.5" r="2"/></svg>
+                  Capture
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="lm-tb-section lm-export-settings-section">
+            <div class="lm-ctrl-group">
+              <label class="lm-ctrl-label">Paper</label>
+              <select id="lm-paper-size" class="lm-select">${paperOpts}</select>
+            </div>
+            <div class="lm-ctrl-group">
+              <label class="lm-ctrl-label">DPI</label>
+              <input type="number" id="lm-dpi" class="lm-select lm-dpi-input"
+                value="${this.exportSettings.dpi}" min="72" max="600" step="50" title="Export resolution" />
+            </div>
+            <div class="lm-ctrl-group">
+              <label class="lm-ctrl-label">Orient</label>
+              <button class="lm-icon-btn lm-orient-btn ${this.exportSettings.landscape ? 'lm-btn-active' : ''}" id="lm-orient" title="Toggle landscape/portrait">
+                ${this.exportSettings.landscape
+                  ? `<svg viewBox="0 0 18 12" fill="none" width="20" height="14" stroke="currentColor" stroke-width="1.3"><rect x="1" y="1" width="16" height="10" rx="1.2"/></svg>`
+                  : `<svg viewBox="0 0 12 18" fill="none" width="14" height="20" stroke="currentColor" stroke-width="1.3"><rect x="1" y="1" width="10" height="16" rx="1.2"/></svg>`}
+              </button>
+            </div>
+          </div>
+
+          <div class="lm-tb-section lm-map-options-section">
+            <div class="lm-ctrl-group">
+              <label class="lm-ctrl-label">Overlays</label>
+              <div class="lm-size-row">
+                <button class="lm-icon-btn lm-toggle-btn ${this.showScaleBar ? 'lm-btn-active' : ''}" id="lm-toggle-scalebar" title="Toggle scale bar">
+                  <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><rect x="1" y="7" width="14" height="2" rx=".5"/><rect x="1" y="5" width="2" height="6" rx=".5"/><rect x="13" y="5" width="2" height="6" rx=".5"/><rect x="7" y="6" width="2" height="4" rx=".5"/></svg>
+                </button>
+                <button class="lm-icon-btn lm-toggle-btn ${this.showNorthArrow ? 'lm-btn-active' : ''}" id="lm-toggle-northarrow" title="Toggle north arrow">
+                  <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><path d="M8 2l3 9-3-2-3 2z"/><path d="M8 14V9" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+                </button>
+                <button class="lm-icon-btn lm-toggle-btn ${this.useVectorLayout ? 'lm-btn-active' : ''}" id="lm-toggle-vector" title="Vector title block">
+                  <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><rect x="1" y="1" width="14" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="10" y="1" width="5" height="14" fill="currentColor" opacity=".2"/><line x1="10" y1="1" x2="10" y2="15" stroke="currentColor" stroke-width="1"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="lm-tb-section lm-actions-section">
+            <button class="lm-action-btn lm-export-btn" id="lm-export-png" title="Export high-res PNG">
+              <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><rect x="1" y="1" width="14" height="14" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4 11l3-4 2.5 3 2-2.5L13 11" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="5.5" cy="5.5" r="1.1"/></svg>
+              PNG
             </button>
-            <button class="lm-icon-btn" id="lm-map-zoom-out" title="Zoom map out (shrinks the map extent)">
-              <svg viewBox="0 0 14 14" fill="currentColor" width="12" height="12">
-                <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="1.3"/>
-                <line x1="3.5" y1="6" x2="8.5" y2="6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                <line x1="9.5" y1="9.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-              </svg>
+            <button class="lm-action-btn lm-export-btn" id="lm-export-pdf" title="Export print-ready PDF">
+              <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M3 2h7l3 3v9H3V2z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M10 2v3h3" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="5.5" y1="8.5" x2="10.5" y2="8.5" stroke="currentColor" stroke-width="1"/><line x1="5.5" y1="11" x2="9" y2="11" stroke="currentColor" stroke-width="1"/></svg>
+              PDF
             </button>
-            <button class="lm-icon-btn" id="lm-map-zoom-in" title="Zoom map in (enlarges map detail)">
-              <svg viewBox="0 0 14 14" fill="currentColor" width="12" height="12">
-                <circle cx="6" cy="6" r="4.5" fill="none" stroke="currentColor" stroke-width="1.3"/>
-                <line x1="3.5" y1="6" x2="8.5" y2="6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                <line x1="6" y1="3.5" x2="6" y2="8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                <line x1="9.5" y1="9.5" x2="12.5" y2="12.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-              </svg>
+            <button class="lm-action-btn lm-export-btn lm-svg-btn" id="lm-export-svg" title="Export vector SVG">
+              <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><rect x="1.5" y="1.5" width="13" height="13" rx=".8" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4 10.5l3-5.5 3 5.5" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="4.5" y1="8.8" x2="9.5" y2="8.8" stroke="currentColor"/></svg>
+              SVG
             </button>
-            <button class="lm-capture-btn" id="lm-capture-extent" title="Capture current map view as layout extent">
-              <svg viewBox="0 0 14 14" fill="currentColor" width="11" height="11"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="7" cy="7" r="2.2"/></svg>
-              Capture
-            </button>
+            <button class="lm-action-btn lm-close-btn" id="lm-close" title="Exit Layout Mode (Esc)">✕ Exit</button>
           </div>
         </div>
 
-        <!-- ④ Field style controls (shown when a field is active) -->
-        <div class="lm-tb-section lm-style-section" id="lm-style-controls">
-          <div class="lm-ctrl-group">
-            <label class="lm-ctrl-label" id="lm-field-name-label">Text Style</label>
-            <span class="lm-tb-dimmed" id="lm-field-name">Select a field</span>
+        <!-- Row 2: text style + annotation -->
+        <div class="lm-tb-row lm-tb-row-styles">
+          <div class="lm-tb-section">
+            <span class="lm-ctrl-label" style="white-space:nowrap;align-self:center">Field:</span>
+            <span class="lm-tb-dimmed lm-field-name-inline" id="lm-field-name">click a field or use the panel →</span>
           </div>
 
-          <div class="lm-ctrl-group">
+          <div class="lm-tb-section">
             <label class="lm-ctrl-label">Weight</label>
             <select id="lm-font-weight" class="lm-select">
               <option value="300">Light</option>
@@ -335,7 +399,7 @@ export class LayoutMode {
             </select>
           </div>
 
-          <div class="lm-ctrl-group">
+          <div class="lm-tb-section">
             <label class="lm-ctrl-label">Size (pt)</label>
             <div class="lm-size-row">
               <button class="lm-icon-btn" id="lm-size-dec" title="Smaller">−</button>
@@ -344,95 +408,78 @@ export class LayoutMode {
             </div>
           </div>
 
-          <div class="lm-ctrl-group">
+          <div class="lm-tb-section">
             <label class="lm-ctrl-label">Align</label>
-            <div class="lm-align-row">
-              <button class="lm-icon-btn lm-align-btn" data-align="left" title="Left">
-                <svg viewBox="0 0 14 14" fill="currentColor" width="13" height="13"><rect x="1" y="2" width="12" height="1.4" rx=".5"/><rect x="1" y="5.3" width="8" height="1.4" rx=".5"/><rect x="1" y="8.6" width="12" height="1.4" rx=".5"/><rect x="1" y="11.9" width="5" height="1.4" rx=".5"/></svg>
+            <div class="lm-size-row">
+              <button class="lm-icon-btn lm-align-btn" data-align="left" title="Align left">
+                <svg viewBox="0 0 13 13" fill="currentColor" width="12" height="12"><rect x="1" y="1.5" width="11" height="1.3" rx=".4"/><rect x="1" y="4.6" width="7.5" height="1.3" rx=".4"/><rect x="1" y="7.7" width="11" height="1.3" rx=".4"/><rect x="1" y="10.8" width="5" height="1.3" rx=".4"/></svg>
               </button>
-              <button class="lm-icon-btn lm-align-btn" data-align="center" title="Center">
-                <svg viewBox="0 0 14 14" fill="currentColor" width="13" height="13"><rect x="1" y="2" width="12" height="1.4" rx=".5"/><rect x="3" y="5.3" width="8" height="1.4" rx=".5"/><rect x="1" y="8.6" width="12" height="1.4" rx=".5"/><rect x="4.5" y="11.9" width="5" height="1.4" rx=".5"/></svg>
+              <button class="lm-icon-btn lm-align-btn" data-align="center" title="Align center">
+                <svg viewBox="0 0 13 13" fill="currentColor" width="12" height="12"><rect x="1" y="1.5" width="11" height="1.3" rx=".4"/><rect x="2.75" y="4.6" width="7.5" height="1.3" rx=".4"/><rect x="1" y="7.7" width="11" height="1.3" rx=".4"/><rect x="4" y="10.8" width="5" height="1.3" rx=".4"/></svg>
               </button>
-              <button class="lm-icon-btn lm-align-btn" data-align="right" title="Right">
-                <svg viewBox="0 0 14 14" fill="currentColor" width="13" height="13"><rect x="1" y="2" width="12" height="1.4" rx=".5"/><rect x="5" y="5.3" width="8" height="1.4" rx=".5"/><rect x="1" y="8.6" width="12" height="1.4" rx=".5"/><rect x="8" y="11.9" width="5" height="1.4" rx=".5"/></svg>
+              <button class="lm-icon-btn lm-align-btn" data-align="right" title="Align right">
+                <svg viewBox="0 0 13 13" fill="currentColor" width="12" height="12"><rect x="1" y="1.5" width="11" height="1.3" rx=".4"/><rect x="4.5" y="4.6" width="7.5" height="1.3" rx=".4"/><rect x="1" y="7.7" width="11" height="1.3" rx=".4"/><rect x="7" y="10.8" width="5" height="1.3" rx=".4"/></svg>
               </button>
             </div>
           </div>
 
-          <div class="lm-ctrl-group">
+          <div class="lm-tb-section">
             <label class="lm-ctrl-label">Color</label>
             <input type="color" id="lm-color" value="#1a1a1a" class="lm-color-swatch" title="Text color" />
           </div>
-        </div>
 
-        <!-- ⑤ Page setup -->
-        <div class="lm-tb-section lm-export-settings-section">
-          <div class="lm-ctrl-group">
-            <label class="lm-ctrl-label">Paper</label>
-            <select id="lm-paper-size" class="lm-select">${paperOpts}</select>
-          </div>
-          <div class="lm-ctrl-group">
-            <label class="lm-ctrl-label">DPI</label>
-            <input type="number" id="lm-dpi" class="lm-select lm-dpi-input"
-              value="${this.exportSettings.dpi}" min="72" max="600" step="50" title="Export resolution (DPI)" />
-          </div>
-          <div class="lm-ctrl-group">
-            <label class="lm-ctrl-label">Orient</label>
-            <button class="lm-icon-btn lm-orient-btn ${this.exportSettings.landscape ? 'lm-btn-active' : ''}" id="lm-orient" title="Toggle landscape/portrait">
-              ${this.exportSettings.landscape
-                ? `<svg viewBox="0 0 16 10" fill="none" width="22" height="14" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="14" height="8" rx="1"/></svg>`
-                : `<svg viewBox="0 0 10 16" fill="none" width="14" height="22" stroke="currentColor" stroke-width="1.2"><rect x="1" y="1" width="8" height="14" rx="1"/></svg>`}
+          <div class="lm-tb-section" style="margin-left:auto">
+            <button class="lm-action-btn lm-anno-btn" id="lm-add-anno" title="Add free-text annotation box">
+              <svg viewBox="0 0 16 16" fill="none" width="12" height="12" stroke="currentColor" stroke-width="1.3"><path d="M3 13l1.5-4.5L11 2l3 3-6.5 6.5L3 13z" stroke-linecap="round" stroke-linejoin="round"/><line x1="9.5" y1="3.5" x2="12.5" y2="6.5"/></svg>
+              + Annotation
             </button>
           </div>
         </div>
+      </div>
 
-        <!-- ⑥ Map overlays -->
-        <div class="lm-tb-section lm-map-options-section">
-          <div class="lm-ctrl-group">
-            <label class="lm-ctrl-label">Overlays</label>
-            <div class="lm-align-row">
-              <button class="lm-icon-btn lm-toggle-btn ${this.showScaleBar ? 'lm-btn-active' : ''}" id="lm-toggle-scalebar" title="Toggle scale bar">
-                <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><rect x="1" y="7" width="14" height="2" rx=".5"/><rect x="1" y="5" width="2" height="6" rx=".5"/><rect x="13" y="5" width="2" height="6" rx=".5"/><rect x="7" y="6" width="2" height="4" rx=".5"/></svg>
-              </button>
-              <button class="lm-icon-btn lm-toggle-btn ${this.showNorthArrow ? 'lm-btn-active' : ''}" id="lm-toggle-northarrow" title="Toggle north arrow">
-                <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><path d="M8 2l3 9-3-2-3 2z"/><path d="M8 14V9" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
-              </button>
-              <button class="lm-icon-btn lm-toggle-btn ${this.useVectorLayout ? 'lm-btn-active' : ''}" id="lm-toggle-vector" title="Toggle vector layout (SVG title block)">
-                <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><rect x="1" y="1" width="14" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="10" y="1" width="5" height="14" fill="currentColor" opacity=".2"/><line x1="10" y1="1" x2="10" y2="15" stroke="currentColor" stroke-width="1"/></svg>
-              </button>
+      <!-- ══ BODY: left panel + workspace ══ -->
+      <div id="lm-main-area">
+
+        <!-- Dockable left panel -->
+        <div id="lm-side-panel">
+          <div class="lm-sp-tabs">
+            <button class="lm-sp-tab ${this.activeTab === 'fields' ? 'lm-sp-tab--active' : ''}" data-tab="fields">
+              <svg viewBox="0 0 14 14" fill="currentColor" width="12" height="12"><rect x="1" y="1" width="12" height="12" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.1"/><rect x="2.5" y="3" width="9" height="1.1" rx=".3"/><rect x="2.5" y="5.5" width="9" height="1.1" rx=".3"/><rect x="2.5" y="8" width="6" height="1.1" rx=".3"/></svg>
+              Fields
+            </button>
+            <button class="lm-sp-tab ${this.activeTab === 'layers' ? 'lm-sp-tab--active' : ''}" data-tab="layers">
+              <svg viewBox="0 0 14 14" fill="currentColor" width="12" height="12"><path d="M7 1.5L13 5l-6 3L1 5z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M1 8l6 3 6-3" fill="none" stroke="currentColor" stroke-width="1.1"/><path d="M1 11l6 3 6-3" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
+              Layers
+            </button>
+            <button class="lm-sp-collapse-btn" id="lm-sp-collapse" title="Collapse panel">
+              <svg viewBox="0 0 10 10" fill="currentColor" width="9" height="9"><path d="M7 1L3 5l4 4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+
+          <div class="lm-sp-body">
+            <div id="lm-tab-fields" class="lm-sp-tabpane ${this.activeTab === 'fields' ? '' : 'lm-sp-tabpane--hidden'}">
+              <div class="lm-fp-hint">Edit fields below — changes sync live to the layout.</div>
+              <div class="lm-fp-body" style="padding-top:4px">${fieldsPanelItems}</div>
+            </div>
+
+            <div id="lm-tab-layers" class="lm-sp-tabpane ${this.activeTab === 'layers' ? '' : 'lm-sp-tabpane--hidden'}">
+              ${layersPanelContent}
             </div>
           </div>
         </div>
 
-        <!-- ⑦ Actions (right-aligned) -->
-        <div class="lm-tb-section lm-actions-section">
-          <button class="lm-action-btn lm-anno-btn" id="lm-add-anno" title="Add free text annotation">
-            <svg viewBox="0 0 18 18" fill="currentColor" width="13" height="13"><path d="M3 14l2-5L12 2l3 3-7 7-5 2z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M10 4l3 3" stroke="currentColor" stroke-width="1.3" fill="none"/></svg>
-            + Text
-          </button>
-          <button class="lm-action-btn lm-export-btn" id="lm-export-png" title="Export high-resolution PNG">
-            <svg viewBox="0 0 18 18" fill="currentColor" width="13" height="13"><rect x="1" y="1" width="16" height="16" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 12l3-4 2.5 3 2-2.5L15 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="6" cy="6" r="1.2"/></svg>
-            PNG
-          </button>
-          <button class="lm-action-btn lm-export-btn" id="lm-export-pdf" title="Export print-ready PDF">
-            <svg viewBox="0 0 18 18" fill="currentColor" width="13" height="13"><path d="M4 2h7l3 3v11H4V2z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M11 2v3h3" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="6.5" y="9" width="5" height="1" rx=".4"/><rect x="6.5" y="11.5" width="3.5" height="1" rx=".4"/></svg>
-            PDF
-          </button>
-          <button class="lm-action-btn lm-export-btn lm-svg-btn" id="lm-export-svg" title="Export as vector SVG">
-            <svg viewBox="0 0 18 18" fill="currentColor" width="13" height="13"><rect x="2" y="2" width="14" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M5 11l3-6 3 6" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="5.5" y1="9.5" x2="10.5" y2="9.5" stroke="currentColor" stroke-width="1"/></svg>
-            SVG
-          </button>
-          <button class="lm-action-btn lm-close-btn" id="lm-close" title="Exit Layout Mode (Esc)">✕ Exit</button>
-        </div>
-      </div>
+        <!-- Collapse stub (shown when panel is collapsed) -->
+        <button id="lm-sp-expand" title="Expand panel" style="display:none">
+          <svg viewBox="0 0 10 10" fill="currentColor" width="10" height="10"><path d="M3 1l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
 
-      <div id="lm-main-area">
         <div id="lm-workspace">
           <div id="lm-sheet">
             ${this.mapSnapshot
               ? `<img id="lm-map-snapshot" src="${this.mapSnapshot}" alt="" />`
               : `<div id="lm-map-placeholder"><span>Map snapshot unavailable<br><small>Enable preserveDrawingBuffer in map settings</small></span></div>`
             }
+            <canvas id="lm-map-live"></canvas>
             <img id="lm-template" alt="" style="${this.useVectorLayout ? 'display:none;' : ''}" />
             <div id="lm-vector-overlay" style="display:${this.useVectorLayout ? 'block' : 'none'};position:absolute;inset:0;pointer-events:none;"></div>
             <div id="lm-fields-layer">
@@ -440,18 +487,6 @@ export class LayoutMode {
             </div>
           </div>
           <div id="lm-tmpl-notice" style="display:none"></div>
-        </div>
-
-        <div id="lm-fields-panel" style="display:${this.showFieldsPanel ? 'flex' : 'none'}">
-          <div class="lm-fp-header">
-            <svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14"><rect x="1" y="1" width="14" height="14" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="3.5" y="4" width="9" height="1.2" rx=".4"/><rect x="3.5" y="7" width="9" height="1.2" rx=".4"/><rect x="3.5" y="10" width="6" height="1.2" rx=".4"/></svg>
-            <span>Text Fields</span>
-            <button class="lm-fp-close-btn" id="lm-fp-close" title="Close fields panel">✕</button>
-          </div>
-          <div class="lm-fp-hint">Edit field content here — changes appear live on the layout.</div>
-          <div class="lm-fp-body">
-            ${fieldsPanelItems}
-          </div>
         </div>
       </div>
     `;
@@ -599,7 +634,16 @@ export class LayoutMode {
       this.saveExportSettings();
     });
 
-    // Fields panel toggle
+    // Side panel tab switching
+    ov.querySelectorAll<HTMLElement>('[data-tab]').forEach(btn => {
+      btn.addEventListener('click', () => this.setActiveTab(btn.dataset.tab as 'fields' | 'layers'));
+    });
+
+    // Side panel collapse / expand
+    ov.querySelector('#lm-sp-collapse')?.addEventListener('click', () => this.toggleSidePanel());
+    ov.querySelector('#lm-sp-expand')?.addEventListener('click', () => this.toggleSidePanel());
+
+    // Legacy fields panel toggle (no-op in new layout but keep for safety)
     ov.querySelector('#lm-toggle-panel')?.addEventListener('click', () => this.toggleFieldsPanel());
     ov.querySelector('#lm-fp-close')?.addEventListener('click', () => this.toggleFieldsPanel());
 
@@ -731,18 +775,19 @@ export class LayoutMode {
     if (!ov) return;
     // Pass pointer events through the overlay to the live map underneath
     ov.style.pointerEvents = 'none';
-    // Keep toolbar and capture button interactive
+    // Keep toolbar, side panel, and capture button interactive
     const toolbar = ov.querySelector<HTMLElement>('#lm-toolbar');
     if (toolbar) toolbar.style.pointerEvents = 'all';
-    const mapExtentSection = ov.querySelector<HTMLElement>('.lm-map-extent-section');
-    if (mapExtentSection) mapExtentSection.style.pointerEvents = 'all';
-    // Fade snapshot to reveal live map beneath
-    const snap = ov.querySelector<HTMLElement>('#lm-map-snapshot');
-    if (snap) snap.style.opacity = '0.08';
+    const sidePanel = ov.querySelector<HTMLElement>('#lm-side-panel');
+    if (sidePanel) sidePanel.style.pointerEvents = 'all';
+    const expandBtn = ov.querySelector<HTMLElement>('#lm-sp-expand');
+    if (expandBtn) expandBtn.style.pointerEvents = 'all';
     const sheet = ov.querySelector<HTMLElement>('#lm-sheet');
     if (sheet) sheet.classList.add('lm-extent-mode');
     ov.querySelector('#lm-map-pan')?.classList.add('lm-btn-active');
-    EventBus.emit('toast', { message: 'Drag the map to pan, then click Capture', type: 'info', duration: 3000 });
+    // Start live canvas mirroring so the preview stays dynamic
+    this.startLivePreview();
+    EventBus.emit('toast', { message: 'Drag the map to pan · Capture to commit', type: 'info', duration: 3000 });
   }
 
   private exitMapPanMode(): void {
@@ -752,10 +797,11 @@ export class LayoutMode {
     ov.style.pointerEvents = '';
     const toolbar = ov.querySelector<HTMLElement>('#lm-toolbar');
     if (toolbar) toolbar.style.pointerEvents = '';
-    const mapExtentSection = ov.querySelector<HTMLElement>('.lm-map-extent-section');
-    if (mapExtentSection) mapExtentSection.style.pointerEvents = '';
-    const snap = ov.querySelector<HTMLElement>('#lm-map-snapshot');
-    if (snap) snap.style.opacity = '';
+    const sidePanel = ov.querySelector<HTMLElement>('#lm-side-panel');
+    if (sidePanel) sidePanel.style.pointerEvents = '';
+    const expandBtn = ov.querySelector<HTMLElement>('#lm-sp-expand');
+    if (expandBtn) expandBtn.style.pointerEvents = '';
+    this.stopLivePreview();
     const sheet = ov.querySelector<HTMLElement>('#lm-sheet');
     if (sheet) sheet.classList.remove('lm-extent-mode');
     ov.querySelector('#lm-map-pan')?.classList.remove('lm-btn-active');
@@ -780,13 +826,15 @@ export class LayoutMode {
   }
 
   private captureExtent(): void {
+    // Stop live preview first so we read the static canvas once it settles
+    this.stopLivePreview();
     try {
       this.mapSnapshot = this.getMapCanvas().toDataURL('image/png');
       if (this.getMapStateFn) {
         try { this.mapState = this.getMapStateFn(); } catch { /* ok */ }
       }
       const snap = this.overlay?.querySelector<HTMLImageElement>('#lm-map-snapshot');
-      if (snap) snap.src = this.mapSnapshot;
+      if (snap) { snap.src = this.mapSnapshot; snap.style.opacity = ''; }
       this.cropBox = null;
       if (this.isMapPanMode) this.exitMapPanMode();
       EventBus.emit('toast', { message: 'Map extent captured', type: 'success', duration: 1500 });
@@ -796,15 +844,103 @@ export class LayoutMode {
     }
   }
 
+  // ── Live map preview ──────────────────────────────────────────
+
+  private startLivePreview(): void {
+    const liveCanvas = this.overlay?.querySelector<HTMLCanvasElement>('#lm-map-live');
+    if (!liveCanvas) return;
+    liveCanvas.style.display = 'block';
+    const snap = this.overlay?.querySelector<HTMLElement>('#lm-map-snapshot');
+    if (snap) snap.style.opacity = '0';
+
+    const draw = () => {
+      try {
+        const mapCanvas = this.getMapCanvas();
+        const w = liveCanvas.clientWidth;
+        const h = liveCanvas.clientHeight;
+        if (w > 0 && h > 0) {
+          if (liveCanvas.width !== w) liveCanvas.width = w;
+          if (liveCanvas.height !== h) liveCanvas.height = h;
+          const ctx = liveCanvas.getContext('2d');
+          if (ctx) ctx.drawImage(mapCanvas, 0, 0, w, h);
+        }
+      } catch { /* map may not be ready */ }
+      this.liveRafId = requestAnimationFrame(draw);
+    };
+    this.liveRafId = requestAnimationFrame(draw);
+  }
+
+  private stopLivePreview(): void {
+    if (this.liveRafId !== null) {
+      cancelAnimationFrame(this.liveRafId);
+      this.liveRafId = null;
+    }
+    const liveCanvas = this.overlay?.querySelector<HTMLCanvasElement>('#lm-map-live');
+    if (liveCanvas) liveCanvas.style.display = 'none';
+    const snap = this.overlay?.querySelector<HTMLElement>('#lm-map-snapshot');
+    if (snap) snap.style.opacity = '';
+  }
+
+  // ── Side panel ────────────────────────────────────────────────
+
+  private toggleSidePanel(): void {
+    this.isSidePanelCollapsed = !this.isSidePanelCollapsed;
+    const panel = this.overlay?.querySelector<HTMLElement>('#lm-side-panel');
+    const expandBtn = this.overlay?.querySelector<HTMLElement>('#lm-sp-expand');
+    if (panel) panel.style.display = this.isSidePanelCollapsed ? 'none' : '';
+    if (expandBtn) expandBtn.style.display = this.isSidePanelCollapsed ? 'flex' : 'none';
+  }
+
+  private setActiveTab(tab: 'fields' | 'layers'): void {
+    this.activeTab = tab;
+    const ov = this.overlay;
+    if (!ov) return;
+    ov.querySelectorAll<HTMLElement>('.lm-sp-tab').forEach(btn => {
+      btn.classList.toggle('lm-sp-tab--active', btn.dataset.tab === tab);
+    });
+    ov.querySelectorAll<HTMLElement>('.lm-sp-tabpane').forEach(pane => {
+      pane.classList.toggle('lm-sp-tabpane--hidden', pane.id !== `lm-tab-${tab}`);
+    });
+    if (tab === 'layers') this.buildLayersList();
+    if (tab === 'fields') this.syncAllPanelFromCanvas();
+  }
+
+  private buildLayersList(): void {
+    const list = this.overlay?.querySelector<HTMLElement>('#lm-layers-list');
+    if (!list) return;
+    if (!this.getLayersFn) {
+      list.innerHTML = `<div class="lm-fp-hint" style="border-bottom:none;padding:10px 12px;">Layer data not available.</div>`;
+      return;
+    }
+    const layers = this.getLayersFn();
+    if (!layers.length) {
+      list.innerHTML = `<div class="lm-fp-hint" style="border-bottom:none;padding:10px 12px;">No layers in current project.</div>`;
+      return;
+    }
+    list.innerHTML = layers.map(l => `
+      <div class="lm-layer-item">
+        <label class="lm-layer-toggle">
+          <input type="checkbox" ${l.visible !== false ? 'checked' : ''} data-lid="${l.id}" />
+          <span class="lm-layer-dot" style="background:${l.color}"></span>
+          <span class="lm-layer-name">${l.name}</span>
+          <small class="lm-layer-type">${l.geometryType ?? ''}</small>
+        </label>
+      </div>`).join('');
+
+    list.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const lid = cb.dataset.lid!;
+        this.setLayerVisibilityFn?.(lid, cb.checked);
+      });
+    });
+  }
+
   // ── Fields panel ──────────────────────────────────────────────
 
   private toggleFieldsPanel(): void {
-    this.showFieldsPanel = !this.showFieldsPanel;
-    const panel = this.overlay?.querySelector<HTMLElement>('#lm-fields-panel');
-    const btn   = this.overlay?.querySelector<HTMLElement>('#lm-toggle-panel');
-    if (panel) panel.style.display = this.showFieldsPanel ? 'flex' : 'none';
-    if (btn)   btn.classList.toggle('lm-btn-active', this.showFieldsPanel);
-    if (this.showFieldsPanel) this.syncAllPanelFromCanvas();
+    // Switch to fields tab and ensure panel is visible
+    if (this.isSidePanelCollapsed) this.toggleSidePanel();
+    this.setActiveTab('fields');
   }
 
   private syncAllPanelFromCanvas(): void {
@@ -936,14 +1072,16 @@ export class LayoutMode {
       el.classList.toggle('lm-anno--selected', el.dataset.aid === id);
     });
 
-    // Scroll corresponding panel textarea into view if panel is open
-    if (this.showFieldsPanel && !isAnno) {
+    // Highlight and scroll corresponding panel textarea
+    if (!isAnno) {
       const panelEl = this.overlay?.querySelector<HTMLTextAreaElement>(`.lm-fp-textarea[data-fid="${id}"]`);
-      panelEl?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      panelEl?.classList.add('lm-fp-textarea--active');
-      this.overlay?.querySelectorAll<HTMLElement>('.lm-fp-textarea').forEach(el => {
-        if (el !== panelEl) el.classList.remove('lm-fp-textarea--active');
-      });
+      if (panelEl) {
+        panelEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        panelEl.classList.add('lm-fp-textarea--active');
+        this.overlay?.querySelectorAll<HTMLElement>('.lm-fp-textarea').forEach(el => {
+          if (el !== panelEl) el.classList.remove('lm-fp-textarea--active');
+        });
+      }
     }
   }
 

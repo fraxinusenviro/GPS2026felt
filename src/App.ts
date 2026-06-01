@@ -117,6 +117,17 @@ export class App {
       },
       () => this.mapManager.zoomIn(),
       () => this.mapManager.zoomOut(),
+      () => this.projectLayerPresets.map(lp => ({
+        id: lp.id,
+        name: lp.name,
+        color: lp.color,
+        visible: lp.visible !== false,
+        geometryType: lp.geometry_type,
+      })),
+      (id: string, visible: boolean) => {
+        const lp = this.projectLayerPresets.find(l => l.id === id);
+        if (lp) EventBus.emit('layer-preset-updated', { ...lp, visible });
+      },
     );
 
     this.basemapManager = new BasemapManager(this.mapManager);
