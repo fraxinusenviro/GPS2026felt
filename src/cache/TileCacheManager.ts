@@ -1,24 +1,6 @@
 import { StorageManager } from '../storage/StorageManager';
 import type { TileCacheRecord, TileCacheLayerDef } from '../types';
-import { buildTileCoords } from './tileUtils';
-
-function tile3857Bbox(x: number, y: number, z: number): string {
-  const e = 20037508.3427892;
-  const n = Math.pow(2, z);
-  const w3857 = -e + x * ((e * 2) / n);
-  const e3857 = w3857 + (e * 2) / n;
-  const n3857 = e - y * ((e * 2) / n);
-  const s3857 = n3857 - (e * 2) / n;
-  return `${w3857},${s3857},${e3857},${n3857}`;
-}
-
-function buildTileUrl(urlTemplate: string, x: number, y: number, z: number): string {
-  return urlTemplate
-    .replace('{z}', String(z))
-    .replace('{x}', String(x))
-    .replace('{y}', String(y))
-    .replace('{bbox-epsg-3857}', tile3857Bbox(x, y, z));
-}
+import { buildTileCoords, buildTileUrl } from './tileUtils';
 
 // ---- Estimate size per tile by layer type ----
 function bytesPerTile(urlTemplate: string): number {

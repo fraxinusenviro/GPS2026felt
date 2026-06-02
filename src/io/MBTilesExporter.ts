@@ -1,13 +1,15 @@
 import { StorageManager } from '../storage/StorageManager';
-import { buildTileCoords } from '../cache/tileUtils';
-import type { TileCacheRecord } from '../types';
+import { buildTileCoords, buildTileUrl } from '../cache/tileUtils';
 
 export class MBTilesExporter {
   private storage = StorageManager.getInstance();
 
   async exportCache(
-    record: TileCacheRecord,
-    layerOpacities: { defId: string; opacity: number }[],
+    bbox: [number, number, number, number],
+    zoomMin: number,
+    zoomMax: number,
+    name: string,
+    layers: { url: string; opacity: number }[],
   ): Promise<void> {
     const initSqlJs = (await import('sql.js')).default;
     const SQL = await initSqlJs({
@@ -27,32 +29,26 @@ export class MBTilesExporter {
       CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);
     `);
 
-    const [west, south, east, north] = record.bbox;
+    const [west, south, east, north] = bbox;
     const metaRows: [string, string][] = [
-      ['name', record.name],
+      ['name', name],
       ['type', 'overlay'],
       ['version', '1.0'],
       ['description', 'Exported from GPS Field Mapper'],
       ['format', 'png'],
       ['bounds', `${west},${south},${east},${north}`],
-      ['minzoom', String(record.zoom_min)],
-      ['maxzoom', String(record.zoom_max)],
+      ['minzoom', String(zoomMin)],
+      ['maxzoom', String(zoomMax)],
     ];
     const metaStmt = db.prepare('INSERT INTO metadata VALUES (?, ?)');
-    for (const [k, v] of metaRows) {
-      metaStmt.run([k, v]);
-    }
+    for (const [k, v] of metaRows) metaStmt.run([k, v]);
     metaStmt.free();
 
     const tileStmt = db.prepare(
       'INSERT OR REPLACE INTO tiles (zoom_level, tile_column, tile_row, tile_data) VALUES (?, ?, ?, ?)',
     );
 
-    const coords = buildTileCoords(record.bbox, record.zoom_min, record.zoom_max);
-
-    // Filter layerOpacities to only layers that exist in this cache record
-    const cachedDefIds = new Set(record.layers.map(l => l.defId));
-    const layers = layerOpacities.filter(l => cachedDefIds.has(l.defId));
+    const coords = buildTileCoords(bbox, zoomMin, zoomMax);
 
     for (const { x, y, z } of coords) {
       const canvas = document.createElement('canvas');
@@ -61,9 +57,8 @@ export class MBTilesExporter {
       const ctx = canvas.getContext('2d')!;
       let hasContent = false;
 
-      for (const { defId, opacity } of layers) {
-        const layerId = `bmcache-${record.id}-${defId}`;
-        const blob = await this.storage.getTile(layerId, z, x, y);
+      for (const { url, opacity } of layers) {
+        const blob = await this.fetchTile(url, x, y, z);
         if (!blob) continue;
 
         const bmp = await createImageBitmap(blob);
@@ -75,7 +70,6 @@ export class MBTilesExporter {
 
       if (!hasContent) continue;
 
-      // Skip fully-transparent tiles to reduce file size
       const pixel = ctx.getImageData(0, 0, 1, 1).data;
       if (pixel[3] === 0) continue;
 
@@ -96,8 +90,31 @@ export class MBTilesExporter {
     const url = URL.createObjectURL(fileBlob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${record.name}.mbtiles`;
+    a.download = `${name}.mbtiles`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  private async fetchTile(url: string, x: number, y: number, z: number): Promise<Blob | null> {
+    if (url.startsWith('bmcache://')) {
+      // bmcache://cacheId/defId/{z}/{x}/{y}
+      const parts = url.split('/');
+      const layerId = `bmcache-${parts[2]}-${parts[3]}`;
+      return this.storage.getTile(layerId, z, x, y);
+    }
+
+    if (url.startsWith('mbtiles://')) {
+      // mbtiles://layerId/{z}/{x}/{y}
+      const layerId = url.split('/')[2];
+      return this.storage.getTile(layerId, z, x, y);
+    }
+
+    // Live XYZ or WMS — fetch from remote
+    try {
+      const resp = await fetch(buildTileUrl(url, x, y, z));
+      return resp.ok ? resp.blob() : null;
+    } catch {
+      return null;
+    }
   }
 }
