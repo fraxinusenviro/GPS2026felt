@@ -1,17 +1,6 @@
 import { StorageManager } from '../storage/StorageManager';
 import type { TileCacheRecord, TileCacheLayerDef } from '../types';
-
-// ---- Tile math ----
-function lon2tile(lon: number, z: number): number {
-  return Math.floor(((lon + 180) / 360) * Math.pow(2, z));
-}
-
-function lat2tile(lat: number, z: number): number {
-  const rad = (lat * Math.PI) / 180;
-  return Math.floor(
-    ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * Math.pow(2, z),
-  );
-}
+import { buildTileCoords } from './tileUtils';
 
 function tile3857Bbox(x: number, y: number, z: number): string {
   const e = 20037508.3427892;
@@ -48,13 +37,8 @@ export class TileCacheManager {
     zMin: number,
     zMax: number,
   ): { tileCount: number; estimatedBytes: number } {
-    const [west, south, east, north] = bbox;
-    let tileCount = 0;
-    for (let z = zMin; z <= zMax; z++) {
-      const xMin = lon2tile(west,  z), xMax = lon2tile(east,  z);
-      const yMin = lat2tile(north, z), yMax = lat2tile(south, z);
-      tileCount += (xMax - xMin + 1) * (yMax - yMin + 1);
-    }
+    const coords = buildTileCoords(bbox, zMin, zMax);
+    const tileCount = coords.length;
     const totalTiles = tileCount * layers.length;
     const avgBytes = layers.reduce((s, l) => s + bytesPerTile(l.urlTemplate), 0) / Math.max(1, layers.length);
     return { tileCount: totalTiles, estimatedBytes: Math.round(totalTiles * avgBytes) };
@@ -70,22 +54,11 @@ export class TileCacheManager {
     },
     onProgress: (done: number, total: number) => void,
     signal?: AbortSignal,
-  ): Promise<string> {
+  ): Promise<TileCacheRecord> {
     const { name, bbox, layers, zMin, zMax } = params;
-    const [west, south, east, north] = bbox;
     const cacheId = crypto.randomUUID();
 
-    // Build full tile list
-    const tiles: Array<{ x: number; y: number; z: number }> = [];
-    for (let z = zMin; z <= zMax; z++) {
-      const xMin = lon2tile(west,  z), xMax = lon2tile(east,  z);
-      const yMin = lat2tile(north, z), yMax = lat2tile(south, z);
-      for (let x = xMin; x <= xMax; x++) {
-        for (let y = yMin; y <= yMax; y++) {
-          tiles.push({ x, y, z });
-        }
-      }
-    }
+    const tiles = buildTileCoords(bbox, zMin, zMax);
 
     const total = tiles.length * layers.length;
     let done = 0;
@@ -129,7 +102,7 @@ export class TileCacheManager {
       size_bytes: sizeBytes,
     };
     await this.storage.saveCache(record);
-    return cacheId;
+    return record;
   }
 
   async deleteCache(cacheId: string): Promise<void> {

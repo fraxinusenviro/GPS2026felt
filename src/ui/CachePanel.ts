@@ -1,5 +1,6 @@
 import { BBoxSelector } from '../cache/BBoxSelector';
 import { TileCacheManager } from '../cache/TileCacheManager';
+import { MBTilesExporter } from '../io/MBTilesExporter';
 import type { TileCacheLayerDef, TileCacheRecord } from '../types';
 import type { MapManager } from '../map/MapManager';
 import type { BasemapManager } from '../map/BasemapManager';
@@ -11,6 +12,7 @@ export class CachePanel {
   private bboxSelector: BBoxSelector | null = null;
   private currentBBox: [number, number, number, number] | null = null;
   private cacheManager = new TileCacheManager();
+  private exporter = new MBTilesExporter();
   private activeTab: 'download' | 'library' = 'download';
   private abortController: AbortController | null = null;
   private activeCacheId: string | null = null;
@@ -163,6 +165,7 @@ export class CachePanel {
               ${isActive ? 'Deactivate' : 'Activate'}
             </button>
             <button class="btn-sm cache-lib-zoom" data-cache-id="${c.id}" title="Zoom to extent">Zoom to</button>
+            <button class="btn-sm cache-lib-export" data-cache-id="${c.id}" title="Export as MBTiles">Export MBTiles</button>
             <button class="btn-sm btn-danger cache-lib-delete" data-cache-id="${c.id}" title="Delete">Delete</button>
           </div>
         </div>`;
@@ -194,6 +197,23 @@ export class CachePanel {
         if (!record) return;
         const [w, s, e, n] = record.bbox;
         this.mapManager.fitBounds([[w, s], [e, n]], 60);
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('.cache-lib-export').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.cacheId!;
+        const record = (await this.cacheManager.getAllCaches()).find(c => c.id === id);
+        if (!record) return;
+        btn.disabled = true;
+        btn.textContent = 'Exporting…';
+        try {
+          const opacities = this.basemapManager.getVisibleLayerOpacities();
+          await this.exporter.exportCache(record, opacities);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Export MBTiles';
+        }
       });
     });
 
@@ -314,7 +334,7 @@ export class CachePanel {
       this.abortController = new AbortController();
 
       try {
-        await this.cacheManager.downloadCache(
+        const record = await this.cacheManager.downloadCache(
           { name, bbox: this.currentBBox, layers, zMin: currentZoom, zMax },
           (done, total) => {
             const pct = total ? Math.round((done / total) * 100) : 0;
@@ -323,7 +343,9 @@ export class CachePanel {
           },
           this.abortController.signal,
         );
-        EventBus.emit('toast', { message: `"${name}" cached successfully`, type: 'success' });
+        EventBus.emit('toast', { message: `"${name}" cached — generating MBTiles…`, type: 'success' });
+        const opacities = this.basemapManager.getVisibleLayerOpacities();
+        await this.exporter.exportCache(record, opacities);
         this.activeTab = 'library';
         this.render();
       } catch (err) {
