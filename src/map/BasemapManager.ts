@@ -8,6 +8,7 @@ import { HRDEMLayer, type HRDEMProduct } from './HRDEMLayer';
 import { CogContourLayer } from './CogContourLayer';
 import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, CHM_RAMPS, CHM_CLASSES, CHM_CLASS_PALETTES, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
 import { EventBus } from '../utils/EventBus';
+import { StorageManager } from '../storage/StorageManager';
 import { StylePicker } from '../ui/StylePicker';
 import { renderSwatchDataUrl } from '../ui/SymbolRenderer';
 
@@ -140,10 +141,19 @@ export class BasemapManager {
   private collectedFeatures: FieldFeature[] = [];
   private onTypePresetChange: ((preset: TypePreset) => void) | null = null;
   private stylePicker = new StylePicker();
+  private mapBgColor = '#000000';
 
   private currentProjectId: string = '';
 
-  constructor(private mapManager: MapManager) {}
+  constructor(private mapManager: MapManager) {
+    // Load persisted background color
+    StorageManager.getInstance().getAppSettings().then(s => {
+      if (s.map_bg_color) {
+        this.mapBgColor = s.map_bg_color;
+        this.mapManager.setBackgroundColor(s.map_bg_color);
+      }
+    }).catch(() => {/* ignore */});
+  }
 
   // ---- State persistence ----
 
@@ -1020,6 +1030,32 @@ export class BasemapManager {
 
   // ---- Collected Data section — stacked type list with feature counts ----
 
+  private renderMapDisplaySection(): string {
+    return this.sectionToggle('map-display', 'Map Display', 'appearance settings') +
+      this.sectionBody('map-display', `
+        <div style="display:flex;align-items:center;gap:10px;padding:4px 0 2px">
+          <span style="font-size:11px;color:var(--color-text-muted);flex:1">Background color</span>
+          <input type="color" id="bm-bg-color-input" value="${this.mapBgColor}"
+            style="width:32px;height:22px;padding:1px 2px;border:1px solid rgba(91,175,130,0.3);border-radius:4px;cursor:pointer;background:none" />
+          <span id="bm-bg-color-value" style="font-size:10px;color:var(--color-text-muted);width:48px">${this.mapBgColor}</span>
+        </div>
+      `);
+  }
+
+  private wireMapDisplay(container: HTMLElement): void {
+    const input = container.querySelector<HTMLInputElement>('#bm-bg-color-input');
+    const label = container.querySelector<HTMLElement>('#bm-bg-color-value');
+    input?.addEventListener('input', async () => {
+      const color = input.value;
+      this.mapBgColor = color;
+      if (label) label.textContent = color;
+      this.mapManager.setBackgroundColor(color);
+      const settings = await StorageManager.getInstance().getAppSettings();
+      settings.map_bg_color = color;
+      await StorageManager.getInstance().saveAppSettings(settings);
+    });
+  }
+
   private renderCollectedDataSection(): string {
     if (this.typePresets.length === 0 && this.collectedFeatures.length === 0) return '';
 
@@ -1563,6 +1599,7 @@ export class BasemapManager {
         ${this.renderCollectedDataSection()}
         ${this.renderUserLayersSection()}
         ${this.renderPDFSection()}
+        ${this.renderMapDisplaySection()}
 
       </div>
     `;
@@ -1570,6 +1607,7 @@ export class BasemapManager {
     container.querySelector('#bm-close')?.addEventListener('click', onClose);
     this.wireCollectedData(container);
     this.wireFeatureLayers(container);
+    this.wireMapDisplay(container);
     this.wireContent(container, onClose);
   }
 
