@@ -1,5 +1,9 @@
 import { StorageManager } from '../storage/StorageManager';
 import { buildTileCoords, buildTileUrl } from '../cache/tileUtils';
+import { fetchVectorFeatures, renderVectorFeatures } from './VectorTileRenderer';
+import type { VectorLayerInfo } from './VectorTileRenderer';
+
+const MIN_VECTOR_ZOOM = 12;
 
 export class MBTilesExporter {
   private storage = StorageManager.getInstance();
@@ -9,7 +13,8 @@ export class MBTilesExporter {
     zoomMin: number,
     zoomMax: number,
     name: string,
-    layers: { url: string; opacity: number }[],
+    rasterLayers: { url: string; opacity: number }[],
+    vectorLayers: VectorLayerInfo[] = [],
   ): Promise<void> {
     const initSqlJs = (await import('sql.js')).default;
     const SQL = await initSqlJs({
@@ -48,6 +53,11 @@ export class MBTilesExporter {
       'INSERT OR REPLACE INTO tiles (zoom_level, tile_column, tile_row, tile_data) VALUES (?, ?, ?, ?)',
     );
 
+    // Pre-fetch all vector features once for the entire bbox
+    const vectorFeatures = vectorLayers.length > 0
+      ? await Promise.all(vectorLayers.map(vl => fetchVectorFeatures(vl.config, bbox, zoomMax)))
+      : [];
+
     const coords = buildTileCoords(bbox, zoomMin, zoomMax);
 
     for (const { x, y, z } of coords) {
@@ -57,7 +67,8 @@ export class MBTilesExporter {
       const ctx = canvas.getContext('2d')!;
       let hasContent = false;
 
-      for (const { url, opacity } of layers) {
+      // Draw raster layers
+      for (const { url, opacity } of rasterLayers) {
         const blob = await this.fetchTile(url, x, y, z);
         if (!blob) continue;
 
@@ -66,6 +77,15 @@ export class MBTilesExporter {
         ctx.drawImage(bmp, 0, 0);
         bmp.close();
         hasContent = true;
+      }
+
+      // Draw vector layers (only at zoom >= MIN_VECTOR_ZOOM)
+      if (z >= MIN_VECTOR_ZOOM && vectorFeatures.length > 0) {
+        for (let i = 0; i < vectorLayers.length; i++) {
+          if (vectorFeatures[i].length === 0) continue;
+          renderVectorFeatures(ctx, vectorFeatures[i], x, y, z, vectorLayers[i]);
+          hasContent = true;
+        }
       }
 
       if (!hasContent) continue;
@@ -111,7 +131,7 @@ export class MBTilesExporter {
       return this.storage.getTile(layerId, z, x, y);
     }
 
-    // Live XYZ or WMS — fetch from remote
+    // Live XYZ or WMS
     try {
       const resp = await fetch(buildTileUrl(url, x, y, z));
       return resp.ok ? resp.blob() : null;

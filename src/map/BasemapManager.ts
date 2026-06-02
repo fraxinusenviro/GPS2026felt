@@ -752,6 +752,31 @@ export class BasemapManager {
       }));
   }
 
+  getVisibleVectorLayers(): Array<{
+    opacity: number;
+    config: VectorLayerConfig;
+    lineColorOverride?: string;
+    fillColorOverride?: string;
+    lineWidthOverride?: number;
+    fillOpacityOverride?: number;
+  }> {
+    return [...this.stack]
+      .reverse()
+      .filter(l => {
+        if (!l.visible || !l.vector_config) return false;
+        const t = this.getLayerType(l);
+        return t === 'nsprd-vector' || t === 'nshn-vector';
+      })
+      .map(l => ({
+        opacity: l.opacity,
+        config: l.vector_config!,
+        lineColorOverride: l.vecLineColor,
+        fillColorOverride: l.vecFillColor,
+        lineWidthOverride: l.vecLineWidth,
+        fillOpacityOverride: l.vecFillOpacityOverride,
+      }));
+  }
+
   // ---- PID Search ----
 
   async searchPID(pid: string): Promise<void> {
