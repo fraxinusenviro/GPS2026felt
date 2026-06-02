@@ -21,6 +21,7 @@ import { LogConsole } from './ui/LogConsole';
 import { EventBus } from './utils/EventBus';
 import { generateSessionId, DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack } from './constants';
 import { MeasurePanel } from './ui/MeasurePanel';
+import { CutFillPanel } from './ui/CutFillPanel';
 import { FeatureListPanel } from './ui/FeatureListPanel';
 import { StatsPanel } from './ui/StatsPanel';
 import { UndoManager } from './utils/UndoManager';
@@ -56,6 +57,7 @@ export class App {
   private lassoSelection: FieldFeature[] = [];
 
   private measurePanel!: MeasurePanel;
+  private cutFillPanel!: CutFillPanel;
   private featureListPanel!: FeatureListPanel;
   private statsPanel!: StatsPanel;
   private dataLibraryModal!: DataLibraryModal;
@@ -166,6 +168,7 @@ export class App {
     await this.importDataPanel.init();
 
     this.measurePanel = new MeasurePanel(this.mapManager);
+    this.cutFillPanel = new CutFillPanel(this.mapManager, this.basemapManager);
     this.featureListPanel = new FeatureListPanel(
       (lat, lon) => this.mapManager.flyTo(lat, lon, 17),
       (f) => EventBus.emit('feature-selected', { feature: f }),
@@ -671,6 +674,10 @@ export class App {
       this.exportPanel.toggle();
     });
 
+    document.getElementById('btn-cut-fill')?.addEventListener('click', () => {
+      this.cutFillPanel.toggle();
+    });
+
     document.getElementById('btn-cache')?.addEventListener('click', () => {
       this.closeAllPanels();
       this.cachePanel.toggle();
@@ -851,6 +858,9 @@ export class App {
   // ============================================================
   private wireMapInteractions(): void {
     EventBus.on<{ lngLat: { lat: number; lng: number } }>('map-click', ({ lngLat }) => {
+      // Cut/fill panel gets first pick when it is in draw or pick-elevation mode
+      if (this.cutFillPanel.handleMapClick(lngLat.lng, lngLat.lat)) return;
+
       const tool = this.captureManager.getCurrentTool();
 
       if (tool === 'edit-geometry') return; // GeometryEditor handles its own clicks

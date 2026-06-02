@@ -219,6 +219,15 @@ export class BasemapManager {
   }
 
   /** Returns the current stack serialized to JSON (for project persistence). */
+  /** Returns the last-fetched HRDEMResult from the first active HRDEM layer (for elevation picking). */
+  getFirstHrdemResult(): import('../lib/hrdemWCS').HRDEMResult | null {
+    for (const layer of this.hrdemLayers.values()) {
+      const r = layer.getLastResult();
+      if (r) return r;
+    }
+    return null;
+  }
+
   getCurrentStackJson(): string {
     try {
       const knownIds = new Set(ALL_DEFS().map(d => d.id));
