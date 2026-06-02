@@ -103,6 +103,7 @@ export class HRDEMLayer {
   private contourInterval = 1;
   private contourColor    = '#000000';
   private contourWidth    = 0.5;
+  private lastContourGeoJSON: GeoJSON.FeatureCollection | null = null;
 
   private instanceId     = '';
   private layerId        = '';
@@ -351,6 +352,7 @@ export class HRDEMLayer {
       this.updateContourSource(this.lastResult);
       if (!this.rasterVisible) this.scheduleFetch();
     } else if (!enabled) {
+      this.lastContourGeoJSON = null;
       const src = map.getSource(this.contourSrcId) as maplibregl.GeoJSONSource | undefined;
       if (src) src.setData(EMPTY_FC);
     }
@@ -507,7 +509,21 @@ export class HRDEMLayer {
     const src = map.getSource(this.contourSrcId) as maplibregl.GeoJSONSource | undefined;
     if (!src) return;
     const geojson = generateContours(result, this.contourInterval);
-    src.setData(geojson as GeoJSON.FeatureCollection);
+    this.lastContourGeoJSON = geojson as GeoJSON.FeatureCollection;
+    src.setData(this.lastContourGeoJSON);
+  }
+
+  exportContourGeoJSON(): void {
+    if (!this.lastContourGeoJSON) return;
+    const iv = this.contourInterval;
+    const ivStr = iv % 1 === 0 ? iv.toFixed(0) : String(iv);
+    const filename = `contours-${ivStr}m.geojson`;
+    const json = JSON.stringify(this.lastContourGeoJSON, null, 2);
+    const blob = new Blob([json], { type: 'application/geo+json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.download = filename; a.href = url; a.click();
+    URL.revokeObjectURL(url);
   }
 
   private removeMapLayers(): void {
@@ -1652,6 +1668,13 @@ export class HRDEMLayer {
     contourLbl.style.cssText = `font-size:10px;opacity:0.7;display:${this.contourEnabled ? '' : 'none'}`;
     this.updateContourLabelText(contourLbl);
 
+    const exportContourBtn = document.createElement('button');
+    exportContourBtn.className = 'hrdem-tb-btn hrdem-tb-contour-export';
+    exportContourBtn.title = 'Export contours as GeoJSON';
+    exportContourBtn.style.cssText = `${this.toolBtnStyle(false)};display:${this.contourEnabled ? '' : 'none'}`;
+    exportContourBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2v8M5 7l3 3 3-3"/><path d="M2 12h12"/></svg>&thinsp;GeoJSON`;
+    exportContourBtn.addEventListener('click', () => this.exportContourGeoJSON());
+
     const sep1 = document.createElement('span');
     sep1.className = 'hrdem-tb-sep hrdem-tb-sep-contour';
     sep1.style.cssText = `width:1px;height:14px;background:rgba(255,255,255,0.15);flex-shrink:0;display:${this.contourEnabled ? '' : 'none'}`;
@@ -1718,7 +1741,10 @@ export class HRDEMLayer {
       this.profileMode = profileSel.value as typeof this.profileMode;
     });
 
-    if (this.contourEnabled) { el.appendChild(contourLbl); el.appendChild(sep1); }
+    // Always in DOM so refreshToolbarContourLabel() can show/hide them
+    el.appendChild(contourLbl);
+    el.appendChild(exportContourBtn);
+    el.appendChild(sep1);
     el.appendChild(sampleBtn);
     el.appendChild(sampleSel);
     el.appendChild(profileBtn);
@@ -1806,10 +1832,13 @@ export class HRDEMLayer {
 
   private refreshToolbarContourLabel(): void {
     if (!this.toolbarEl) return;
-    const lbl = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-contour-lbl');
-    const sep = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-sep-contour');
-    if (lbl) { lbl.style.display = this.contourEnabled ? '' : 'none'; this.updateContourLabelText(lbl); }
-    if (sep) sep.style.display = this.contourEnabled ? '' : 'none';
+    const lbl     = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-contour-lbl');
+    const sep     = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-sep-contour');
+    const expBtn  = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-contour-export');
+    const vis = this.contourEnabled ? '' : 'none';
+    if (lbl)    { lbl.style.display = vis; this.updateContourLabelText(lbl); }
+    if (sep)    sep.style.display = vis;
+    if (expBtn) expBtn.style.display = vis;
   }
 
   private updateContourLabelText(el: HTMLElement): void {
