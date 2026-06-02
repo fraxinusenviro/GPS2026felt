@@ -1650,7 +1650,7 @@ export class HRDEMLayer {
     const el = document.createElement('div');
     el.id = 'hrdem-elevation-toolbar';
     el.style.cssText = [
-      'position:absolute', 'top:8px', 'left:50%',
+      'position:absolute', 'top:52px', 'left:50%',
       'transform:translateX(-50%)',
       'z-index:20',
       'display:flex', 'align-items:center', 'gap:6px',
