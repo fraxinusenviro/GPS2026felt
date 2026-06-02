@@ -119,6 +119,7 @@ export interface AppSettings {
   wakelock_enabled: boolean;
   auto_save: boolean;
   coord_format: 'dd' | 'dms' | 'utm';
+  map_bg_color?: string;
 }
 
 // ---- GPS State ----

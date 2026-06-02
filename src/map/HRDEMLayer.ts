@@ -1335,10 +1335,157 @@ export class HRDEMLayer {
     ].join(';');
     resizeGrip.innerHTML = '<svg width="48" height="6" viewBox="0 0 48 6"><rect y="0.5" width="48" height="1.5" rx="1" fill="#7aaa88"/><rect y="4" width="48" height="1.5" rx="1" fill="#7aaa88"/></svg>';
 
+    // ── Chart container (SVG + hover overlay) ────────────────────────────────
+    const chartContainer = document.createElement('div');
+    chartContainer.style.cssText = 'position:relative;overflow:hidden;line-height:0';
+
     const svgWrap = document.createElement('div');
     svgWrap.style.cssText = 'overflow:hidden;line-height:0';
     svgWrap.innerHTML = buildSvg();
 
+    const hoverCanvas = document.createElement('canvas');
+    hoverCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:1';
+    hoverCanvas.width  = W;
+    hoverCanvas.height = this.profileChartH;
+
+    const hoverTooltip = document.createElement('div');
+    hoverTooltip.style.cssText = [
+      'position:absolute', 'z-index:2', 'pointer-events:none', 'display:none',
+      'background:rgba(8,18,12,0.94)',
+      'border:1px solid rgba(91,175,130,0.4)',
+      'border-radius:5px', 'padding:5px 9px',
+      'font-size:11px', 'color:#c8e6c9',
+      'line-height:1.6', 'white-space:nowrap',
+      'box-shadow:0 2px 10px rgba(0,0,0,0.55)',
+    ].join(';');
+
+    chartContainer.appendChild(svgWrap);
+    chartContainer.appendChild(hoverCanvas);
+    chartContainer.appendChild(hoverTooltip);
+
+    // ── Hover toggle button (in header) ──────────────────────────────────────
+    let hoverEnabled = true;
+    const hoverToggleBtn = document.createElement('button');
+    hoverToggleBtn.title = 'Toggle profile cursor';
+    const syncHoverBtn = () => {
+      hoverToggleBtn.style.cssText = [
+        'background:none',
+        `border:1px solid ${hoverEnabled ? 'rgba(91,175,130,0.7)' : 'rgba(91,175,130,0.25)'}`,
+        'border-radius:3px',
+        `color:${hoverEnabled ? '#5baf82' : '#7a9'}`,
+        'cursor:pointer', 'padding:2px 6px', 'line-height:1',
+        'display:inline-flex', 'align-items:center',
+      ].join(';');
+    };
+    syncHoverBtn();
+    hoverToggleBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><line x1="7" y1="0" x2="7" y2="14"/><line x1="0" y1="7" x2="14" y2="7"/><circle cx="7" cy="7" r="2.5"/></svg>`;
+    hoverToggleBtn.addEventListener('click', () => {
+      hoverEnabled = !hoverEnabled;
+      syncHoverBtn();
+      if (!hoverEnabled) {
+        hoverTooltip.style.display = 'none';
+        hoverCanvas.getContext('2d')?.clearRect(0, 0, hoverCanvas.width, hoverCanvas.height);
+      }
+    });
+
+    btnWrap.insertBefore(hoverToggleBtn, snapBtn);
+
+    // ── Hover mouse tracking ──────────────────────────────────────────────────
+    const drawHover = (mouseX: number) => {
+      const curH     = this.profileChartH;
+      const curPlotH = curH   - padT - padB;
+      const curPlotW = W      - padL - padR;
+
+      // Clear previous frame
+      const ctx = hoverCanvas.getContext('2d');
+      if (!ctx) return;
+      ctx.clearRect(0, 0, W, curH);
+
+      if (mouseX < padL || mouseX > padL + curPlotW) {
+        hoverTooltip.style.display = 'none';
+        return;
+      }
+
+      const snapDist = ((mouseX - padL) / curPlotW) * distMax;
+      const dtmPt    = valid.reduce((b, p) =>
+        Math.abs(p.dist - snapDist) < Math.abs(b.dist - snapDist) ? p : b,
+      );
+      const toX = (d: number) => padL + (d / Math.max(distMax, 1e-9)) * curPlotW;
+      const toY = (e: number) => padT + curPlotH - ((e - elevMin) / (elevRange || 1)) * curPlotH;
+
+      const cx = toX(dtmPt.dist);
+      const cy = toY(dtmPt.elev);
+
+      // Vertical guide
+      ctx.save();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth   = 1;
+      ctx.beginPath(); ctx.moveTo(cx, padT); ctx.lineTo(cx, padT + curPlotH); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+
+      // DTM dot
+      ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+      ctx.fillStyle   = this.profileLineColor; ctx.fill();
+      ctx.strokeStyle = '#0c1c14'; ctx.lineWidth = 1.5; ctx.stroke();
+
+      // Build tooltip rows
+      const distLbl = dtmPt.dist < 1
+        ? `${(dtmPt.dist * 1000).toFixed(0)} m`
+        : `${dtmPt.dist.toFixed(2)} km`;
+      const tipRows: string[] = [
+        `<span style="color:#7aaa88">Dist</span> <b>${distLbl}</b>`,
+        `<span style="color:#5baf82">DTM</span> <b>${dtmPt.elev.toFixed(1)} m</b>`,
+      ];
+
+      if (valid2 && valid2.length > 1) {
+        const dsmPt = valid2.reduce((b, p) =>
+          Math.abs(p.dist - dtmPt.dist) < Math.abs(b.dist - dtmPt.dist) ? p : b,
+        );
+        const dcy = toY(dsmPt.elev);
+        ctx.beginPath(); ctx.arc(cx, dcy, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#88ccff'; ctx.fill();
+        ctx.strokeStyle = '#0c1c14'; ctx.lineWidth = 1.5; ctx.stroke();
+        tipRows.push(`<span style="color:#88ccff">DSM</span> <b>${dsmPt.elev.toFixed(1)} m</b>`);
+        tipRows.push(`<span style="color:#aaddaa">Canopy</span> <b>${(dsmPt.elev - dtmPt.elev).toFixed(1)} m</b>`);
+      }
+
+      if (valid3 && valid3.length > 1) {
+        const wtPt = valid3.reduce((b, p) =>
+          Math.abs(p.dist - dtmPt.dist) < Math.abs(b.dist - dtmPt.dist) ? p : b,
+        );
+        const wcy = toY(wtPt.elev);
+        ctx.beginPath(); ctx.arc(cx, wcy, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#1e88e5'; ctx.fill();
+        ctx.strokeStyle = '#0c1c14'; ctx.lineWidth = 1.5; ctx.stroke();
+        tipRows.push(`<span style="color:#90caf9">Water Table</span> <b>${wtPt.elev.toFixed(1)} m</b>`);
+        tipRows.push(`<span style="color:#90caf9">Depth to WT</span> <b>${(dtmPt.elev - wtPt.elev).toFixed(1)} m</b>`);
+      }
+
+      hoverTooltip.innerHTML = tipRows.join('<br>');
+
+      // Position tooltip (flip if near right edge)
+      const tipW    = 145;
+      const tipLeft = cx + 10 + tipW > W ? cx - tipW - 10 : cx + 10;
+      const tipTop  = Math.max(padT, cy - 44);
+      hoverTooltip.style.left    = `${tipLeft}px`;
+      hoverTooltip.style.top     = `${tipTop}px`;
+      hoverTooltip.style.display = 'block';
+    };
+
+    chartContainer.addEventListener('mousemove', (e) => {
+      if (!hoverEnabled) return;
+      const rect   = chartContainer.getBoundingClientRect();
+      drawHover(e.clientX - rect.left);
+    });
+
+    chartContainer.addEventListener('mouseleave', () => {
+      hoverTooltip.style.display = 'none';
+      hoverCanvas.getContext('2d')?.clearRect(0, 0, hoverCanvas.width, hoverCanvas.height);
+    });
+
+    // ── Resize grip ───────────────────────────────────────────────────────────
     // Use Pointer Events + setPointerCapture so drag works even when the
     // cursor moves over the MapLibre canvas, which otherwise intercepts events
     resizeGrip.addEventListener('pointerdown', (startEvt) => {
@@ -1358,7 +1505,10 @@ export class HRDEMLayer {
         if (!rafPending) {
           rafPending = true;
           requestAnimationFrame(() => {
-            svgWrap.innerHTML = buildSvg();
+            svgWrap.innerHTML   = buildSvg();
+            hoverCanvas.width   = W;
+            hoverCanvas.height  = this.profileChartH;
+            hoverTooltip.style.display = 'none';
             rafPending = false;
           });
         }
@@ -1375,7 +1525,7 @@ export class HRDEMLayer {
 
     el.appendChild(header);
     el.appendChild(resizeGrip);
-    el.appendChild(svgWrap);
+    el.appendChild(chartContainer);
 
     container.appendChild(el);
     this.profilePanelEl = el;

@@ -49,6 +49,7 @@ export class MapManager {
 
   async init(containerId: string, settings: AppSettings): Promise<void> {
     const basemap = BASEMAPS.find(b => b.id === settings.basemap_id) ?? BASEMAPS[0];
+    if (settings.map_bg_color) this.mapBgColor = settings.map_bg_color;
 
     // Register cog:// protocol — reads Cloud-Optimized GeoTIFFs via range requests
     if (!(maplibregl as unknown as { _cogProtocolRegistered?: boolean })._cogProtocolRegistered) {
@@ -259,6 +260,11 @@ export class MapManager {
       });
     });
 
+    // Background color changes from LayersPanel
+    EventBus.on<{ color: string }>('map-background-color', ({ color }) => {
+      this.setBackgroundColor(color);
+    });
+
     // Bind map events
     this.map.on('mousemove', (e) => {
       EventBus.emit('map-mousemove', { lngLat: e.lngLat });
@@ -290,6 +296,15 @@ export class MapManager {
     });
   }
 
+  private mapBgColor = '#000000';
+
+  setBackgroundColor(color: string): void {
+    this.mapBgColor = color;
+    if (this.map && this.map.getLayer('map-background')) {
+      this.map.setPaintProperty('map-background', 'background-color', color);
+    }
+  }
+
   private buildMapStyle(basemap: typeof BASEMAPS[0]): StyleSpecification {
     return {
       version: 8,
@@ -304,6 +319,7 @@ export class MapManager {
         }
       },
       layers: [
+        { id: 'map-background', type: 'background', paint: { 'background-color': this.mapBgColor } },
         { id: 'basemap', type: 'raster', source: 'basemap', paint: { 'raster-opacity': 1 } }
       ]
     };
