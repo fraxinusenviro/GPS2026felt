@@ -742,15 +742,14 @@ export class BasemapManager {
     this.refreshRasterOverlays();
   }
 
-  getVisibleLayerOpacities(): { defId: string; opacity: number }[] {
+  getVisibleRasterLayers(): { url: string; opacity: number }[] {
     return [...this.stack]
       .reverse()
-      .filter(l => {
-        if (!l.visible) return false;
-        const type = this.getLayerType(l);
-        return type === 'raster' && !l.url.startsWith('cog://') && !l.url.startsWith('mbtiles://');
-      })
-      .map(l => ({ defId: l.defId, opacity: l.opacity }));
+      .filter(l => l.visible && this.getLayerType(l) === 'raster')
+      .map(l => ({
+        url: this.activeCacheLayers.get(l.defId) ?? l.url,
+        opacity: l.opacity,
+      }));
   }
 
   // ---- PID Search ----

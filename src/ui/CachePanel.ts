@@ -208,8 +208,8 @@ export class CachePanel {
         btn.disabled = true;
         btn.textContent = 'Exporting…';
         try {
-          const opacities = this.basemapManager.getVisibleLayerOpacities();
-          await this.exporter.exportCache(record, opacities);
+          const visibleLayers = this.basemapManager.getVisibleRasterLayers();
+          await this.exporter.exportCache(record.bbox, record.zoom_min, record.zoom_max, record.name, visibleLayers);
         } finally {
           btn.disabled = false;
           btn.textContent = 'Export MBTiles';
@@ -344,8 +344,8 @@ export class CachePanel {
           this.abortController.signal,
         );
         EventBus.emit('toast', { message: `"${name}" cached — generating MBTiles…`, type: 'success' });
-        const opacities = this.basemapManager.getVisibleLayerOpacities();
-        await this.exporter.exportCache(record, opacities);
+        const visibleLayers = this.basemapManager.getVisibleRasterLayers();
+        await this.exporter.exportCache(record.bbox, record.zoom_min, record.zoom_max, record.name, visibleLayers);
         this.activeTab = 'library';
         this.render();
       } catch (err) {
