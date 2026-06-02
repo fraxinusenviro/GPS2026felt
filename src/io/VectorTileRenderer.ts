@@ -107,8 +107,10 @@ export function renderVectorFeatures(
     const fillOpacity = layer.fillOpacityOverride ?? config.fillOpacity ?? 0.4;
 
     if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') {
-      const polygons: number[][][] =
-        geom.type === 'Polygon' ? [geom.coordinates as number[][][]] : geom.coordinates as number[][][][];
+      const polygons: number[][][][] =
+        geom.type === 'Polygon'
+          ? ([geom.coordinates] as unknown as number[][][][])
+          : (geom.coordinates as unknown as number[][][][]);
       for (const rings of polygons) {
         ctx.beginPath();
         for (const ring of rings) {
