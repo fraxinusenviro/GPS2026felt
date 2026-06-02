@@ -1,6 +1,7 @@
 import maplibregl from 'maplibre-gl';
 import { BASEMAPS, BASEMAP_OVERLAYS, COG_RAMPS } from '../constants';
 import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature } from '../types';
+import type { HrdemContourLayerInfo } from '../io/VectorTileRenderer';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
@@ -774,6 +775,19 @@ export class BasemapManager {
         fillColorOverride: l.vecFillColor,
         lineWidthOverride: l.vecLineWidth,
         fillOpacityOverride: l.vecFillOpacityOverride,
+      }));
+  }
+
+  getVisibleHrdemContourLayers(): HrdemContourLayerInfo[] {
+    return [...this.stack]
+      .reverse()
+      .filter(l => l.visible && this.getLayerType(l) === 'hrdem-wcs' && l.hrdemContourEnabled)
+      .map(l => ({
+        opacity: l.opacity,
+        surface: (l.hrdemSurface ?? 'dtm') as 'dtm' | 'dsm',
+        contourInterval: l.hrdemContourInterval ?? 10,
+        contourColor: l.hrdemContourColor ?? '#ffffff',
+        contourWidth: l.hrdemContourWidth ?? 1.2,
       }));
   }
 

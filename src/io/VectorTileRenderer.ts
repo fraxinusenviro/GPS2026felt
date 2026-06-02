@@ -9,6 +9,14 @@ export interface VectorLayerInfo {
   fillOpacityOverride?: number;
 }
 
+export interface HrdemContourLayerInfo {
+  opacity: number;
+  surface: 'dtm' | 'dsm';
+  contourInterval: number;
+  contourColor: string;
+  contourWidth: number;
+}
+
 // ---- WFS fetch ----
 
 export async function fetchVectorFeatures(
@@ -146,6 +154,43 @@ export function renderVectorFeatures(
         ctx.lineWidth = lineWidth;
         ctx.stroke();
       }
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+export function renderContourFeatures(
+  ctx: CanvasRenderingContext2D,
+  features: GeoJSON.Feature[],
+  tileX: number,
+  tileY: number,
+  z: number,
+  layer: HrdemContourLayerInfo,
+): void {
+  ctx.strokeStyle = layer.contourColor;
+  ctx.lineWidth = layer.contourWidth;
+
+  for (const feature of features) {
+    const geom = feature.geometry;
+    if (!geom) continue;
+
+    const lines: number[][][] =
+      geom.type === 'LineString'
+        ? ([geom.coordinates] as unknown as number[][][])
+        : geom.type === 'MultiLineString'
+          ? (geom.coordinates as unknown as number[][][])
+          : null as unknown as number[][][];
+    if (!lines) continue;
+
+    for (const line of lines) {
+      ctx.beginPath();
+      let first = true;
+      for (const coord of line) {
+        const { x, y } = lngLatToTilePixel((coord as number[])[0], (coord as number[])[1], tileX, tileY, z);
+        if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+      }
+      ctx.globalAlpha = layer.opacity;
+      ctx.stroke();
     }
   }
   ctx.globalAlpha = 1;
