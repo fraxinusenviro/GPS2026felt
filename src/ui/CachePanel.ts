@@ -348,7 +348,8 @@ export class CachePanel {
         EventBus.emit('toast', { message: `"${name}" cached — generating MBTiles…`, type: 'success' });
         const visibleLayers = this.basemapManager.getVisibleRasterLayers();
         const vectorLayers = this.basemapManager.getVisibleVectorLayers();
-        await this.exporter.exportCache(record.bbox, record.zoom_min, record.zoom_max, record.name, visibleLayers, vectorLayers);
+        const hrdemContourLayers = this.basemapManager.getVisibleHrdemContourLayers();
+        await this.exporter.exportCache(record.bbox, record.zoom_min, record.zoom_max, record.name, visibleLayers, vectorLayers, hrdemContourLayers);
         this.activeTab = 'library';
         this.render();
       } catch (err) {
