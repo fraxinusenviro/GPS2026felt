@@ -4285,6 +4285,42 @@ input[type=color] {
   flex: 1;
 }
 
+/* Label input in header */
+.sp-label-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(74,180,120,0.3);
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 0 2px 2px;
+  outline: none;
+  min-width: 0;
+  width: 160px;
+}
+.sp-label-input:focus {
+  border-bottom-color: var(--color-accent);
+}
+
+/* Quick color palette */
+.sp-palette {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 4px;
+}
+.sp-palette-swatch {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s, border-color 0.1s;
+}
+.sp-palette-swatch:hover {
+  transform: scale(1.15);
+  z-index: 1;
+}
+
 /* ============================================================
    Basemap panel: Collected Data section
    ============================================================ */

@@ -88,14 +88,37 @@ export class StylePicker {
     const iconScale   = preset.icon_size    ?? 1.0;
     const size        = preset.size         ?? 7;
     const dashPattern = preset.dash_pattern ?? 'solid';
+    const strokeDash  = (preset as TypePreset & { stroke_dash?: string }).stroke_dash ?? 'solid';
     const rotation    = preset.rotation     ?? 0;
     const iconRot     = preset.icon_rotation ?? 0;
+
+    // Quick color palette — earth/field tones
+    const palette = [
+      '#4ade80','#22c55e','#15803d','#052e16',
+      '#facc15','#f97316','#ef4444','#dc2626',
+      '#60a5fa','#3b82f6','#1d4ed8','#0c4a6e',
+      '#c084fc','#a855f7','#ffffff','#94a3b8',
+      '#78350f','#b45309','#d4d4aa','#000000',
+    ];
+
+    const paletteHtml = `
+      <div class="sp-section">
+        <div class="sp-section-title">Quick Colors</div>
+        <div class="sp-palette" id="sp-palette">
+          ${palette.map(c => `
+            <button class="sp-palette-swatch" data-color="${c}"
+              style="background:${c};border:2px solid ${c === preset.color ? '#fff' : 'transparent'}"
+              title="${c}"></button>
+          `).join('')}
+        </div>
+      </div>
+    `;
 
     return `
       <div class="style-picker-panel">
         <div class="sp-header">
           <div class="sp-title">
-            <span class="sp-preset-name">${preset.label}</span>
+            <input class="sp-label-input" id="sp-label-input" type="text" value="${preset.label}" maxlength="40" />
             <span class="sp-geom-badge">${preset.geometry_type}</span>
           </div>
           <button class="sp-close" id="sp-close">✕</button>
@@ -119,6 +142,9 @@ export class StylePicker {
         </div>
 
         <div class="sp-body">
+
+          ${paletteHtml}
+
           ${isPoint || preset.geometry_type === 'all' ? `
           <!-- Shape -->
           <div class="sp-section">
@@ -179,6 +205,16 @@ export class StylePicker {
               <span class="sp-slider-label-txt">Width</span>
               ${sliderRow('sp-stroke-width', 'sp-stroke-width-val', 0, 8, 0.5, strokeWidth, 'px', v => `${v}`)}
             </div>
+            ${isPoly ? `
+            <div style="margin-top:8px">
+              <span class="sp-slider-label-txt">Border Style</span>
+              <div class="sp-dash-group" style="margin-top:4px">
+                ${DASH_OPTIONS.map(d => `
+                  <button class="sp-dash-btn sp-stroke-dash-btn ${d.value === strokeDash ? 'active' : ''}"
+                    data-dash="${d.value}">${d.label}</button>
+                `).join('')}
+              </div>
+            </div>` : ''}
           </div>
 
           ${isLine ? `
@@ -291,6 +327,19 @@ export class StylePicker {
       }
     };
 
+    // Palette swatches → update fill color + active border
+    overlay.querySelectorAll<HTMLButtonElement>('.sp-palette-swatch').forEach(swatch => {
+      swatch.addEventListener('click', () => {
+        const color = swatch.dataset.color ?? '';
+        const fillInput = overlay.querySelector<HTMLInputElement>('#sp-fill-color');
+        if (fillInput) { fillInput.value = color; }
+        overlay.querySelectorAll<HTMLButtonElement>('.sp-palette-swatch').forEach(s => {
+          s.style.borderColor = s === swatch ? '#fff' : 'transparent';
+        });
+        updatePreview();
+      });
+    });
+
     // Shape buttons
     overlay.querySelectorAll<HTMLButtonElement>('.sp-shape-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -309,10 +358,18 @@ export class StylePicker {
       });
     });
 
-    // Dash buttons
-    overlay.querySelectorAll<HTMLButtonElement>('.sp-dash-btn').forEach(btn => {
+    // Line dash buttons (only those NOT in the polygon stroke group)
+    overlay.querySelectorAll<HTMLButtonElement>('.sp-dash-btn:not(.sp-stroke-dash-btn)').forEach(btn => {
       btn.addEventListener('click', () => {
-        overlay.querySelectorAll('.sp-dash-btn').forEach(b => b.classList.remove('active'));
+        overlay.querySelectorAll('.sp-dash-btn:not(.sp-stroke-dash-btn)').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    // Polygon stroke dash buttons
+    overlay.querySelectorAll<HTMLButtonElement>('.sp-stroke-dash-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        overlay.querySelectorAll('.sp-stroke-dash-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
       });
     });
@@ -370,6 +427,7 @@ export class StylePicker {
   private collectState(overlay: HTMLElement, original: TypePreset): TypePreset {
     const isPoly = original.geometry_type === 'Polygon';
 
+    const label        = (overlay.querySelector<HTMLInputElement>('#sp-label-input'))?.value.trim() || original.label;
     const fillColor    = (overlay.querySelector<HTMLInputElement>('#sp-fill-color'))?.value    ?? original.color;
     const strokeColor  = (overlay.querySelector<HTMLInputElement>('#sp-stroke-color'))?.value  ?? original.stroke_color ?? '#ffffff';
     const iconColor    = (overlay.querySelector<HTMLInputElement>('#sp-icon-color'))?.value    ?? original.icon_color   ?? '#ffffff';
@@ -380,12 +438,14 @@ export class StylePicker {
     const iconRotation = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-icon-rotation-num') ?? overlay.querySelector<HTMLInputElement>('#sp-icon-rotation'))?.value ?? '0');
     const iconSize     = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-icon-size-num') ?? overlay.querySelector<HTMLInputElement>('#sp-icon-size'))?.value ?? '1');
 
-    const activeShape = overlay.querySelector<HTMLButtonElement>('.sp-shape-btn.active')?.dataset.shape as PointShape | undefined;
-    const activeIcon  = overlay.querySelector<HTMLButtonElement>('.sp-icon-btn.active')?.dataset.icon ?? '';
-    const activeDash  = overlay.querySelector<HTMLButtonElement>('.sp-dash-btn.active')?.dataset.dash as DashPattern | undefined;
+    const activeShape     = overlay.querySelector<HTMLButtonElement>('.sp-shape-btn.active')?.dataset.shape as PointShape | undefined;
+    const activeIcon      = overlay.querySelector<HTMLButtonElement>('.sp-icon-btn.active')?.dataset.icon ?? '';
+    const activeDash      = overlay.querySelector<HTMLButtonElement>('.sp-dash-btn:not(.sp-stroke-dash-btn).active')?.dataset.dash as DashPattern | undefined;
+    const activeStrokeDash = overlay.querySelector<HTMLButtonElement>('.sp-stroke-dash-btn.active')?.dataset.dash as DashPattern | undefined;
 
     return {
       ...original,
+      label,
       color:         fillColor,
       fill_opacity:  isNaN(fillOpacity) ? original.fill_opacity : fillOpacity,
       stroke_color:  strokeColor,
@@ -398,6 +458,7 @@ export class StylePicker {
       dash_pattern:  activeDash ?? original.dash_pattern,
       rotation:      isNaN(rotation) ? original.rotation : rotation,
       icon_rotation: isNaN(iconRotation) ? original.icon_rotation : iconRotation,
+      ...(isPoly && activeStrokeDash ? { stroke_dash: activeStrokeDash } : {}),
     };
   }
 }

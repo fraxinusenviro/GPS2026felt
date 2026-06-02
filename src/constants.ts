@@ -18,7 +18,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   quick_entry_preset_id_3: '',
   wakelock_enabled: false,
   auto_save: true,
-  coord_format: 'dd'
+  coord_format: 'dd',
+  map_bg_color: '#000000',
 };
 
 // ---- Basemap Definitions ----

@@ -1,4 +1,4 @@
-import type { ImportedLayer, FieldFeature, GeoJSONGeometry, GeometryType, TypePreset } from '../types';
+import type { ImportedLayer, FieldFeature, GeoJSONGeometry, GeometryType, TypePreset, AppSettings } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import type { ImportManager } from '../io/ImportManager';
@@ -18,6 +18,8 @@ export class LayersPanel {
   private fileInput!: HTMLInputElement;
   private feltDialog = new FeltExportDialog();
   private stylePicker = new StylePicker();
+
+  private mapBgColor = '#000000';
 
   // Collected data visibility state per geometry type
   private geomVisible: Record<GeometryType, boolean> = {
@@ -74,6 +76,8 @@ export class LayersPanel {
     for (const layer of this.importedLayers) {
       if (layer.visible) this.importManager.renderImportedLayer(layer);
     }
+    const settings = await this.storage.getAppSettings();
+    if (settings.map_bg_color) this.mapBgColor = settings.map_bg_color;
   }
 
   toggleLayers(): void {
@@ -439,6 +443,22 @@ export class LayersPanel {
     `;
   }
 
+  private renderMapSettingsSection(): string {
+    return `
+      <div class="collected-section" style="margin-top:10px">
+        <div class="collected-section-title">Map Display</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--color-text-dim)">
+            <span>Background Color</span>
+            <input type="color" id="map-bg-color-input" value="${this.mapBgColor}"
+              style="width:32px;height:22px;border:1px solid rgba(91,175,130,0.3);border-radius:4px;cursor:pointer;background:none;padding:1px 2px" />
+          </label>
+          <span id="map-bg-color-value" style="font-size:11px;color:var(--color-text-muted)">${this.mapBgColor}</span>
+        </div>
+      </div>
+    `;
+  }
+
   private renderLayersTab(): string {
     const importedSection = this.importedLayers.length === 0
       ? '<p class="empty-state" style="margin-top:8px">No imported layers. Use Import tab to add data.</p>'
@@ -482,6 +502,7 @@ export class LayersPanel {
 
     return `
       ${this.renderCollectedDataSection()}
+      ${this.renderMapSettingsSection()}
       <div class="imported-section-title" style="margin-top:14px">Imported Layers</div>
       ${importedSection}
     `;
@@ -519,6 +540,19 @@ export class LayersPanel {
 
   private wireTab(): void {
     if (this.activeTab === 'layers') {
+      // Map background color picker
+      const bgInput = this.panel.querySelector<HTMLInputElement>('#map-bg-color-input');
+      const bgValue = this.panel.querySelector<HTMLElement>('#map-bg-color-value');
+      bgInput?.addEventListener('input', async () => {
+        const color = bgInput.value;
+        this.mapBgColor = color;
+        if (bgValue) bgValue.textContent = color;
+        EventBus.emit('map-background-color', { color });
+        const settings = await this.storage.getAppSettings();
+        settings.map_bg_color = color;
+        await this.storage.saveAppSettings(settings);
+      });
+
       // Collected data: geometry visibility toggles
       this.panel.querySelectorAll<HTMLButtonElement>('.collected-vis-btn').forEach(btn => {
         btn.addEventListener('click', () => {
