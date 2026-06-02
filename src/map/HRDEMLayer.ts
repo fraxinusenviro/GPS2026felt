@@ -372,6 +372,11 @@ export class HRDEMLayer {
     return this.buildLegendHTML(this.lastResult);
   }
 
+  /** Expose the current elevation grid for external tools (e.g. Cut/Fill). */
+  public getLastResult(): HRDEMResult | null {
+    return this.lastResult;
+  }
+
   getLayerIds(): string[] {
     if (!this.active) return [];
     return this.contourEnabled ? [this.layerId, this.contourLayerId] : [this.layerId];

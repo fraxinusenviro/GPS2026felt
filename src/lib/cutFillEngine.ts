@@ -1,0 +1,264 @@
+/**
+ * Cut/fill earthworks engine.
+ *
+ * Given an HRDEM DTM result, a polygon footprint, a target elevation, and an
+ * optional side-slope ratio (H:V), produces a modified elevation grid where:
+ *
+ *   Inside polygon  → targetElevation (flat pad)
+ *   Outside polygon → side-slope transition until existing grade is met:
+ *       cut shoulder  (existing > target):  min(existing, target + d / H:V)
+ *       fill embankment (existing < target): max(existing, target − d / H:V)
+ *   null slope ratio → vertical walls (outside pixels unchanged)
+ *
+ * All spatial arithmetic is in EPSG:4326; distances are converted to metres
+ * using the haversine approximation at the grid midpoint.
+ */
+
+import type { HRDEMResult } from './hrdemWCS';
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+export interface CutFillParams {
+  polygon: { type: 'Polygon'; coordinates: [number, number][][] }; // EPSG:4326
+  targetElevation: number;  // metres
+  /** H:V ratio — e.g. 2 means 2 m horizontal per 1 m vertical.  null = vertical walls. */
+  slopeRatio: number | null;
+}
+
+export interface CutFillResult {
+  modifiedGrid: Float32Array; // new surface elevations
+  diffGrid: Float32Array;     // modified − original  (negative = cut, positive = fill)
+  originalGrid: Float32Array; // reference to hrdem.grid
+  cutVolume: number;          // m³ material removed inside polygon
+  fillVolume: number;         // m³ material added inside polygon
+  cutArea: number;            // m² inside polygon where original > target
+  fillArea: number;           // m² inside polygon where original < target
+  // Spatial metadata — mirrors HRDEMResult
+  bbox: [number, number, number, number]; // [west, south, east, north]
+  width: number;
+  height: number;
+  nodata: number | null;
+  stretchMin: number;
+  stretchMax: number;
+}
+
+// ---------------------------------------------------------------------------
+// Public entry point
+// ---------------------------------------------------------------------------
+
+export function computeCutFill(hrdem: HRDEMResult, params: CutFillParams): CutFillResult {
+  const { grid, width, height, bbox, nodata } = hrdem;
+  const { polygon, targetElevation, slopeRatio } = params;
+  const [west, south, east, north] = bbox;
+
+  // Pixel dimensions in metres (haversine approximation at midpoint)
+  const latMid  = (south + north) / 2;
+  const pixelW  = ((east - west)   / width)  * 111320 * Math.cos(latMid * Math.PI / 180);
+  const pixelH  = ((north - south) / height) * 110540;
+  const pixelM  = (pixelW + pixelH) / 2; // average cell size in metres
+  const pixelArea = pixelW * pixelH;     // m² per pixel
+
+  // Rasterize polygon to binary mask
+  const inside = rasterizePolygon(polygon.coordinates[0], width, height, west, south, east, north);
+
+  // Distance transform (pixels from polygon boundary, outside only)
+  const distPx = slopeRatio !== null
+    ? computeDistanceTransform(inside, width, height)
+    : null;
+
+  const modifiedGrid = new Float32Array(grid.length);
+  const diffGrid     = new Float32Array(grid.length);
+
+  let cutVolume = 0, fillVolume = 0, cutArea = 0, fillArea = 0;
+  let stretchMin = Infinity, stretchMax = -Infinity;
+
+  for (let i = 0; i < grid.length; i++) {
+    const orig = grid[i];
+    const isNodata = !isFinite(orig) || (nodata !== null && Math.abs(orig - nodata) < 0.001);
+
+    if (isNodata) {
+      modifiedGrid[i] = orig;
+      diffGrid[i]     = 0;
+      continue;
+    }
+
+    let newVal: number;
+
+    if (inside[i]) {
+      newVal = targetElevation;
+
+      // Accumulate volumes (only inside the polygon footprint)
+      const diff = orig - targetElevation;
+      if (diff > 0) { cutVolume  += diff * pixelArea; cutArea  += pixelArea; }
+      else if (diff < 0) { fillVolume -= diff * pixelArea; fillArea += pixelArea; }
+
+    } else if (distPx !== null) {
+      const d = distPx[i] * pixelM; // convert pixels → metres
+      const delta = d / slopeRatio!;
+
+      if (orig >= targetElevation) {
+        // Cut shoulder: slope rises from target to meet existing grade
+        newVal = Math.min(orig, targetElevation + delta);
+      } else {
+        // Fill embankment: slope drops from target to meet existing grade
+        newVal = Math.max(orig, targetElevation - delta);
+      }
+    } else {
+      // Vertical walls — outside pixels unchanged
+      newVal = orig;
+    }
+
+    modifiedGrid[i] = newVal;
+    diffGrid[i]     = newVal - orig;
+
+    if (newVal < stretchMin) stretchMin = newVal;
+    if (newVal > stretchMax) stretchMax = newVal;
+  }
+
+  if (!isFinite(stretchMin)) stretchMin = hrdem.stretchMin;
+  if (!isFinite(stretchMax)) stretchMax = hrdem.stretchMax;
+
+  return {
+    modifiedGrid,
+    diffGrid,
+    originalGrid: grid,
+    cutVolume,
+    fillVolume,
+    cutArea,
+    fillArea,
+    bbox,
+    width,
+    height,
+    nodata,
+    stretchMin,
+    stretchMax,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Elevation sampling (standalone, mirrors HRDEMLayer private method)
+// ---------------------------------------------------------------------------
+
+export function sampleElevation(
+  grid: Float32Array,
+  width: number,
+  height: number,
+  bbox: [number, number, number, number],
+  nodata: number | null,
+  lon: number,
+  lat: number,
+): number | null {
+  const [west, south, east, north] = bbox;
+  const col = Math.round((lon - west)   / (east  - west)  * (width  - 1));
+  const row = Math.round((north - lat)  / (north - south) * (height - 1));
+  if (col < 0 || col >= width || row < 0 || row >= height) return null;
+  const v = grid[row * width + col];
+  if (!isFinite(v) || (nodata !== null && Math.abs(v - nodata) < 0.001)) return null;
+  return v;
+}
+
+// ---------------------------------------------------------------------------
+// Polygon rasterization — scan-line fill
+// ---------------------------------------------------------------------------
+
+function rasterizePolygon(
+  ring: [number, number][],
+  width: number,
+  height: number,
+  west: number,
+  south: number,
+  east: number,
+  north: number,
+): Uint8Array {
+  const mask = new Uint8Array(width * height);
+
+  // Convert ring from [lon, lat] to pixel coords (col, row)
+  const pxRing = ring.map(([lon, lat]): [number, number] => [
+    (lon - west)   / (east  - west)  * (width  - 1),
+    (north - lat)  / (north - south) * (height - 1),
+  ]);
+
+  // Scan-line fill: for each integer row, find X-intersections with ring edges
+  for (let row = 0; row < height; row++) {
+    const xs: number[] = [];
+    const n = pxRing.length;
+
+    for (let j = 0, k = n - 1; j < n; k = j++) {
+      const [x1, y1] = pxRing[j];
+      const [x2, y2] = pxRing[k];
+
+      if ((y1 <= row && y2 > row) || (y2 <= row && y1 > row)) {
+        // Compute X intersection using linear interpolation
+        xs.push(x1 + ((row - y1) / (y2 - y1)) * (x2 - x1));
+      }
+    }
+
+    xs.sort((a, b) => a - b);
+
+    for (let i = 0; i + 1 < xs.length; i += 2) {
+      const c0 = Math.max(0, Math.ceil(xs[i]));
+      const c1 = Math.min(width - 1, Math.floor(xs[i + 1]));
+      for (let col = c0; col <= c1; col++) {
+        mask[row * width + col] = 1;
+      }
+    }
+  }
+
+  return mask;
+}
+
+// ---------------------------------------------------------------------------
+// Distance transform — 4-connectivity BFS from inside/outside boundary
+// ---------------------------------------------------------------------------
+
+function computeDistanceTransform(mask: Uint8Array, width: number, height: number): Float32Array {
+  // dist[i] = distance in pixels from the nearest polygon boundary, for outside pixels.
+  // Inside pixels and boundary-adjacent pixels start at 0 / 1.
+  const dist = new Float32Array(width * height).fill(-1);
+  const queue: number[] = [];
+
+  // Seed: outside pixels that are 4-adjacent to an inside pixel
+  for (let r = 0; r < height; r++) {
+    for (let c = 0; c < width; c++) {
+      const i = r * width + c;
+      if (mask[i]) {
+        dist[i] = 0;  // inside — zero distance (not used in slope calc)
+        continue;
+      }
+      const adjacent =
+        (r > 0          && mask[(r - 1) * width + c]) ||
+        (r < height - 1 && mask[(r + 1) * width + c]) ||
+        (c > 0          && mask[r * width + (c - 1)]) ||
+        (c < width - 1  && mask[r * width + (c + 1)]);
+      if (adjacent) {
+        dist[i] = 1;
+        queue.push(i);
+      }
+    }
+  }
+
+  // BFS expansion — 4-connectivity, uniform cost
+  let qi = 0;
+  while (qi < queue.length) {
+    const i   = queue[qi++];
+    const r   = (i / width) | 0;
+    const c   = i % width;
+    const d   = dist[i];
+    const nbr = [
+      r > 0          ? i - width : -1,
+      r < height - 1 ? i + width : -1,
+      c > 0          ? i - 1     : -1,
+      c < width - 1  ? i + 1     : -1,
+    ];
+    for (const ni of nbr) {
+      if (ni >= 0 && dist[ni] < 0) {
+        dist[ni] = d + 1;
+        queue.push(ni);
+      }
+    }
+  }
+
+  return dist;
+}
