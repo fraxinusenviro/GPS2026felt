@@ -92,7 +92,7 @@ export class MBTilesExporter {
     const data = db.export();
     db.close();
 
-    const fileBlob = new Blob([data], { type: 'application/x-sqlite3' });
+    const fileBlob = new Blob([data.slice()], { type: 'application/x-sqlite3' });
     const url = URL.createObjectURL(fileBlob);
     const a = document.createElement('a');
     a.href = url;
