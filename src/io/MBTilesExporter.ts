@@ -91,8 +91,10 @@ export class MBTilesExporter {
     const a = document.createElement('a');
     a.href = url;
     a.download = `${name}.mbtiles`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
   private async fetchTile(url: string, x: number, y: number, z: number): Promise<Blob | null> {
