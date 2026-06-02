@@ -1,9 +1,12 @@
 import { StorageManager } from '../storage/StorageManager';
 import { buildTileCoords, buildTileUrl } from '../cache/tileUtils';
-import { fetchVectorFeatures, renderVectorFeatures } from './VectorTileRenderer';
-import type { VectorLayerInfo } from './VectorTileRenderer';
+import { fetchVectorFeatures, renderVectorFeatures, renderContourFeatures } from './VectorTileRenderer';
+import type { VectorLayerInfo, HrdemContourLayerInfo } from './VectorTileRenderer';
+import { fetchHRDEM } from '../lib/hrdemWCS';
+import { generateContours } from '../lib/contourGenerator';
 
 const MIN_VECTOR_ZOOM = 12;
+const CONTOUR_GRID_SIZE = 1024;
 
 export class MBTilesExporter {
   private storage = StorageManager.getInstance();
@@ -15,6 +18,7 @@ export class MBTilesExporter {
     name: string,
     rasterLayers: { url: string; opacity: number }[],
     vectorLayers: VectorLayerInfo[] = [],
+    hrdemContourLayers: HrdemContourLayerInfo[] = [],
   ): Promise<void> {
     const initSqlJs = (await import('sql.js')).default;
     const SQL = await initSqlJs({
@@ -58,6 +62,19 @@ export class MBTilesExporter {
       ? await Promise.all(vectorLayers.map(vl => fetchVectorFeatures(vl.config, bbox, zoomMax)))
       : [];
 
+    // Pre-fetch HRDEM elevation + generate contours for the entire bbox
+    const contourFeatures: GeoJSON.Feature[][] = await Promise.all(
+      hrdemContourLayers.map(async cl => {
+        try {
+          const result = await fetchHRDEM(west, south, east, north, CONTOUR_GRID_SIZE, CONTOUR_GRID_SIZE, cl.surface);
+          const fc = generateContours(result, cl.contourInterval);
+          return fc.features as GeoJSON.Feature[];
+        } catch {
+          return [];
+        }
+      }),
+    );
+
     const coords = buildTileCoords(bbox, zoomMin, zoomMax);
 
     for (const { x, y, z } of coords) {
@@ -84,6 +101,15 @@ export class MBTilesExporter {
         for (let i = 0; i < vectorLayers.length; i++) {
           if (vectorFeatures[i].length === 0) continue;
           renderVectorFeatures(ctx, vectorFeatures[i], x, y, z, vectorLayers[i]);
+          hasContent = true;
+        }
+      }
+
+      // Draw HRDEM contours (only at zoom >= MIN_VECTOR_ZOOM)
+      if (z >= MIN_VECTOR_ZOOM && contourFeatures.length > 0) {
+        for (let i = 0; i < hrdemContourLayers.length; i++) {
+          if (contourFeatures[i].length === 0) continue;
+          renderContourFeatures(ctx, contourFeatures[i], x, y, z, hrdemContourLayers[i]);
           hasContent = true;
         }
       }

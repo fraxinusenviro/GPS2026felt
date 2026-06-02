@@ -210,7 +210,8 @@ export class CachePanel {
         try {
           const visibleLayers = this.basemapManager.getVisibleRasterLayers();
           const vectorLayers = this.basemapManager.getVisibleVectorLayers();
-          await this.exporter.exportCache(record.bbox, record.zoom_min, record.zoom_max, record.name, visibleLayers, vectorLayers);
+          const hrdemContourLayers = this.basemapManager.getVisibleHrdemContourLayers();
+          await this.exporter.exportCache(record.bbox, record.zoom_min, record.zoom_max, record.name, visibleLayers, vectorLayers, hrdemContourLayers);
         } finally {
           btn.disabled = false;
           btn.textContent = 'Export MBTiles';
