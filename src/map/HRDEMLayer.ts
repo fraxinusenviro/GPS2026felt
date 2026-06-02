@@ -150,7 +150,7 @@ export class HRDEMLayer {
   // Lifecycle
   // --------------------------------------------------------------------------
 
-  activate(instanceId: string, opacity: number, visible: boolean, ramp?: ColorRamp): void {
+  activate(instanceId: string, opacity: number, visible: boolean, ramp?: ColorRamp, showToolbar = true): void {
     if (ramp) this.ramp = ramp;
     this.layerVisible    = visible;
     this.intendedOpacity = visible ? opacity : 0;
@@ -240,7 +240,7 @@ export class HRDEMLayer {
       LAYER_IDS.USER_ACCURACY,
     );
 
-    this.ensureToolbar();
+    if (showToolbar) this.ensureToolbar();
 
     if (!this.moveHandler) {
       this.moveHandler = () => this.scheduleFetch();
@@ -1650,7 +1650,7 @@ export class HRDEMLayer {
     const el = document.createElement('div');
     el.id = 'hrdem-elevation-toolbar';
     el.style.cssText = [
-      'position:absolute', 'top:52px', 'left:50%',
+      'position:absolute', 'top:8px', 'left:50%',
       'transform:translateX(-50%)',
       'z-index:20',
       'display:flex', 'align-items:center', 'gap:6px',
