@@ -851,7 +851,7 @@ export class BasemapManager {
         const hrdemInst = this.hrdemLayers.get(l.instanceId)!;
         hrdemInst.onLegendUpdate = () => this.refreshUnifiedLegend();
         const isContourLayer = l.defId === 'hrdem-contours' || l.defId === 'hrdem-dsm-contours';
-        hrdemInst.activate(l.instanceId, l.opacity, l.visible, this.resolveHrdemRamp(l), !isContourLayer);
+        hrdemInst.activate(l.instanceId, l.opacity, l.visible, this.resolveHrdemRamp(l));
         hrdemInst.setRasterVisible(l.hrdemRasterVisible ?? true);
         hrdemInst.setContour(
           l.hrdemContourEnabled  ?? false,
