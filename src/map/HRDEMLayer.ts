@@ -31,6 +31,7 @@ import {
 import { generateContours } from '../lib/contourGenerator';
 import { computeSlope, computeAspect, computeTPI } from '../lib/demProducts';
 import { LAYER_IDS } from '../constants';
+import type { CutFillResult } from '../lib/cutFillEngine';
 
 const DEBOUNCE_MS = 300;
 const MIN_ZOOM    = 10;
@@ -143,8 +144,13 @@ export class HRDEMLayer {
   private lastDTWResult: HRDEMResult | null = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private cachedDTWTiff: any = null;
+  private cutFillResultProvider: (() => CutFillResult | null) | null = null;
 
   constructor(private readonly mapManager: MapManager) {}
+
+  setCutFillResultProvider(fn: (() => CutFillResult | null) | null): void {
+    this.cutFillResultProvider = fn;
+  }
 
   // --------------------------------------------------------------------------
   // Lifecycle
@@ -886,6 +892,46 @@ export class HRDEMLayer {
     return result;
   }
 
+  private sampleProfileLineCF(
+    points: [number, number][],
+    totalSamples: number,
+    cfResult: CutFillResult,
+  ): Array<{ dist: number; elev: number | null }> {
+    const { modifiedGrid: grid, width, height, bbox, nodata } = cfResult;
+    const [west, south, east, north] = bbox;
+    if (points.length < 2) return [];
+
+    const segDists = this.computeSegDists(points);
+    const totalDist = segDists.reduce((a, b) => a + b, 0);
+    if (totalDist === 0) return [];
+
+    const result: Array<{ dist: number; elev: number | null }> = [];
+    let accDist = 0;
+
+    for (let seg = 0; seg < points.length - 1; seg++) {
+      const [lon1, lat1] = points[seg], [lon2, lat2] = points[seg + 1];
+      const segLen = segDists[seg];
+      const isLast = seg === points.length - 2;
+      const n = Math.max(2, Math.round((segLen / totalDist) * totalSamples));
+
+      for (let i = 0; i <= (isLast ? n : n - 1); i++) {
+        const t = i / n;
+        const lon = lon1 + t * (lon2 - lon1), lat = lat1 + t * (lat2 - lat1);
+        const col = Math.round((lon - west)  / (east - west)   * (width  - 1));
+        const row = Math.round((north - lat) / (north - south) * (height - 1));
+        let elev: number | null = null;
+        if (col >= 0 && col < width && row >= 0 && row < height) {
+          const v = grid[row * width + col];
+          if (isFinite(v) && (nodata === null || Math.abs(v - nodata) >= 0.001)) elev = v;
+        }
+        result.push({ dist: accDist + t * segLen, elev });
+      }
+      accDist += segLen;
+    }
+
+    return result;
+  }
+
   // --------------------------------------------------------------------------
   // Tool management
   // --------------------------------------------------------------------------
@@ -1053,6 +1099,7 @@ export class HRDEMLayer {
     let pts: Array<{ dist: number; elev: number | null }>;
     let pts2: Array<{ dist: number; elev: number | null }> | undefined;
     let pts3: Array<{ dist: number; elev: number | null }> | undefined;
+    let pts4: Array<{ dist: number; elev: number | null }> | undefined;
 
     if (this.profileMode === 'dsm') {
       pts = this.sampleProfileLineMulti(savedPoints, 200, this.lastDSMResult);
@@ -1069,7 +1116,17 @@ export class HRDEMLayer {
       pts3 = this.computeWaterTableProfile(pts, dtwRaw);
     }
 
-    this.showProfilePanel(pts, segDists, pts2, pts3);
+    // Sample cut/fill surface if a result is available and overlaps the profile line
+    const cfResult = this.cutFillResultProvider?.();
+    if (cfResult) {
+      const cfSamples = this.sampleProfileLineCF(savedPoints, 200, cfResult);
+      // Only include if at least some points fell within the cut/fill bbox
+      if (cfSamples.some(p => p.elev !== null)) {
+        pts4 = cfSamples;
+      }
+    }
+
+    this.showProfilePanel(pts, segDists, pts2, pts3, pts4);
   }
 
   private showSamplePopup(
@@ -1108,6 +1165,7 @@ export class HRDEMLayer {
     fs: number,
     valid2?: Array<{ dist: number; elev: number }>,  // optional DSM profile
     valid3?: Array<{ dist: number; elev: number }>,  // optional water table profile (DTM - DTW/100)
+    valid4?: Array<{ dist: number; elev: number }>,  // optional Cut/Fill surface profile
   ): string {
     // padB carries all bottom-area space (axis labels, optional legend row, segment row)
     // No separate legRowReserve needed — padB is sized to fit everything
@@ -1163,6 +1221,17 @@ export class HRDEMLayer {
                   <path d="${path3D}" fill="none" stroke="#1e88e5" stroke-width="1.5"/>`;
     }
 
+    // Optional fourth (Cut/Fill modified surface) path — orange line
+    let path4Svg = '';
+    if (valid4 && valid4.length > 1) {
+      let path4D = '';
+      for (const p of valid4) {
+        const x = toX(p.dist).toFixed(1), y = toY(p.elev).toFixed(1);
+        path4D += path4D ? ` L${x},${y}` : `M${x},${y}`;
+      }
+      path4Svg = `<path d="${path4D}" fill="none" stroke="#fb923c" stroke-width="2" stroke-dasharray="6,3"/>`;
+    }
+
     // Y-axis: short tick marks + grid lines + labels offset to clear ticks
     const yTicks = [elevMin, elevMin + elevRange / 2, elevMax].map(e => {
       const ty = toY(e).toFixed(1);
@@ -1206,12 +1275,13 @@ export class HRDEMLayer {
     ).join('');
 
     // Bottom rows: legend frame then segment labels
-    const hasMulti = (valid2 && valid2.length > 1) || (valid3 && valid3.length > 1);
+    const hasMulti = (valid2 && valid2.length > 1) || (valid3 && valid3.length > 1) || (valid4 && valid4.length > 1);
     const legItems: Array<{ stroke: string; dash?: string; label: string }> = hasMulti
       ? [
           { stroke: lineColor, label: 'DTM' },
           ...((valid2 && valid2.length > 1) ? [{ stroke: '#88ccff', dash: '4,2', label: 'DSM' }] : []),
           ...((valid3 && valid3.length > 1) ? [{ stroke: '#1e88e5', label: 'Water Table' }] : []),
+          ...((valid4 && valid4.length > 1) ? [{ stroke: '#fb923c', dash: '6,3', label: 'Cut/Fill' }] : []),
         ]
       : [];
 
@@ -1251,6 +1321,7 @@ export class HRDEMLayer {
       ${vertexSvg}
       <path d="${areaD}" fill="rgba(91,175,130,0.13)"/>
       <path d="${pathD}" fill="none" stroke="${lineColor}" stroke-width="1.8"/>
+      ${path4Svg}
       ${xTicksSvg}
       <text x="${padL}" y="${xAxisY}" fill="#7aaa88" font-size="${fs}" font-family="sans-serif">0</text>
       <text x="${plotRight.toFixed(1)}" y="${xAxisY}" fill="#7aaa88" font-size="${fs}" font-family="sans-serif" text-anchor="end">${xLabel}</text>
@@ -1264,6 +1335,7 @@ export class HRDEMLayer {
     segDists: number[],
     pts2?: Array<{ dist: number; elev: number | null }>,
     pts3?: Array<{ dist: number; elev: number | null }>,
+    pts4?: Array<{ dist: number; elev: number | null }>,
   ): void {
     this.profilePanelEl?.remove();
     this.profilePanelEl = null;
@@ -1276,6 +1348,9 @@ export class HRDEMLayer {
       : undefined;
     const valid3 = pts3
       ? (pts3.filter(p => p.elev !== null) as Array<{ dist: number; elev: number }>)
+      : undefined;
+    const valid4 = pts4
+      ? (pts4.filter(p => p.elev !== null) as Array<{ dist: number; elev: number }>)
       : undefined;
 
     const distMax = valid[valid.length - 1].dist;
@@ -1290,6 +1365,10 @@ export class HRDEMLayer {
       elevMin = Math.min(elevMin, ...valid3.map(p => p.elev));
       elevMax = Math.max(elevMax, ...valid3.map(p => p.elev));
     }
+    if (valid4 && valid4.length > 0) {
+      elevMin = Math.min(elevMin, ...valid4.map(p => p.elev));
+      elevMax = Math.max(elevMax, ...valid4.map(p => p.elev));
+    }
     const elevRange = elevMax - elevMin || 1;
 
     const container = this.mapManager.getMap().getContainer();
@@ -1299,7 +1378,7 @@ export class HRDEMLayer {
 
     const buildSvg = () => this.buildProfileSvg(
       valid, elevMin, elevMax, elevRange, distMax, segDists,
-      this.profileLineColor, W, this.profileChartH, padL, padR, padT, padB, 9, valid2, valid3,
+      this.profileLineColor, W, this.profileChartH, padL, padR, padT, padB, 9, valid2, valid3, valid4,
     );
 
     const el = document.createElement('div');
@@ -1328,7 +1407,7 @@ export class HRDEMLayer {
     snapBtn.style.cssText = 'background:none;border:1px solid rgba(91,175,130,0.3);border-radius:3px;color:#7a9;cursor:pointer;padding:2px 6px;line-height:1;display:inline-flex;align-items:center';
     snapBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M208,56H180.28L166.65,35.56A8,8,0,0,0,160,32H96a8,8,0,0,0-6.65,3.56L75.71,56H48A24,24,0,0,0,24,80V192a24,24,0,0,0,24,24H208a24,24,0,0,0,24-24V80A24,24,0,0,0,208,56Zm-44,76a36,36,0,1,1-36-36A36,36,0,0,1,164,132Z"/></svg>';
     snapBtn.addEventListener('click', () =>
-      this.takeSnapshot(valid, elevMin, elevMax, el, elevRange, distMax, segDists, valid2, valid3),
+      this.takeSnapshot(valid, elevMin, elevMax, el, elevRange, distMax, segDists, valid2, valid3, valid4),
     );
 
     const close = document.createElement('button');
@@ -1484,6 +1563,18 @@ export class HRDEMLayer {
         tipRows.push(`<span style="color:#90caf9">Depth to WT</span> <b>${(dtmPt.elev - wtPt.elev).toFixed(1)} m</b>`);
       }
 
+      if (valid4 && valid4.length > 1) {
+        const cfPt = valid4.reduce((b, p) =>
+          Math.abs(p.dist - dtmPt.dist) < Math.abs(b.dist - dtmPt.dist) ? p : b,
+        );
+        const cfy = toY(cfPt.elev);
+        ctx.beginPath(); ctx.arc(cx, cfy, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#fb923c'; ctx.fill();
+        ctx.strokeStyle = '#0c1c14'; ctx.lineWidth = 1.5; ctx.stroke();
+        tipRows.push(`<span style="color:#fb923c">Cut/Fill</span> <b>${cfPt.elev.toFixed(1)} m</b>`);
+        tipRows.push(`<span style="color:#fb923c">Δ vs DTM</span> <b>${(cfPt.elev - dtmPt.elev).toFixed(2)} m</b>`);
+      }
+
       hoverTooltip.innerHTML = tipRows.join('<br>');
 
       // Position tooltip (flip if near right edge)
@@ -1561,6 +1652,7 @@ export class HRDEMLayer {
     segDists: number[],
     pts2?: Array<{ dist: number; elev: number }>,
     pts3?: Array<{ dist: number; elev: number }>,
+    pts4?: Array<{ dist: number; elev: number }>,
   ): void {
     const map       = this.mapManager.getMap();
     const mapCanvas = map.getCanvas();
@@ -1586,7 +1678,7 @@ export class HRDEMLayer {
 
     const snapSvg = this.buildProfileSvg(
       pts, elevMin, elevMax, elevRange, distMax, segDists,
-      this.profileLineColor, W, H, padL, padR, padT, padB, fs, pts2, pts3,
+      this.profileLineColor, W, H, padL, padR, padT, padB, fs, pts2, pts3, pts4,
     );
 
     // Prepend a header row to the snapshot SVG
