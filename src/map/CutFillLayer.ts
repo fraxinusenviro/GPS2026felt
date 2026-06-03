@@ -13,7 +13,7 @@ import maplibregl from 'maplibre-gl';
 import type { MapManager } from './MapManager';
 import type { CutFillResult } from '../lib/cutFillEngine';
 import type { HRDEMResult } from '../lib/hrdemWCS';
-import { computeHillshadeGrid } from '../lib/cutFillEngine';
+import { computeHillshadeGrid, smoothGridForContours } from '../lib/cutFillEngine';
 import { generateContours } from '../lib/contourGenerator';
 import { renderGrid, sampleRamp, type ColorRamp, HRDEM_RAMPS } from '../lib/elevationRenderer';
 
@@ -286,8 +286,12 @@ export class CutFillLayer {
     this.ensureLayers();
     const map = this.mapManager.getMap();
 
+    // Smooth the grid slightly before contouring to reduce raster jaggedness.
+    // The original modifiedGrid is unchanged; only the contour input is smoothed.
+    const smoothed = smoothGridForContours(result.modifiedGrid, result.width, result.height, result.nodata, 3);
+
     const hrdemLike: HRDEMResult = {
-      grid:       result.modifiedGrid,
+      grid:       smoothed,
       width:      result.width,
       height:     result.height,
       bbox:       result.bbox,
@@ -337,8 +341,9 @@ export class CutFillLayer {
   // --------------------------------------------------------------------------
 
   exportContourGeoJSON(result: CutFillResult, intervalM: number): void {
+    const smoothed = smoothGridForContours(result.modifiedGrid, result.width, result.height, result.nodata, 3);
     const hrdemLike: HRDEMResult = {
-      grid:       result.modifiedGrid,
+      grid:       smoothed,
       width:      result.width,
       height:     result.height,
       bbox:       result.bbox,
