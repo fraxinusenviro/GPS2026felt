@@ -5,17 +5,24 @@
  *   1. Draw a polygon footprint on the map
  *   2. Enter a target elevation and optional side-slope ratio
  *   3. Compute a modified DTM surface and view volumes/areas
- *   4. Export the result as a GeoTIFF or as contour GeoJSON
+ *   4. Export the result as a GeoTIFF or as contour / daylight GeoJSON
  *
  * Map click interception:
- *   Call handleMapClick(lng, lat) from App.ts wire-map-interactions.
+ *   Call handleMapClick(lng, lat) from App.ts before other click handlers.
  *   Returns true if the click was consumed (panel is in draw / pick mode).
  */
 
 import type { MapManager } from '../map/MapManager';
 import type { BasemapManager } from '../map/BasemapManager';
+import type { HRDEMResult } from '../lib/hrdemWCS';
 import { CutFillLayer } from '../map/CutFillLayer';
-import { computeCutFill, sampleElevation, type CutFillResult } from '../lib/cutFillEngine';
+import {
+  computeCutFill,
+  computeDaylightFeatures,
+  findBalancedElevation,
+  sampleElevation,
+  type CutFillResult,
+} from '../lib/cutFillEngine';
 import { exportGeoTIFF } from '../lib/geotiffExporter';
 import { fetchHRDEM } from '../lib/hrdemWCS';
 
@@ -23,18 +30,34 @@ import { fetchHRDEM } from '../lib/hrdemWCS';
 const FETCH_PAD = 0.5;
 // Maximum grid dimension for the cut/fill fetch
 const MAX_GRID_PX = 512;
+// Debounce delay (ms) for live recompute after elevation/slope change
+const RECOMPUTE_DEBOUNCE = 600;
 
 export class CutFillPanel {
   private el: HTMLElement | null = null;
   private visible = false;
 
-  // draw-polygon state
+  // Draw-polygon state
   private drawMode: 'idle' | 'drawing' | 'pickElev' = 'idle';
   private vertices: [number, number][] = [];
 
+  // Layer manager
   private cutFillLayer: CutFillLayer;
-  private lastResult: CutFillResult | null = null;
+
+  // Compute state
+  private lastResult:  CutFillResult | null = null;
+  private lastHrdem:   HRDEMResult   | null = null; // cached — reused for live recompute
   private computing = false;
+  private daylightFC: GeoJSON.FeatureCollection | null = null;
+
+  // Display state (instance variables — no local closure bugs)
+  private currentView: 'elevation' | 'diff' = 'elevation';
+  private hillshadeOn  = false;
+  private contoursOn   = false;
+  private daylightOn   = false;
+
+  // Debounce timer for live recompute
+  private recomputeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly mapManager: MapManager,
@@ -57,15 +80,10 @@ export class CutFillPanel {
     if (!this.visible) return;
     this.visible = false;
     this.stopDrawing();
-    if (this.el) {
-      this.el.style.display = 'none';
-    }
+    if (this.el) this.el.style.display = 'none';
   }
 
-  toggle(): void {
-    this.visible ? this.close() : this.open();
-  }
-
+  toggle(): void { this.visible ? this.close() : this.open(); }
   isOpen(): boolean { return this.visible; }
 
   // --------------------------------------------------------------------------
@@ -83,15 +101,7 @@ export class CutFillPanel {
     }
 
     if (this.drawMode === 'pickElev') {
-      const hrdem = this.basemapManager.getFirstHrdemResult();
-      let elev: number | null = null;
-      if (hrdem) {
-        elev = sampleElevation(hrdem.grid, hrdem.width, hrdem.height, hrdem.bbox, hrdem.nodata, lng, lat);
-      }
-      if (elev !== null) {
-        const input = this.el?.querySelector<HTMLInputElement>('#cf-target-elev');
-        if (input) input.value = elev.toFixed(2);
-      }
+      this.pickElevationAt(lng, lat);
       this.setDrawMode('idle');
       return true;
     }
@@ -135,15 +145,17 @@ export class CutFillPanel {
           <button class="cf-btn cf-btn-sm" id="cf-clear-btn">Clear</button>
           <span class="cf-hint" id="cf-vtx-count">0 pts</span>
         </div>
-        <div class="cf-hint" id="cf-draw-hint">Click Draw, then click on the map</div>
+        <div class="cf-hint" id="cf-draw-hint"></div>
       </div>
 
       <div class="cf-section">
         <div class="cf-label">2 · Target elevation (m)</div>
         <div class="cf-row">
           <input type="number" id="cf-target-elev" class="cf-input" step="0.1" placeholder="e.g. 45.0">
-          <button class="cf-btn cf-btn-sm" id="cf-pick-elev" title="Click map to read elevation">⊕ Pick</button>
+          <button class="cf-btn cf-btn-sm" id="cf-pick-elev" title="Click map to sample elevation">⊕ Pick</button>
+          <button class="cf-btn cf-btn-sm" id="cf-balance" title="Find balanced cut/fill elevation" style="display:none">⚖ Balance</button>
         </div>
+        <div class="cf-hint" id="cf-elev-hint" style="display:none;color:#f87171;margin-top:2px"></div>
       </div>
 
       <div class="cf-section">
@@ -174,14 +186,28 @@ export class CutFillPanel {
         <div class="cf-label">Display</div>
         <div class="cf-row">
           <button class="cf-btn cf-btn-active" id="cf-view-elev">Elevation</button>
-          <button class="cf-btn" id="cf-view-diff">Cut/Fill</button>
+          <button class="cf-btn" id="cf-view-diff">Cut/Fill Diff</button>
         </div>
+        <div class="cf-row" style="margin-top:4px">
+          <label class="cf-toggle-row">
+            <input type="checkbox" id="cf-hillshade-toggle"> Hillshade
+          </label>
+        </div>
+
         <div class="cf-label cf-label-mt">Contours</div>
         <div class="cf-row">
-          <input type="number" id="cf-contour-interval" class="cf-input" style="width:60px" value="1" min="0.1" step="0.5">
+          <input type="number" id="cf-contour-interval" class="cf-input" style="width:64px" value="1" min="0.1" step="0.5">
           <span class="cf-hint">m</span>
           <button class="cf-btn cf-btn-sm" id="cf-contour-toggle">Show</button>
         </div>
+
+        <div class="cf-label cf-label-mt">Daylight limit</div>
+        <div class="cf-row">
+          <button class="cf-btn cf-btn-sm" id="cf-daylight-toggle">Show</button>
+          <button class="cf-btn cf-btn-sm" id="cf-daylight-export">↓ GeoJSON</button>
+        </div>
+
+        <div class="cf-label cf-label-mt">Export</div>
         <div class="cf-row cf-export-row">
           <button class="cf-btn cf-btn-sm" id="cf-export-tiff">↓ GeoTIFF</button>
           <button class="cf-btn cf-btn-sm" id="cf-export-contour">↓ Contours</button>
@@ -189,6 +215,7 @@ export class CutFillPanel {
       </div>
     `;
 
+    this.syncDisplayState();
     this.wireEvents();
     el.style.display = 'flex';
   }
@@ -204,7 +231,6 @@ export class CutFillPanel {
 
     el.querySelector('#cf-draw-btn')?.addEventListener('click', () => {
       if (this.drawMode === 'drawing') {
-        // Second click on Draw = finish polygon
         if (this.vertices.length >= 3) {
           this.setDrawMode('idle');
           this.updateComputeBtn();
@@ -232,35 +258,66 @@ export class CutFillPanel {
       this.setDrawMode(this.drawMode === 'pickElev' ? 'idle' : 'pickElev');
     });
 
-    el.querySelector('#cf-target-elev')?.addEventListener('input', () => this.updateComputeBtn());
-    el.querySelector('#cf-slope')?.addEventListener('input',       () => this.updateComputeBtn());
+    // Live-recompute debounce on elevation / slope changes
+    el.querySelector('#cf-target-elev')?.addEventListener('input', () => {
+      this.updateComputeBtn();
+      this.scheduleRecompute();
+    });
+    el.querySelector('#cf-slope')?.addEventListener('input', () => {
+      this.updateComputeBtn();
+      this.scheduleRecompute();
+    });
 
     el.querySelector('#cf-compute')?.addEventListener('click', () => void this.runCompute());
+
+    el.querySelector('#cf-balance')?.addEventListener('click', () => void this.runBalance());
 
     el.querySelector('#cf-view-elev')?.addEventListener('click', () => this.switchView('elevation'));
     el.querySelector('#cf-view-diff')?.addEventListener('click', () => this.switchView('diff'));
 
-    const contourToggle = el.querySelector('#cf-contour-toggle');
-    let contoursOn = false;
-    contourToggle?.addEventListener('click', () => {
-      if (!this.lastResult) return;
-      contoursOn = !contoursOn;
-      if (contoursOn) {
-        const iv = parseFloat((el.querySelector('#cf-contour-interval') as HTMLInputElement).value) || 1;
-        this.cutFillLayer.updateContours(this.lastResult, iv);
-        (contourToggle as HTMLButtonElement).textContent = 'Hide';
-        (contourToggle as HTMLButtonElement).classList.add('cf-btn-active');
-      } else {
-        this.cutFillLayer.setContoursVisible(false);
-        (contourToggle as HTMLButtonElement).textContent = 'Show';
-        (contourToggle as HTMLButtonElement).classList.remove('cf-btn-active');
-      }
+    el.querySelector<HTMLInputElement>('#cf-hillshade-toggle')?.addEventListener('change', (e) => {
+      this.hillshadeOn = (e.target as HTMLInputElement).checked;
+      if (this.lastResult) this.rerender();
     });
 
-    el.querySelector('#cf-contour-interval')?.addEventListener('change', () => {
-      if (!this.lastResult || !contoursOn) return;
-      const iv = parseFloat((el.querySelector('#cf-contour-interval') as HTMLInputElement).value) || 1;
+    // Contour interval — use 'input' event so it fires on every keystroke
+    el.querySelector('#cf-contour-interval')?.addEventListener('input', () => {
+      if (!this.lastResult || !this.contoursOn) return;
+      const iv = this.getContourInterval();
       this.cutFillLayer.updateContours(this.lastResult, iv);
+    });
+
+    const contourToggleBtn = el.querySelector<HTMLButtonElement>('#cf-contour-toggle');
+    contourToggleBtn?.addEventListener('click', () => {
+      if (!this.lastResult) return;
+      this.contoursOn = !this.contoursOn;
+      if (this.contoursOn) {
+        this.cutFillLayer.updateContours(this.lastResult, this.getContourInterval());
+      } else {
+        this.cutFillLayer.setContoursVisible(false);
+      }
+      this.syncDisplayState();
+    });
+
+    const daylightToggleBtn = el.querySelector<HTMLButtonElement>('#cf-daylight-toggle');
+    daylightToggleBtn?.addEventListener('click', () => {
+      if (!this.lastResult) return;
+      this.daylightOn = !this.daylightOn;
+      if (this.daylightOn) {
+        if (!this.daylightFC) {
+          this.daylightFC = computeDaylightFeatures(this.lastResult);
+        }
+        this.cutFillLayer.setDaylight(this.daylightFC);
+      } else {
+        this.cutFillLayer.setDaylightVisible(false);
+      }
+      this.syncDisplayState();
+    });
+
+    el.querySelector('#cf-daylight-export')?.addEventListener('click', () => {
+      if (!this.lastResult) return;
+      const fc = this.daylightFC ?? computeDaylightFeatures(this.lastResult);
+      this.cutFillLayer.exportDaylightGeoJSON(fc);
     });
 
     el.querySelector('#cf-export-tiff')?.addEventListener('click', () => {
@@ -269,8 +326,7 @@ export class CutFillPanel {
 
     el.querySelector('#cf-export-contour')?.addEventListener('click', () => {
       if (!this.lastResult) return;
-      const iv = parseFloat((el.querySelector('#cf-contour-interval') as HTMLInputElement)?.value) || 1;
-      this.cutFillLayer.exportContourGeoJSON(this.lastResult, iv);
+      this.cutFillLayer.exportContourGeoJSON(this.lastResult, this.getContourInterval());
     });
   }
 
@@ -292,7 +348,7 @@ export class CutFillPanel {
     }
     if (hint) {
       hint.textContent = mode === 'drawing'
-        ? 'Click map to add vertices · click Draw again to finish'
+        ? 'Click map to add vertices · click Finish when done'
         : mode === 'pickElev'
         ? 'Click any point on the map to read its elevation'
         : '';
@@ -301,7 +357,6 @@ export class CutFillPanel {
       pickBtn.classList.toggle('cf-btn-active', mode === 'pickElev');
     }
 
-    // Update map cursor
     const canvas = this.mapManager.getMap().getCanvas();
     canvas.style.cursor = mode !== 'idle' ? 'crosshair' : '';
   }
@@ -309,8 +364,7 @@ export class CutFillPanel {
   private stopDrawing(): void {
     this.setDrawMode('idle');
     this.mapManager.clearSketchPreview();
-    const canvas = this.mapManager.getMap().getCanvas();
-    canvas.style.cursor = '';
+    this.mapManager.getMap().getCanvas().style.cursor = '';
   }
 
   private updateVertexCount(): void {
@@ -320,17 +374,15 @@ export class CutFillPanel {
 
   private updateSketchPreview(): void {
     const verts = this.vertices;
-    if (verts.length === 0) {
-      this.mapManager.clearSketchPreview();
-      return;
-    }
+    if (verts.length === 0) { this.mapManager.clearSketchPreview(); return; }
     const features: object[] = [];
     if (verts.length >= 2) {
       features.push({
         type: 'Feature',
-        geometry: { type: 'LineString', coordinates: verts.length >= 3
-          ? [...verts, verts[0]]
-          : verts },
+        geometry: {
+          type: 'LineString',
+          coordinates: verts.length >= 3 ? [...verts, verts[0]] : verts,
+        },
         properties: {},
       });
     }
@@ -341,7 +393,7 @@ export class CutFillPanel {
   }
 
   private updateComputeBtn(): void {
-    const btn = this.el?.querySelector<HTMLButtonElement>('#cf-compute');
+    const btn      = this.el?.querySelector<HTMLButtonElement>('#cf-compute');
     if (!btn) return;
     const elevInput = this.el?.querySelector<HTMLInputElement>('#cf-target-elev');
     const hasElev   = elevInput && elevInput.value.trim() !== '' && isFinite(parseFloat(elevInput.value));
@@ -350,11 +402,46 @@ export class CutFillPanel {
   }
 
   // --------------------------------------------------------------------------
-  // Computation
+  // Elevation picker
+  // --------------------------------------------------------------------------
+
+  private pickElevationAt(lng: number, lat: number): void {
+    const hintEl = this.el?.querySelector<HTMLElement>('#cf-elev-hint');
+
+    // Try cached HRDEM result first (most accurate for the current view extent)
+    const sources: Array<HRDEMResult | null> = [
+      this.lastHrdem,
+      this.basemapManager.getFirstHrdemResult(),
+    ];
+
+    for (const hr of sources) {
+      if (!hr) continue;
+      const elev = sampleElevation(hr.grid, hr.width, hr.height, hr.bbox, hr.nodata, lng, lat);
+      if (elev !== null) {
+        const input = this.el?.querySelector<HTMLInputElement>('#cf-target-elev');
+        if (input) input.value = elev.toFixed(2);
+        if (hintEl) hintEl.style.display = 'none';
+        this.updateComputeBtn();
+        this.scheduleRecompute();
+        return;
+      }
+    }
+
+    // Nothing found — show guidance
+    if (hintEl) {
+      hintEl.textContent = '⚠ No elevation data at that point — load HRDEM first or click within its extent';
+      hintEl.style.display = 'block';
+      setTimeout(() => { if (hintEl) hintEl.style.display = 'none'; }, 5000);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Main computation
   // --------------------------------------------------------------------------
 
   private async runCompute(): Promise<void> {
     if (this.computing) return;
+
     const elevInput  = this.el?.querySelector<HTMLInputElement>('#cf-target-elev');
     const slopeInput = this.el?.querySelector<HTMLInputElement>('#cf-slope');
     const computeBtn = this.el?.querySelector<HTMLButtonElement>('#cf-compute');
@@ -362,55 +449,160 @@ export class CutFillPanel {
     const targetElevation = parseFloat(elevInput?.value ?? '');
     if (!isFinite(targetElevation) || this.vertices.length < 3) return;
 
-    const slopeStr  = slopeInput?.value?.trim() ?? '';
-    const slopeRatio = slopeStr !== '' && isFinite(parseFloat(slopeStr)) && parseFloat(slopeStr) > 0
-      ? parseFloat(slopeStr)
-      : null;
+    const slopeRatio = this.parseSlopeRatio(slopeInput?.value ?? '');
 
     this.computing = true;
-    if (computeBtn) { computeBtn.disabled = true; computeBtn.textContent = 'Computing…'; }
+    if (computeBtn) { computeBtn.disabled = true; computeBtn.textContent = 'Fetching…'; }
 
     try {
-      // Build polygon
-      const ring   = [...this.vertices, this.vertices[0]]; // close ring
+      const ring    = [...this.vertices, this.vertices[0]];
       const polygon = { type: 'Polygon' as const, coordinates: [ring] };
 
-      // Compute bounding box + padding
-      const lons = this.vertices.map(v => v[0]);
-      const lats = this.vertices.map(v => v[1]);
+      const lons   = this.vertices.map(v => v[0]);
+      const lats   = this.vertices.map(v => v[1]);
       const minLon = Math.min(...lons), maxLon = Math.max(...lons);
       const minLat = Math.min(...lats), maxLat = Math.max(...lats);
       const padLon = (maxLon - minLon) * FETCH_PAD || 0.001;
       const padLat = (maxLat - minLat) * FETCH_PAD || 0.001;
-      const west  = minLon - padLon;
-      const east  = maxLon + padLon;
-      const south = minLat - padLat;
-      const north = maxLat + padLat;
 
-      // Fetch HRDEM for the padded extent
-      const hrdem = await fetchHRDEM(west, south, east, north, MAX_GRID_PX, MAX_GRID_PX, 'dtm');
+      if (computeBtn) computeBtn.textContent = 'Fetching elevation…';
 
-      // Run the cut/fill algorithm
+      const hrdem = await fetchHRDEM(
+        minLon - padLon, minLat - padLat,
+        maxLon + padLon, maxLat + padLat,
+        MAX_GRID_PX, MAX_GRID_PX, 'dtm',
+      );
+      this.lastHrdem = hrdem;
+
+      if (computeBtn) computeBtn.textContent = 'Computing…';
+
       const result = computeCutFill(hrdem, { polygon, targetElevation, slopeRatio });
-      this.lastResult = result;
+      this.lastResult  = result;
+      this.daylightFC  = null; // invalidate cached daylight
 
-      // Show on map
-      this.cutFillLayer.show(result);
       this.mapManager.clearSketchPreview();
+      this.rerender();
 
-      // Update results UI
+      // Refresh contours if they were showing
+      if (this.contoursOn) {
+        this.cutFillLayer.updateContours(result, this.getContourInterval());
+      }
+
+      // Refresh daylight if it was showing
+      if (this.daylightOn) {
+        this.daylightFC = computeDaylightFeatures(result);
+        this.cutFillLayer.setDaylight(this.daylightFC);
+      }
+
       this.showResults(result);
+
+      // Show Balance button now that we have context
+      const balBtn = this.el?.querySelector<HTMLButtonElement>('#cf-balance');
+      if (balBtn) balBtn.style.display = '';
 
     } catch (err) {
       console.error('[CutFillPanel] compute failed:', err);
-      if (computeBtn) computeBtn.textContent = 'Error — try again';
-      setTimeout(() => {
-        if (computeBtn) { computeBtn.textContent = 'Compute Cut / Fill'; computeBtn.disabled = false; }
-      }, 3000);
+      if (computeBtn) {
+        computeBtn.textContent = 'Error — try again';
+        setTimeout(() => {
+          computeBtn.textContent = 'Compute Cut / Fill';
+          computeBtn.disabled = false;
+        }, 3000);
+        return;
+      }
     } finally {
       this.computing = false;
       if (computeBtn) { computeBtn.textContent = 'Compute Cut / Fill'; computeBtn.disabled = false; }
     }
+  }
+
+  // --------------------------------------------------------------------------
+  // Live recompute with cached HRDEM (no re-fetch)
+  // --------------------------------------------------------------------------
+
+  private scheduleRecompute(): void {
+    if (this.recomputeTimer !== null) clearTimeout(this.recomputeTimer);
+    if (!this.lastHrdem || !this.lastResult) return;
+    this.recomputeTimer = setTimeout(() => void this.runRecompute(), RECOMPUTE_DEBOUNCE);
+  }
+
+  private async runRecompute(): Promise<void> {
+    if (!this.lastHrdem || this.vertices.length < 3) return;
+
+    const elevInput  = this.el?.querySelector<HTMLInputElement>('#cf-target-elev');
+    const slopeInput = this.el?.querySelector<HTMLInputElement>('#cf-slope');
+
+    const targetElevation = parseFloat(elevInput?.value ?? '');
+    if (!isFinite(targetElevation)) return;
+
+    const slopeRatio = this.parseSlopeRatio(slopeInput?.value ?? '');
+    const ring       = [...this.vertices, this.vertices[0]];
+    const polygon    = { type: 'Polygon' as const, coordinates: [ring] };
+
+    const result    = computeCutFill(this.lastHrdem, { polygon, targetElevation, slopeRatio });
+    this.lastResult = result;
+    this.daylightFC = null;
+
+    this.rerender();
+    if (this.contoursOn) this.cutFillLayer.updateContours(result, this.getContourInterval());
+    if (this.daylightOn) {
+      this.daylightFC = computeDaylightFeatures(result);
+      this.cutFillLayer.setDaylight(this.daylightFC);
+    }
+    this.showResults(result);
+  }
+
+  // --------------------------------------------------------------------------
+  // Balance elevation optimizer
+  // --------------------------------------------------------------------------
+
+  private async runBalance(): Promise<void> {
+    if (!this.lastHrdem || this.vertices.length < 3 || this.computing) return;
+
+    const slopeInput = this.el?.querySelector<HTMLInputElement>('#cf-slope');
+    const slopeRatio = this.parseSlopeRatio(slopeInput?.value ?? '');
+    const ring       = [...this.vertices, this.vertices[0]];
+    const polygon    = { type: 'Polygon' as const, coordinates: [ring] };
+
+    const balBtn = this.el?.querySelector<HTMLButtonElement>('#cf-balance');
+    if (balBtn) { balBtn.disabled = true; balBtn.textContent = '⚖…'; }
+
+    try {
+      const balanced = findBalancedElevation(this.lastHrdem, { polygon, slopeRatio });
+      const elevInput = this.el?.querySelector<HTMLInputElement>('#cf-target-elev');
+      if (elevInput) elevInput.value = balanced.toFixed(2);
+      this.updateComputeBtn();
+      await this.runRecompute();
+    } finally {
+      if (balBtn) { balBtn.disabled = false; balBtn.textContent = '⚖ Balance'; }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Rerender current view (elevation or diff, with optional hillshade)
+  // --------------------------------------------------------------------------
+
+  private rerender(): void {
+    if (!this.lastResult) return;
+    if (this.currentView === 'diff') {
+      this.cutFillLayer.showDiff(this.lastResult, this.hillshadeOn);
+    } else {
+      this.cutFillLayer.show(this.lastResult, undefined, this.hillshadeOn);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // View switching
+  // --------------------------------------------------------------------------
+
+  private switchView(mode: 'elevation' | 'diff'): void {
+    this.currentView = mode;
+    this.rerender();
+
+    const elevBtn = this.el?.querySelector<HTMLButtonElement>('#cf-view-elev');
+    const diffBtn = this.el?.querySelector<HTMLButtonElement>('#cf-view-diff');
+    elevBtn?.classList.toggle('cf-btn-active', mode === 'elevation');
+    diffBtn?.classList.toggle('cf-btn-active', mode === 'diff');
   }
 
   // --------------------------------------------------------------------------
@@ -423,10 +615,8 @@ export class CutFillPanel {
     if (section) section.style.display = 'block';
     if (viewSec) viewSec.style.display = 'block';
 
-    const fmt = (m3: number) => {
-      const ha = m3 / 10000;
-      return `${m3 >= 1000 ? (m3 / 1000).toFixed(2) + ' km³' : m3.toFixed(0) + ' m³'}`;
-    };
+    const fmt = (m3: number) =>
+      m3 >= 1000 ? `${(m3 / 1000).toFixed(2)} km³` : `${m3.toFixed(0)} m³`;
     const fmtArea = (m2: number) =>
       m2 >= 10000 ? `${(m2 / 10000).toFixed(2)} ha` : `${m2.toFixed(0)} m²`;
 
@@ -435,27 +625,56 @@ export class CutFillPanel {
       if (el) el.textContent = val;
     };
 
-    setEl('cf-res-cut',  `${fmt(result.cutVolume)}  (${fmtArea(result.cutArea)})`);
-    setEl('cf-res-fill', `${fmt(result.fillVolume)}  (${fmtArea(result.fillArea)})`);
+    setEl('cf-res-cut',  `${fmt(result.cutVolume)} (${fmtArea(result.cutArea)})`);
+    setEl('cf-res-fill', `${fmt(result.fillVolume)} (${fmtArea(result.fillArea)})`);
 
-    const net = result.fillVolume - result.cutVolume;
+    const net     = result.fillVolume - result.cutVolume;
     const netSign = net >= 0 ? '+' : '';
     setEl('cf-res-net', `${netSign}${fmt(Math.abs(net))} ${net >= 0 ? '(net fill)' : '(net cut)'}`);
   }
 
-  private switchView(mode: 'elevation' | 'diff'): void {
-    if (!this.lastResult) return;
+  // --------------------------------------------------------------------------
+  // Sync display-state toggles back to DOM (called after state changes)
+  // --------------------------------------------------------------------------
 
-    if (mode === 'diff') {
-      this.cutFillLayer.showDiff(this.lastResult);
-    } else {
-      this.cutFillLayer.show(this.lastResult);
+  private syncDisplayState(): void {
+    if (!this.el) return;
+
+    const contourBtn = this.el.querySelector<HTMLButtonElement>('#cf-contour-toggle');
+    if (contourBtn) {
+      contourBtn.textContent = this.contoursOn ? 'Hide' : 'Show';
+      contourBtn.classList.toggle('cf-btn-active', this.contoursOn);
     }
-    this.cutFillLayer.setView(mode);
 
-    const elevBtn = this.el?.querySelector<HTMLButtonElement>('#cf-view-elev');
-    const diffBtn = this.el?.querySelector<HTMLButtonElement>('#cf-view-diff');
-    elevBtn?.classList.toggle('cf-btn-active', mode === 'elevation');
-    diffBtn?.classList.toggle('cf-btn-active', mode === 'diff');
+    const daylightBtn = this.el.querySelector<HTMLButtonElement>('#cf-daylight-toggle');
+    if (daylightBtn) {
+      daylightBtn.textContent = this.daylightOn ? 'Hide' : 'Show';
+      daylightBtn.classList.toggle('cf-btn-active', this.daylightOn);
+    }
+
+    const hillshadeChk = this.el.querySelector<HTMLInputElement>('#cf-hillshade-toggle');
+    if (hillshadeChk) hillshadeChk.checked = this.hillshadeOn;
+
+    const elevBtn = this.el.querySelector<HTMLButtonElement>('#cf-view-elev');
+    const diffBtn = this.el.querySelector<HTMLButtonElement>('#cf-view-diff');
+    elevBtn?.classList.toggle('cf-btn-active', this.currentView === 'elevation');
+    diffBtn?.classList.toggle('cf-btn-active', this.currentView === 'diff');
+  }
+
+  // --------------------------------------------------------------------------
+  // Helpers
+  // --------------------------------------------------------------------------
+
+  private getContourInterval(): number {
+    const input = this.el?.querySelector<HTMLInputElement>('#cf-contour-interval');
+    const v = parseFloat(input?.value ?? '1');
+    return isFinite(v) && v > 0 ? v : 1;
+  }
+
+  private parseSlopeRatio(str: string): number | null {
+    const s = str.trim();
+    if (s === '') return null;
+    const v = parseFloat(s);
+    return isFinite(v) && v > 0 ? v : null;
   }
 }

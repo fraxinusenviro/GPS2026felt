@@ -6168,3 +6168,18 @@ input[type=color] {
   margin-top: 2px;
 }
 
+.cf-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.cf-toggle-row input[type="checkbox"] {
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
