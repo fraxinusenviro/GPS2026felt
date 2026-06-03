@@ -121,6 +121,7 @@ export class BasemapManager {
   private nshnLayers = new Map<string, NSHNVectorLayer>();
   private hrdemLayers = new Map<string, HRDEMLayer>();
   private cogContourLayers = new Map<string, CogContourLayer>();
+  private cutFillResultProvider: (() => import('../lib/cutFillEngine').CutFillResult | null) | null = null;
   private unifiedLegendEl: HTMLElement | null = null;
   private unifiedLegendCollapsed = true;
 
@@ -226,6 +227,14 @@ export class BasemapManager {
       if (r) return r;
     }
     return null;
+  }
+
+  /** Registers a function that returns the current Cut/Fill result for profile overlay. */
+  setCutFillResultProvider(fn: (() => import('../lib/cutFillEngine').CutFillResult | null) | null): void {
+    this.cutFillResultProvider = fn;
+    for (const layer of this.hrdemLayers.values()) {
+      layer.setCutFillResultProvider(fn);
+    }
   }
 
   getCurrentStackJson(): string {
@@ -904,7 +913,9 @@ export class BasemapManager {
         this.applyVectorStyleOverrides(l);
       } else if (ltype === 'hrdem-wcs') {
         if (!this.hrdemLayers.has(l.instanceId)) {
-          this.hrdemLayers.set(l.instanceId, new HRDEMLayer(this.mapManager));
+          const newLayer = new HRDEMLayer(this.mapManager);
+          newLayer.setCutFillResultProvider(this.cutFillResultProvider);
+          this.hrdemLayers.set(l.instanceId, newLayer);
         }
         const hrdemInst = this.hrdemLayers.get(l.instanceId)!;
         hrdemInst.onLegendUpdate = () => this.refreshUnifiedLegend();

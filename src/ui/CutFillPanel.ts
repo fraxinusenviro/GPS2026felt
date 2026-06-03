@@ -154,7 +154,7 @@ export class CutFillPanel {
         <div class="cf-row">
           <input type="number" id="cf-target-elev" class="cf-input" step="0.1" placeholder="e.g. 45.0">
           <button class="cf-btn cf-btn-sm" id="cf-pick-elev" title="Click map to sample elevation">⊕ Pick</button>
-          <button class="cf-btn cf-btn-sm" id="cf-balance" title="Find balanced cut/fill elevation" style="display:none">⚖ Balance</button>
+          <button class="cf-btn cf-btn-sm" id="cf-balance" title="Find balanced cut/fill elevation" disabled>⚖ Balance</button>
         </div>
         <div class="cf-hint" id="cf-elev-hint" style="display:none;color:#f87171;margin-top:2px"></div>
       </div>
@@ -496,10 +496,7 @@ export class CutFillPanel {
       }
 
       this.showResults(result);
-
-      // Show Balance button now that we have context
-      const balBtn = this.el?.querySelector<HTMLButtonElement>('#cf-balance');
-      if (balBtn) balBtn.style.display = '';
+      this.syncDisplayState();
 
     } catch (err) {
       console.error('[CutFillPanel] compute failed:', err);
@@ -660,6 +657,9 @@ export class CutFillPanel {
     const diffBtn = this.el.querySelector<HTMLButtonElement>('#cf-view-diff');
     elevBtn?.classList.toggle('cf-btn-active', this.currentView === 'elevation');
     diffBtn?.classList.toggle('cf-btn-active', this.currentView === 'diff');
+
+    const balBtn = this.el.querySelector<HTMLButtonElement>('#cf-balance');
+    if (balBtn) balBtn.disabled = !this.lastHrdem;
   }
 
   // --------------------------------------------------------------------------
