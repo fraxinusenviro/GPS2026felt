@@ -213,7 +213,7 @@ export function generateContours(
   const lonScale = (east  - west)  / width;
   const latScale = (north - south) / height;
 
-  const iv = Math.max(1, interval);
+  const iv = Math.max(0.1, interval);
   const firstLevel = Math.ceil(elevMin  / iv) * iv;
   const lastLevel  = Math.floor(elevMax / iv) * iv;
 
