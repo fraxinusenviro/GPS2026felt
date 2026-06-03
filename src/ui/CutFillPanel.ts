@@ -85,6 +85,7 @@ export class CutFillPanel {
 
   toggle(): void { this.visible ? this.close() : this.open(); }
   isOpen(): boolean { return this.visible; }
+  getLastResult(): CutFillResult | null { return this.lastResult; }
 
   // --------------------------------------------------------------------------
   // Map click interception — called by App.ts wireMapInteractions
