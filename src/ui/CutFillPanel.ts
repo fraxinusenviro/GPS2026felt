@@ -16,6 +16,7 @@ import type { MapManager } from '../map/MapManager';
 import type { BasemapManager } from '../map/BasemapManager';
 import type { HRDEMResult } from '../lib/hrdemWCS';
 import { CutFillLayer } from '../map/CutFillLayer';
+import { CutFillRunStore } from '../map/CutFillRunStore';
 import {
   computeCutFill,
   computeDaylightFeatures,
@@ -58,6 +59,8 @@ export class CutFillPanel {
 
   // Debounce timer for live recompute
   private recomputeTimer: ReturnType<typeof setTimeout> | null = null;
+  // CutFillRunStore subscription handle
+  private cfRunUnsub: (() => void) | null = null;
 
   constructor(
     private readonly mapManager: MapManager,
@@ -74,6 +77,9 @@ export class CutFillPanel {
     if (this.visible) return;
     this.visible = true;
     this.render();
+    this.cfRunUnsub = CutFillRunStore.getInstance().subscribe(() => {
+      this.refreshRefSurface();
+    });
   }
 
   close(): void {
@@ -81,6 +87,8 @@ export class CutFillPanel {
     this.visible = false;
     this.stopDrawing();
     if (this.el) this.el.style.display = 'none';
+    this.cfRunUnsub?.();
+    this.cfRunUnsub = null;
   }
 
   toggle(): void { this.visible ? this.close() : this.open(); }
@@ -150,7 +158,17 @@ export class CutFillPanel {
       </div>
 
       <div class="cf-section">
-        <div class="cf-label">2 · Target elevation (m)</div>
+        <div class="cf-label">2 · Reference surface</div>
+        <select id="cf-ref-surface" class="cf-input cf-input-full">
+          <option value="hrdem">HRDEM (live data)</option>
+          ${CutFillRunStore.getInstance().getRuns().map(r =>
+            `<option value="${r.id}">${r.name} (elev ${r.params.targetElevation.toFixed(1)}m)</option>`
+          ).join('')}
+        </select>
+      </div>
+
+      <div class="cf-section">
+        <div class="cf-label">3 · Target elevation (m)</div>
         <div class="cf-row">
           <input type="number" id="cf-target-elev" class="cf-input" step="0.1" placeholder="e.g. 45.0">
           <button class="cf-btn cf-btn-sm" id="cf-pick-elev" title="Click map to sample elevation">⊕ Pick</button>
@@ -160,7 +178,7 @@ export class CutFillPanel {
       </div>
 
       <div class="cf-section">
-        <div class="cf-label">3 · Side slope H:V ratio</div>
+        <div class="cf-label">4 · Side slope H:V ratio</div>
         <input type="number" id="cf-slope" class="cf-input cf-input-full" step="0.5" min="0.5" placeholder="e.g. 2  (blank = vertical walls)">
       </div>
 
@@ -213,6 +231,9 @@ export class CutFillPanel {
           <button class="cf-btn cf-btn-sm" id="cf-export-tiff">↓ GeoTIFF</button>
           <button class="cf-btn cf-btn-sm" id="cf-export-contour">↓ Contours</button>
         </div>
+
+        <div class="cf-label cf-label-mt">Persist</div>
+        <button class="cf-btn cf-btn-primary" id="cf-save-layers" style="width:100%">Save to Layer Manager</button>
       </div>
     `;
 
@@ -329,6 +350,8 @@ export class CutFillPanel {
       if (!this.lastResult) return;
       this.cutFillLayer.exportContourGeoJSON(this.lastResult, this.getContourInterval());
     });
+
+    el.querySelector('#cf-save-layers')?.addEventListener('click', () => this.saveToLayers());
   }
 
   // --------------------------------------------------------------------------
@@ -459,20 +482,42 @@ export class CutFillPanel {
       const ring    = [...this.vertices, this.vertices[0]];
       const polygon = { type: 'Polygon' as const, coordinates: [ring] };
 
-      const lons   = this.vertices.map(v => v[0]);
-      const lats   = this.vertices.map(v => v[1]);
-      const minLon = Math.min(...lons), maxLon = Math.max(...lons);
-      const minLat = Math.min(...lats), maxLat = Math.max(...lats);
-      const padLon = (maxLon - minLon) * FETCH_PAD || 0.001;
-      const padLat = (maxLat - minLat) * FETCH_PAD || 0.001;
+      const refSel   = this.el?.querySelector<HTMLSelectElement>('#cf-ref-surface');
+      const refRunId = refSel?.value ?? 'hrdem';
+      let hrdem: HRDEMResult;
 
-      if (computeBtn) computeBtn.textContent = 'Fetching elevation…';
+      if (refRunId === 'hrdem') {
+        const lons   = this.vertices.map(v => v[0]);
+        const lats   = this.vertices.map(v => v[1]);
+        const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+        const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+        const padLon = (maxLon - minLon) * FETCH_PAD || 0.001;
+        const padLat = (maxLat - minLat) * FETCH_PAD || 0.001;
 
-      const hrdem = await fetchHRDEM(
-        minLon - padLon, minLat - padLat,
-        maxLon + padLon, maxLat + padLat,
-        MAX_GRID_PX, MAX_GRID_PX, 'dtm',
-      );
+        if (computeBtn) computeBtn.textContent = 'Fetching elevation…';
+
+        hrdem = await fetchHRDEM(
+          minLon - padLon, minLat - padLat,
+          maxLon + padLon, maxLat + padLat,
+          MAX_GRID_PX, MAX_GRID_PX, 'dtm',
+        );
+      } else {
+        const refRun = CutFillRunStore.getInstance().getById(refRunId);
+        if (!refRun) { throw new Error(`Reference run ${refRunId} not found`); }
+        const r = refRun.result;
+        hrdem = {
+          grid:       r.modifiedGrid,
+          width:      r.width,
+          height:     r.height,
+          bbox:       r.bbox,
+          nodata:     r.nodata,
+          elevMin:    r.stretchMin,
+          elevMax:    r.stretchMax,
+          stretchMin: r.stretchMin,
+          stretchMax: r.stretchMax,
+          validCount: r.width * r.height,
+        };
+      }
       this.lastHrdem = hrdem;
 
       if (computeBtn) computeBtn.textContent = 'Computing…';
@@ -677,5 +722,43 @@ export class CutFillPanel {
     if (s === '') return null;
     const v = parseFloat(s);
     return isFinite(v) && v > 0 ? v : null;
+  }
+
+  private saveToLayers(): void {
+    if (!this.lastResult || !this.lastHrdem) return;
+    const elevInput  = this.el?.querySelector<HTMLInputElement>('#cf-target-elev');
+    const slopeInput = this.el?.querySelector<HTMLInputElement>('#cf-slope');
+    const targetElevation = parseFloat(elevInput?.value ?? '');
+    if (!isFinite(targetElevation)) return;
+    const slopeRatio = this.parseSlopeRatio(slopeInput?.value ?? '');
+    const ring    = [...this.vertices, this.vertices[0]];
+    const polygon = { type: 'Polygon' as const, coordinates: [ring] };
+
+    CutFillRunStore.getInstance().addRun({
+      result:     this.lastResult,
+      hrdem:      this.lastHrdem,
+      daylightFC: this.daylightFC,
+      params:     { targetElevation, slopeRatio, polygon },
+    });
+
+    const btn = this.el?.querySelector<HTMLButtonElement>('#cf-save-layers');
+    if (btn) {
+      const orig = btn.textContent ?? 'Save to Layer Manager';
+      btn.textContent = 'Saved!';
+      btn.disabled = true;
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+    }
+  }
+
+  private refreshRefSurface(): void {
+    const sel = this.el?.querySelector<HTMLSelectElement>('#cf-ref-surface');
+    if (!sel) return;
+    const current = sel.value;
+    const runs = CutFillRunStore.getInstance().getRuns();
+    const runOpts = runs.map(r =>
+      `<option value="${r.id}">${r.name} (elev ${r.params.targetElevation.toFixed(1)}m)</option>`
+    ).join('');
+    sel.innerHTML = `<option value="hrdem">HRDEM (live data)</option>${runOpts}`;
+    if (current !== 'hrdem' && runs.find(r => r.id === current)) sel.value = current;
   }
 }
