@@ -515,9 +515,13 @@ export class App {
     const editTools   = ['select', 'lasso-select', 'edit-attrs', 'delete', 'edit-geometry'];
 
     switch (sectionId) {
-      case 'gps':
-        if (gpsTools.includes(currentTool)) this.activateTool('gps-point');
+      case 'gps': {
+        const hudEl = document.getElementById('point-entry-hud');
+        if (hudEl) hudEl.style.display = 'none';
+        const captureEl = document.getElementById('capture-controls');
+        if (captureEl) captureEl.style.display = 'none';
         break;
+      }
       case 'sketch':
         if (sketchTools.includes(currentTool)) this.activateTool('gps-point');
         break;
@@ -542,6 +546,10 @@ export class App {
         break;
       case 'cache':
         this.cachePanel.close();
+        break;
+      case 'i/o':
+        this.importDataPanel.close();
+        this.exportPanel.close();
         break;
     }
   }
@@ -784,6 +792,28 @@ export class App {
     document.getElementById('btn-export')?.addEventListener('click', () => {
       this.closeAllPanels();
       this.exportPanel.toggle();
+    });
+
+    // I/O group (left toolbar)
+    document.getElementById('btn-toolbar-import')?.addEventListener('click', () => {
+      this.closeAllPanels();
+      this.importDataPanel.toggle();
+    });
+
+    document.getElementById('btn-toolbar-export')?.addEventListener('click', () => {
+      this.closeAllPanels();
+      this.exportPanel.toggle();
+    });
+
+    // HUD close buttons
+    document.getElementById('btn-point-hud-close')?.addEventListener('click', () => {
+      const hud = document.getElementById('point-entry-hud');
+      if (hud) hud.style.display = 'none';
+    });
+
+    document.getElementById('btn-capture-hud-close')?.addEventListener('click', () => {
+      const hud = document.getElementById('capture-controls');
+      if (hud) hud.style.display = 'none';
     });
 
     document.getElementById('btn-cut-fill')?.addEventListener('click', () => {
