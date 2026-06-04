@@ -443,27 +443,107 @@ export class App {
       localStorage.getItem(STORAGE_KEY) || '{}'
     );
 
-    document.querySelectorAll<HTMLElement>('#left-toolbar .toolbar-section').forEach(section => {
+    const sections = Array.from(
+      document.querySelectorAll<HTMLElement>('#left-toolbar .toolbar-section')
+    );
+
+    const saveState = (state: Record<string, boolean>) =>
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+    const collapseSection = (section: HTMLElement) => {
+      if (section.classList.contains('collapsed')) return;
+      const label = section.querySelector<HTMLElement>('.toolbar-section-label');
+      const id = (label?.textContent || '').trim().toLowerCase();
+      section.classList.add('collapsed');
+      label?.setAttribute('aria-expanded', 'false');
+      this.deactivateSectionTools(id);
+    };
+
+    // Apply stored / default state
+    sections.forEach(section => {
       const label = section.querySelector<HTMLElement>('.toolbar-section-label');
       if (!label) return;
       const id = (label.textContent || '').trim().toLowerCase();
-
       if (id in stored) {
         section.classList.toggle('collapsed', stored[id]);
         label.setAttribute('aria-expanded', stored[id] ? 'false' : 'true');
       }
+    });
+
+    // Wire click handlers
+    sections.forEach(section => {
+      const label = section.querySelector<HTMLElement>('.toolbar-section-label');
+      if (!label) return;
+      const id = (label.textContent || '').trim().toLowerCase();
 
       label.addEventListener('click', () => {
-        section.classList.toggle('collapsed');
-        const isCollapsed = section.classList.contains('collapsed');
-        label.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+        const isCurrentlyCollapsed = section.classList.contains('collapsed');
         const state: Record<string, boolean> = JSON.parse(
           localStorage.getItem(STORAGE_KEY) || '{}'
         );
-        state[id] = isCollapsed;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+        if (isCurrentlyCollapsed) {
+          // Accordion: collapse all others first
+          sections.forEach(other => {
+            if (other !== section) collapseSection(other);
+          });
+          // Expand this one
+          section.classList.remove('collapsed');
+          label.setAttribute('aria-expanded', 'true');
+          state[id] = false;
+        } else {
+          // Collapse this one
+          collapseSection(section);
+          state[id] = true;
+        }
+
+        // Persist state for all sections
+        sections.forEach(s => {
+          const l = s.querySelector<HTMLElement>('.toolbar-section-label');
+          const sid = (l?.textContent || '').trim().toLowerCase();
+          state[sid] = s.classList.contains('collapsed');
+        });
+        saveState(state);
       });
     });
+  }
+
+  private deactivateSectionTools(sectionId: string): void {
+    const currentTool = this.captureManager.getCurrentTool();
+    const gpsTools    = ['gps-point', 'gps-point-stream', 'gps-line', 'gps-polygon'];
+    const sketchTools = ['sketch-point', 'sketch-line', 'sketch-polygon', 'sketch-freehand'];
+    const editTools   = ['select', 'lasso-select', 'edit-attrs', 'delete', 'edit-geometry'];
+
+    switch (sectionId) {
+      case 'gps':
+        if (gpsTools.includes(currentTool)) this.activateTool('gps-point');
+        break;
+      case 'sketch':
+        if (sketchTools.includes(currentTool)) this.activateTool('gps-point');
+        break;
+      case 'edit':
+        if (editTools.includes(currentTool)) this.activateTool('gps-point');
+        this.featureListPanel.close();
+        break;
+      case 'info': {
+        if (currentTool === 'measure') {
+          this.measurePanel.stop();
+          this.captureManager.setTool('gps-point');
+        }
+        const identifyBtn = document.getElementById('btn-identify');
+        if (identifyBtn?.classList.contains('active')) identifyBtn.click();
+        this.statsPanel.close();
+        this.logConsole.hide();
+        break;
+      }
+      case 'elev':
+        EventBus.emit('elev:cancel');
+        if (this.cutFillPanel.isOpen()) this.cutFillPanel.close();
+        break;
+      case 'cache':
+        this.cachePanel.close();
+        break;
+    }
   }
 
   private wireToolbar(): void {
@@ -783,6 +863,11 @@ export class App {
     });
 
     document.getElementById('btn-feature-list')?.addEventListener('click', () => {
+      this.closeAllPanels();
+      void this.featureListPanel.toggle();
+    });
+
+    document.getElementById('btn-edit-feature-list')?.addEventListener('click', () => {
       this.closeAllPanels();
       void this.featureListPanel.toggle();
     });
