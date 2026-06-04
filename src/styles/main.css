@@ -238,7 +238,11 @@ html, body {
   border-radius: var(--radius);
   padding: 6px 4px;
   box-shadow: var(--shadow);
+  max-height: calc(100dvh - var(--header-height) - 16px);
+  overflow-y: auto;
+  scrollbar-width: none;
 }
+#left-toolbar::-webkit-scrollbar { display: none; }
 
 .toolbar-group {
   display: flex;
@@ -261,6 +265,29 @@ html, body {
   text-align: center;
   padding: 2px 0 1px;
   line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+.toolbar-section-label::after {
+  content: '▾';
+  font-size: 7px;
+  opacity: 0.5;
+  transition: transform 0.2s ease;
+  display: inline-block;
+}
+.toolbar-section.collapsed > .toolbar-section-label::after {
+  transform: rotate(-90deg);
+}
+.toolbar-section.collapsed > .toolbar-group {
+  display: none;
 }
 
 .toolbar-separator {
@@ -1961,6 +1988,7 @@ label textarea {
   #north-arrow-svg { width: 58px !important; height: 58px !important; }
   #left-toolbar { padding: 4px 2px; }
 }
+
 
 /* ============================================================
    Range input

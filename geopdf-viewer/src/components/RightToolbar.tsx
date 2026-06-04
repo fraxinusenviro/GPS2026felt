@@ -52,7 +52,11 @@ export const RightToolbar: React.FC = () => {
   }
 
   return (
-    <div className="absolute right-3 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-2">
+    <div
+      className="absolute right-3 top-3 bottom-3 z-30 flex flex-col justify-center overflow-y-auto"
+      style={{ scrollbarWidth: 'none' as const }}
+    >
+    <div className="flex flex-col gap-2">
       <ToolbarGroup>
         {/* Zoom in */}
         <ToolbarButton onClick={() => zoom(1.4)} label="Zoom in" icon={<ZoomIn size={18} />} />
@@ -132,6 +136,7 @@ export const RightToolbar: React.FC = () => {
           <span className="text-xs text-red-100 font-medium">REC</span>
         </div>
       )}
+    </div>
     </div>
   )
 }
