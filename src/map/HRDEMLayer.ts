@@ -10,6 +10,7 @@ import maplibregl from 'maplibre-gl';
 import proj4 from 'proj4';
 import type { MapManager } from './MapManager';
 import { fetchHRDEM, type HRDEMResult } from '../lib/hrdemWCS';
+import { EventBus } from '../utils/EventBus';
 import {
   renderElevation,
   renderGrid,
@@ -116,6 +117,7 @@ export class HRDEMLayer {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private moveHandler: (() => void) | null = null;
   private toolbarEl: HTMLElement | null = null;
+  private elevEventUnsubs: Array<() => void> = [];
 
   private legendStatus: 'idle' | 'loading' | 'error' | 'ready' = 'idle';
   private legendError = '';
@@ -281,7 +283,8 @@ export class HRDEMLayer {
     this.layerVisible = visible;
     this.applyVisibilities();
     if (visible) this.scheduleFetch();
-    if (this.toolbarEl) this.toolbarEl.style.display = visible ? '' : 'none';
+    if (!visible && this.toolbarEl) this.toolbarEl.style.display = 'none';
+    else if (visible) this.refreshToolbarButtons();
   }
 
   setRasterVisible(visible: boolean): void {
@@ -1005,7 +1008,7 @@ export class HRDEMLayer {
     });
   }
 
-  private activateSampleTool(): void {
+  activateSampleTool(): void {
     if (this.activeTool === 'sample') { this.cancelTool(); return; }
     this.cancelTool();
     this.activeTool = 'sample';
@@ -1020,7 +1023,7 @@ export class HRDEMLayer {
     this.refreshToolbarButtons();
   }
 
-  private activateProfileTool(): void {
+  activateProfileTool(): void {
     if (this.activeTool === 'profile') { this.cancelTool(); return; }
     // Clear any existing completed profile before starting a new one
     this.profilePanelEl?.remove();
@@ -1751,7 +1754,7 @@ export class HRDEMLayer {
       'position:absolute', 'top:8px', 'left:50%',
       'transform:translateX(-50%)',
       'z-index:20',
-      'display:flex', 'align-items:center', 'gap:6px',
+      'display:none', 'align-items:center', 'gap:6px',
       'background:rgba(18,36,26,0.90)',
       'border:1px solid rgba(255,255,255,0.12)',
       'border-radius:6px', 'padding:4px 8px',
@@ -1760,22 +1763,6 @@ export class HRDEMLayer {
       'backdrop-filter:blur(3px)', '-webkit-backdrop-filter:blur(3px)',
       'box-shadow:0 2px 8px rgba(0,0,0,0.4)',
     ].join(';');
-
-    const contourLbl = document.createElement('span');
-    contourLbl.className = 'hrdem-tb-contour-lbl';
-    contourLbl.style.cssText = `font-size:10px;opacity:0.7;display:${this.contourEnabled ? '' : 'none'}`;
-    this.updateContourLabelText(contourLbl);
-
-    const exportContourBtn = document.createElement('button');
-    exportContourBtn.className = 'hrdem-tb-btn hrdem-tb-contour-export';
-    exportContourBtn.title = 'Export contours as GeoJSON';
-    exportContourBtn.style.cssText = `${this.toolBtnStyle(false)};display:${this.contourEnabled ? '' : 'none'}`;
-    exportContourBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2v8M5 7l3 3 3-3"/><path d="M2 12h12"/></svg>&thinsp;GeoJSON`;
-    exportContourBtn.addEventListener('click', () => this.exportContourGeoJSON());
-
-    const sep1 = document.createElement('span');
-    sep1.className = 'hrdem-tb-sep hrdem-tb-sep-contour';
-    sep1.style.cssText = `width:1px;height:14px;background:rgba(255,255,255,0.15);flex-shrink:0;display:${this.contourEnabled ? '' : 'none'}`;
 
     const selectStyle = [
       'background:rgba(10,22,16,0.85)',
@@ -1786,12 +1773,14 @@ export class HRDEMLayer {
       'outline:none', 'max-width:90px',
     ].join(';');
 
-    const sampleBtn = document.createElement('button');
-    sampleBtn.className = 'hrdem-tb-btn hrdem-tb-sample';
-    sampleBtn.title = 'Click the map to read elevation at a point';
-    sampleBtn.style.cssText = this.toolBtnStyle(false);
-    sampleBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>&thinsp;Sample`;
-    sampleBtn.addEventListener('click', () => this.activateSampleTool());
+    // Sample controls (shown when sample tool is active)
+    const sampleControls = document.createElement('span');
+    sampleControls.className = 'hrdem-tb-sample-controls';
+    sampleControls.style.cssText = 'display:none;align-items:center;gap:5px';
+
+    const sampleHint = document.createElement('span');
+    sampleHint.style.cssText = 'font-size:9px;opacity:0.55';
+    sampleHint.textContent = 'Click map to sample elevation';
 
     const sampleSel = document.createElement('select');
     sampleSel.className = 'hrdem-tb-sample-sel';
@@ -1812,12 +1801,13 @@ export class HRDEMLayer {
       this.sampleMode = sampleSel.value as typeof this.sampleMode;
     });
 
-    const profileBtn = document.createElement('button');
-    profileBtn.className = 'hrdem-tb-btn hrdem-tb-profile';
-    profileBtn.title = 'Click two or more points to create an elevation profile';
-    profileBtn.style.cssText = this.toolBtnStyle(false);
-    profileBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="1,13 5,7 9,10 15,3"/></svg>&thinsp;Profile`;
-    profileBtn.addEventListener('click', () => this.activateProfileTool());
+    sampleControls.appendChild(sampleHint);
+    sampleControls.appendChild(sampleSel);
+
+    // Profile controls (shown when profile tool is active)
+    const profileControls = document.createElement('span');
+    profileControls.className = 'hrdem-tb-profile-controls';
+    profileControls.style.cssText = 'display:none;align-items:center;gap:5px';
 
     const profileSel = document.createElement('select');
     profileSel.className = 'hrdem-tb-profile-sel';
@@ -1839,17 +1829,20 @@ export class HRDEMLayer {
       this.profileMode = profileSel.value as typeof this.profileMode;
     });
 
-    // Always in DOM so refreshToolbarContourLabel() can show/hide them
-    el.appendChild(contourLbl);
-    el.appendChild(exportContourBtn);
-    el.appendChild(sep1);
-    el.appendChild(sampleBtn);
-    el.appendChild(sampleSel);
-    el.appendChild(profileBtn);
-    el.appendChild(profileSel);
+    profileControls.appendChild(profileSel);
+
+    el.appendChild(sampleControls);
+    el.appendChild(profileControls);
 
     container.appendChild(el);
     this.toolbarEl = el;
+
+    // Wire left-toolbar ELEV buttons via EventBus
+    this.elevEventUnsubs.push(
+      EventBus.on('elev:sample-activate', () => this.activateSampleTool()),
+      EventBus.on('elev:profile-activate', () => this.activateProfileTool()),
+      EventBus.on('elev:export-contour', () => this.exportContourGeoJSON()),
+    );
   }
 
   private toolBtnStyle(active: boolean): string {
@@ -1864,20 +1857,31 @@ export class HRDEMLayer {
   }
 
   private refreshToolbarButtons(): void {
-    if (!this.toolbarEl) return;
-    const sampleBtn  = this.toolbarEl.querySelector<HTMLButtonElement>('.hrdem-tb-sample');
-    const profileBtn = this.toolbarEl.querySelector<HTMLButtonElement>('.hrdem-tb-profile');
-    if (sampleBtn)  sampleBtn.style.cssText  = this.toolBtnStyle(this.activeTool === 'sample');
-    if (profileBtn) profileBtn.style.cssText = this.toolBtnStyle(this.activeTool === 'profile');
+    const isSample  = this.activeTool === 'sample';
+    const isProfile = this.activeTool === 'profile';
 
-    const existing = this.toolbarEl.querySelector('.hrdem-tb-hint');
-    existing?.remove();
-    if (this.activeTool === 'profile') {
+    // Update left toolbar button active states
+    document.getElementById('btn-elev-sample')?.classList.toggle('active', isSample);
+    document.getElementById('btn-elev-profile')?.classList.toggle('active', isProfile);
+
+    if (!this.toolbarEl) return;
+
+    const sampleControls  = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-sample-controls');
+    const profileControls = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-profile-controls');
+
+    // Show toolbar only when a tool is active
+    this.toolbarEl.style.display = (isSample || isProfile) ? 'flex' : 'none';
+
+    if (sampleControls)  sampleControls.style.display  = isSample  ? 'inline-flex' : 'none';
+    if (profileControls) profileControls.style.display = isProfile ? 'inline-flex' : 'none';
+
+    // Profile: rebuild the dynamic hint/finish section
+    profileControls?.querySelector('.hrdem-tb-hint')?.remove();
+    if (isProfile && profileControls) {
       const wrap = document.createElement('span');
       wrap.className = 'hrdem-tb-hint';
       wrap.style.cssText = 'display:inline-flex;align-items:center;gap:5px;margin-left:2px';
 
-      // Color picker — always visible while tool is active
       const colorPick = document.createElement('input');
       colorPick.type  = 'color';
       colorPick.value = this.profileLineColor;
@@ -1899,13 +1903,7 @@ export class HRDEMLayer {
       const hint = document.createElement('span');
       hint.style.cssText = 'font-size:9px;opacity:0.55';
       const n = this.profilePoints.length;
-      if (n === 0) {
-        hint.textContent = 'Click to add points…';
-      } else if (n === 1) {
-        hint.textContent = '1 pt — keep clicking';
-      } else {
-        hint.textContent = `${n} pts`;
-      }
+      hint.textContent = n === 0 ? 'Click to add points…' : n === 1 ? '1 pt — keep clicking' : `${n} pts`;
 
       wrap.appendChild(colorPick);
       wrap.appendChild(hint);
@@ -1924,30 +1922,28 @@ export class HRDEMLayer {
         wrap.appendChild(finishBtn);
       }
 
-      this.toolbarEl.appendChild(wrap);
+      profileControls.appendChild(wrap);
     }
   }
 
   private refreshToolbarContourLabel(): void {
-    if (!this.toolbarEl) return;
-    const lbl     = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-contour-lbl');
-    const sep     = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-sep-contour');
-    const expBtn  = this.toolbarEl.querySelector<HTMLElement>('.hrdem-tb-contour-export');
-    const vis = this.contourEnabled ? '' : 'none';
-    if (lbl)    { lbl.style.display = vis; this.updateContourLabelText(lbl); }
-    if (sep)    sep.style.display = vis;
-    if (expBtn) expBtn.style.display = vis;
+    // Export contour button is now in the left toolbar — update its dim state
+    const exportBtn = document.getElementById('btn-elev-export-contour');
+    if (exportBtn) exportBtn.style.opacity = this.contourEnabled ? '1' : '0.3';
   }
 
-  private updateContourLabelText(el: HTMLElement): void {
-    const iv = this.contourInterval;
-    const ivlLbl = iv < 1 ? `${iv}m` : `${iv % 1 === 0 ? iv.toFixed(0) : iv}m`;
-    el.innerHTML = `<span style="display:inline-block;width:12px;height:0;border-top:1.5px solid ${this.contourColor};vertical-align:middle;margin-right:3px"></span>${ivlLbl} contours`;
+  private updateContourLabelText(_el: HTMLElement): void {
+    // Contour label was removed from the top toolbar; kept for TS compatibility
   }
 
   private removeToolbar(): void {
     this.toolbarEl?.remove();
     this.toolbarEl = null;
+    this.elevEventUnsubs.forEach(unsub => unsub());
+    this.elevEventUnsubs = [];
+    // Clear left toolbar active state
+    document.getElementById('btn-elev-sample')?.classList.remove('active');
+    document.getElementById('btn-elev-profile')?.classList.remove('active');
   }
 
   // --------------------------------------------------------------------------

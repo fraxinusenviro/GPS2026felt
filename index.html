@@ -162,7 +162,31 @@
             <button id="btn-measure" class="tool-btn" data-tool="measure" title="Measure Distance &amp; Area">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M235.32,96,96,235.31a16,16,0,0,1-22.63,0L20.68,182.63a16,16,0,0,1,0-22.63l29.17-29.17a4,4,0,0,1,5.66,0l34.83,34.83a8,8,0,0,0,11.71-.43,8.18,8.18,0,0,0-.6-11.09L66.82,119.51a4,4,0,0,1,0-5.65l15-15a4,4,0,0,1,5.66,0l34.83,34.83a8,8,0,0,0,11.71-.43,8.18,8.18,0,0,0-.6-11.09L98.83,87.51a4,4,0,0,1,0-5.65l15-15a4,4,0,0,1,5.65,0l34.83,34.83a8,8,0,0,0,11.72-.43,8.18,8.18,0,0,0-.61-11.09L130.83,55.51a4,4,0,0,1,0-5.65L160,20.69a16,16,0,0,1,22.63,0l52.69,52.68A16,16,0,0,1,235.32,96Z"/></svg>
             </button>
-            <button id="btn-cut-fill" class="tool-btn" title="Cut / Fill Tool">
+            <button id="btn-info-goto" class="tool-btn" title="Go To Coordinates">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M200,224H150.54A266.56,266.56,0,0,0,174,200.25c27.45-31.57,42-64.85,42-96.25a88,88,0,0,0-176,0c0,31.4,14.51,64.68,42,96.25A266.56,266.56,0,0,0,105.46,224H56a8,8,0,0,0,0,16H200a8,8,0,0,0,0-16ZM128,72a32,32,0,1,1-32,32A32,32,0,0,1,128,72Z"/></svg>
+            </button>
+            <button id="btn-info-stats" class="tool-btn" title="Project Statistics">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M232,208a8,8,0,0,1-8,8H32a8,8,0,0,1,0-16h8V136a8,8,0,0,1,8-8H72a8,8,0,0,1,8,8v64H96V88a8,8,0,0,1,8-8h32a8,8,0,0,1,8,8V200h16V40a8,8,0,0,1,8-8h40a8,8,0,0,1,8,8V200h8A8,8,0,0,1,232,208Z"/></svg>
+            </button>
+            <button id="btn-info-console" class="tool-btn" title="Debug Console">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm-91,94.25-40,32a8,8,0,1,1-10-12.5L107.19,128,75,102.25a8,8,0,1,1,10-12.5l40,32a8,8,0,0,1,0,12.5ZM176,168H136a8,8,0,0,1,0-16h40a8,8,0,0,1,0,16Z"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="toolbar-separator"></div>
+        <div class="toolbar-section collapsed">
+          <button class="toolbar-section-label" aria-expanded="false">ELEV</button>
+          <div class="toolbar-group">
+            <button id="btn-elev-export-contour" class="tool-btn" title="Export Contour GeoJSON" style="opacity:0.3">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M128 32v128M80 112l48 48 48-48"/><path d="M32 208h192"/></svg>
+            </button>
+            <button id="btn-elev-sample" class="tool-btn" title="Sample Elevation — click map to read elevation at a point">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="20" height="20"><circle cx="128" cy="128" r="48"/><path d="M128 16v48M128 192v48M16 128h48M192 128h48" stroke="currentColor" stroke-width="24" fill="none" stroke-linecap="round"/></svg>
+            </button>
+            <button id="btn-elev-profile" class="tool-btn" title="Elevation Profile — click two or more points on the map">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><polyline points="16,208 80,112 144,160 240,48"/></svg>
+            </button>
+            <button id="btn-elev-cutfill" class="tool-btn" title="Cut / Fill Tool">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" width="17" height="17">
                 <circle cx="6" cy="6" r="2.5"/>
                 <circle cx="18" cy="18" r="2.5"/>
