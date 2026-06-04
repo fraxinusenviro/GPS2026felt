@@ -551,6 +551,8 @@ export class App {
         this.importDataPanel.close();
         this.exportPanel.close();
         break;
+      case 'map opt':
+        break;
     }
   }
 

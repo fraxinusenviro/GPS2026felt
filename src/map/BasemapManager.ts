@@ -1250,18 +1250,12 @@ export class BasemapManager {
                 : '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>'}
             </svg>
           </button>
-          <span class="fl-geom-icon" style="color:${lp.color}">${geomIcon(geomType)}</span>
+          <span class="fl-geom-icon">${geomIcon(geomType)}</span>
           <span class="fl-name">${lp.name}</span>
-          <input type="color" class="fl-color-swatch" data-fl-color="${lp.id}" value="${lp.color}" title="Feature colour" />
-          <input type="range" class="fl-opacity-slider" data-fl-opacity="${lp.id}"
-            min="0" max="100" step="5" value="${Math.round(lp.fill_opacity * 100)}" title="Opacity" />
-          ${geomType === 'LineString' ? `
-          <input type="range" class="fl-width-slider" data-fl-width="${lp.id}"
-            min="1" max="10" step="0.5" value="${lp.stroke_width}" title="Line width" style="display:none" />` : ''}
         </div>`;
     }).join('');
 
-    return this.sectionToggle('feature-layers', 'Feature Layers', `${presets.length} layers`) +
+    return this.sectionToggle('feature-layers', 'Field Data', `${presets.length} layers`) +
       this.sectionBody('feature-layers', `<div class="fl-list">${rows}</div>`);
   }
 
@@ -1282,35 +1276,6 @@ export class BasemapManager {
       });
     });
 
-    container.querySelectorAll<HTMLInputElement>('[data-fl-color]').forEach(inp => {
-      inp.addEventListener('change', () => {
-        const lp = findPreset(inp.dataset.flColor!);
-        if (!lp) return;
-        lp.color = inp.value;
-        lp.stroke_color = inp.value;
-        const icon = inp.closest('.fl-row')?.querySelector<HTMLElement>('.fl-geom-icon');
-        if (icon) icon.style.color = inp.value;
-        emit(lp);
-      });
-    });
-
-    container.querySelectorAll<HTMLInputElement>('[data-fl-opacity]').forEach(inp => {
-      inp.addEventListener('input', () => {
-        const lp = findPreset(inp.dataset.flOpacity!);
-        if (!lp) return;
-        lp.fill_opacity = Number(inp.value) / 100;
-        emit(lp);
-      });
-    });
-
-    container.querySelectorAll<HTMLInputElement>('[data-fl-width]').forEach(inp => {
-      inp.addEventListener('input', () => {
-        const lp = findPreset(inp.dataset.flWidth!);
-        if (!lp) return;
-        lp.stroke_width = Number(inp.value);
-        emit(lp);
-      });
-    });
   }
 
   // ---- Stack item rendering ----
