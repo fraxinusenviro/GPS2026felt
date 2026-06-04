@@ -22,7 +22,7 @@
 
   --header-height: 52px;
   --toolbar-width: 68px;
-  --right-ctrl-width: 44px;
+  --right-ctrl-width: 68px;
   --radius: 8px;
   --radius-sm: 5px;
   --shadow: 0 4px 16px rgba(0,0,0,0.4);
@@ -538,7 +538,11 @@ html, body {
   border-radius: var(--radius);
   padding: 6px 4px;
   box-shadow: var(--shadow);
+  max-height: calc(100dvh - var(--header-height) - 16px);
+  overflow-y: auto;
+  scrollbar-width: none;
 }
+#right-controls::-webkit-scrollbar { display: none; }
 
 .ctrl-separator {
   height: 1px;
@@ -558,22 +562,27 @@ html, body {
 }
 
 .map-ctrl-btn {
-  width: 40px;
-  height: 40px;
+  width: 100%;
+  height: auto;
+  min-height: 54px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
   color: var(--color-text-dim);
   cursor: pointer;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 3px;
+  padding: 5px 2px;
   transition: all 0.15s ease;
 }
 
 .map-ctrl-btn svg {
-  width: 22px;
-  height: 22px;
+  width: 33px;
+  height: 33px;
+  flex-shrink: 0;
 }
 
 .map-ctrl-btn:hover {
@@ -2031,8 +2040,8 @@ label textarea {
 }
 
 @media (max-width: 360px) {
-  .tool-btn, .map-ctrl-btn { width: 36px; height: 36px; }
-  .tool-btn svg, .map-ctrl-btn svg { width: 20px; height: 20px; }
+  .tool-btn, .map-ctrl-btn { min-height: 46px; }
+  .tool-btn svg, .map-ctrl-btn svg { width: 26px; height: 26px; }
   .icon-btn { width: 36px; height: 36px; }
   .north-arrow-btn { width: 64px; height: 64px; right: 140px; bottom: 16px; }
   #north-arrow-svg { width: 58px !important; height: 58px !important; }
