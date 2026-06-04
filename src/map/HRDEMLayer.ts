@@ -1837,11 +1837,12 @@ export class HRDEMLayer {
     container.appendChild(el);
     this.toolbarEl = el;
 
-    // Wire left-toolbar ELEV buttons via EventBus
+    // Wire left-toolbar ELEV buttons and accordion deactivation via EventBus
     this.elevEventUnsubs.push(
       EventBus.on('elev:sample-activate', () => this.activateSampleTool()),
       EventBus.on('elev:profile-activate', () => this.activateProfileTool()),
       EventBus.on('elev:export-contour', () => this.exportContourGeoJSON()),
+      EventBus.on('elev:cancel', () => { if (this.activeTool !== 'none') this.cancelTool(); }),
     );
   }
 
