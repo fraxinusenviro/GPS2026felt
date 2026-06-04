@@ -21,7 +21,7 @@
   --color-text-muted: #94a3b8;
 
   --header-height: 52px;
-  --toolbar-width: 52px;
+  --toolbar-width: 68px;
   --right-ctrl-width: 44px;
   --radius: 8px;
   --radius-sm: 5px;
@@ -306,23 +306,42 @@ html, body {
 }
 
 .tool-btn {
-  width: 40px;
-  height: 40px;
+  width: 100%;
+  height: auto;
+  min-height: 54px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
   color: var(--color-text-dim);
   cursor: pointer;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 3px;
+  padding: 5px 2px;
   transition: all 0.15s ease;
   position: relative;
 }
 
 .tool-btn svg {
-  width: 22px;
-  height: 22px;
+  width: 33px;
+  height: 33px;
+  flex-shrink: 0;
+}
+
+.tool-btn-label {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1;
+  text-align: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
 }
 
 .tool-btn:hover {
@@ -750,6 +769,30 @@ html, body {
 
 #type-selector { flex: 1; min-width: 0; }
 #point-entry-desc { width: 100%; box-sizing: border-box; }
+
+.hud-close-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.hud-close-btn:hover {
+  background: var(--color-danger-dim);
+  color: var(--color-danger);
+}
 
 /* ============================================================
    Capture Controls
