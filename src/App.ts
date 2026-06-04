@@ -710,6 +710,31 @@ export class App {
       this.cutFillPanel.toggle();
     });
 
+    // ELEV group (left toolbar)
+    document.getElementById('btn-elev-export-contour')?.addEventListener('click', () => {
+      EventBus.emit('elev:export-contour');
+    });
+    document.getElementById('btn-elev-sample')?.addEventListener('click', () => {
+      EventBus.emit('elev:sample-activate');
+    });
+    document.getElementById('btn-elev-profile')?.addEventListener('click', () => {
+      EventBus.emit('elev:profile-activate');
+    });
+    document.getElementById('btn-elev-cutfill')?.addEventListener('click', () => {
+      this.cutFillPanel.toggle();
+    });
+
+    // INFO group additions (left toolbar)
+    document.getElementById('btn-info-goto')?.addEventListener('click', () => {
+      this.showGoToModal();
+    });
+    document.getElementById('btn-info-stats')?.addEventListener('click', () => {
+      void this.statsPanel.toggle();
+    });
+    document.getElementById('btn-info-console')?.addEventListener('click', () => {
+      this.logConsole.toggle();
+    });
+
     document.getElementById('btn-cache')?.addEventListener('click', () => {
       this.closeAllPanels();
       this.cachePanel.toggle();
