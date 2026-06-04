@@ -193,6 +193,7 @@ export class App {
 
     this.wireEvents();
     this.wireToolbar();
+    this.initToolbarCollapse();
     this.wireMapInteractions();
     this.wireCaptureControls();
     this.wireFreehandPill();
@@ -435,6 +436,36 @@ export class App {
   // ============================================================
   // Toolbar wiring
   // ============================================================
+
+  private initToolbarCollapse(): void {
+    const STORAGE_KEY = 'toolbar-collapsed-sections';
+    const stored: Record<string, boolean> = JSON.parse(
+      localStorage.getItem(STORAGE_KEY) || '{}'
+    );
+
+    document.querySelectorAll<HTMLElement>('#left-toolbar .toolbar-section').forEach(section => {
+      const label = section.querySelector<HTMLElement>('.toolbar-section-label');
+      if (!label) return;
+      const id = (label.textContent || '').trim().toLowerCase();
+
+      if (id in stored) {
+        section.classList.toggle('collapsed', stored[id]);
+        label.setAttribute('aria-expanded', stored[id] ? 'false' : 'true');
+      }
+
+      label.addEventListener('click', () => {
+        section.classList.toggle('collapsed');
+        const isCollapsed = section.classList.contains('collapsed');
+        label.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+        const state: Record<string, boolean> = JSON.parse(
+          localStorage.getItem(STORAGE_KEY) || '{}'
+        );
+        state[id] = isCollapsed;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      });
+    });
+  }
+
   private wireToolbar(): void {
     // Tool buttons — toggle-aware
     document.querySelectorAll<HTMLButtonElement>('.tool-btn[data-tool]').forEach(btn => {
