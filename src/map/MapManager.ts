@@ -696,11 +696,11 @@ export class MapManager {
       // Skip features whose TypePreset is marked invisible
       if (tp && tp.visible === false) continue;
 
-      // TypePreset color takes priority over LayerPreset color
-      const color       = tp?.color        ?? lp?.color  ?? this.getFeatureColor(f.type);
-      const strokeColor = tp?.stroke_color ?? lp?.stroke ?? '#ffffff';
+      // TypePreset color takes priority; features without any matched preset render grey
+      const color       = tp?.color        ?? '#888888';
+      const strokeColor = tp?.stroke_color ?? '#aaaaaa';
       const strokeWidth = tp?.stroke_width ?? 2;
-      const fillOpacity = tp?.fill_opacity ?? (f.geometry_type === 'Polygon' ? 0.35 : 1.0);
+      const fillOpacity = tp?.fill_opacity ?? (f.geometry_type === 'Polygon' ? 0.4 : 1.0);
       const size        = tp?.size         ?? 7;
       const icon        = tp?.icon         ?? '';
       const shape       = tp?.shape        ?? 'circle';
