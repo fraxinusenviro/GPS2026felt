@@ -1762,7 +1762,17 @@ export class HRDEMLayer {
       'pointer-events:auto',
       'backdrop-filter:blur(3px)', '-webkit-backdrop-filter:blur(3px)',
       'box-shadow:0 2px 8px rgba(0,0,0,0.4)',
+      'max-width:calc(100vw - 152px)',
     ].join(';');
+
+    const dragHandle = document.createElement('span');
+    dragHandle.title = 'Drag to reposition';
+    dragHandle.style.cssText = [
+      'display:inline-flex', 'align-items:center', 'cursor:grab',
+      'padding:0 4px 0 0', 'touch-action:none', 'opacity:0.45',
+      'flex-shrink:0',
+    ].join(';');
+    dragHandle.innerHTML = '<svg width="8" height="16" viewBox="0 0 8 16" fill="currentColor"><circle cx="2" cy="3" r="1.5"/><circle cx="6" cy="3" r="1.5"/><circle cx="2" cy="8" r="1.5"/><circle cx="6" cy="8" r="1.5"/><circle cx="2" cy="13" r="1.5"/><circle cx="6" cy="13" r="1.5"/></svg>';
 
     const selectStyle = [
       'background:rgba(10,22,16,0.85)',
@@ -1831,11 +1841,13 @@ export class HRDEMLayer {
 
     profileControls.appendChild(profileSel);
 
+    el.appendChild(dragHandle);
     el.appendChild(sampleControls);
     el.appendChild(profileControls);
 
     container.appendChild(el);
     this.toolbarEl = el;
+    this.makeDraggable(el, dragHandle);
 
     // Wire left-toolbar ELEV buttons and accordion deactivation via EventBus
     this.elevEventUnsubs.push(
@@ -1844,6 +1856,62 @@ export class HRDEMLayer {
       EventBus.on('elev:export-contour', () => this.exportContourGeoJSON()),
       EventBus.on('elev:cancel', () => { if (this.activeTool !== 'none') this.cancelTool(); }),
     );
+  }
+
+  private makeDraggable(el: HTMLElement, handle: HTMLElement): void {
+    let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    let containerW = 0, containerH = 0;
+    let active = false;
+
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+    const snapToPixels = () => {
+      const parent = el.offsetParent as HTMLElement | null;
+      const parentRect = parent?.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      containerW = parentRect?.width  ?? window.innerWidth;
+      containerH = parentRect?.height ?? window.innerHeight;
+      startLeft = elRect.left - (parentRect?.left ?? 0);
+      startTop  = elRect.top  - (parentRect?.top  ?? 0);
+      el.style.left      = startLeft + 'px';
+      el.style.top       = startTop  + 'px';
+      el.style.transform = 'none';
+    };
+
+    const move = (cx: number, cy: number) => {
+      if (!active) return;
+      el.style.left = clamp(startLeft + cx - startX, 0, containerW - el.offsetWidth)  + 'px';
+      el.style.top  = clamp(startTop  + cy - startY, 0, containerH - el.offsetHeight) + 'px';
+    };
+
+    const end = () => {
+      if (!active) return;
+      active = false;
+      el.style.cursor = '';
+      document.removeEventListener('mousemove', onMM);
+      document.removeEventListener('mouseup',   onMU);
+      document.removeEventListener('touchmove', onTM);
+      document.removeEventListener('touchend',  onTE);
+    };
+
+    const onMM = (e: MouseEvent) => move(e.clientX, e.clientY);
+    const onMU = () => end();
+    const onTM = (e: TouchEvent) => { e.preventDefault(); move(e.touches[0].clientX, e.touches[0].clientY); };
+    const onTE = () => end();
+
+    const begin = (cx: number, cy: number) => {
+      snapToPixels();
+      startX = cx; startY = cy;
+      active = true;
+      el.style.cursor = 'grabbing';
+      document.addEventListener('mousemove', onMM);
+      document.addEventListener('mouseup',   onMU);
+      document.addEventListener('touchmove', onTM, { passive: false });
+      document.addEventListener('touchend',  onTE);
+    };
+
+    handle.addEventListener('mousedown',  (e) => { e.preventDefault(); begin(e.clientX, e.clientY); });
+    handle.addEventListener('touchstart', (e) => { e.preventDefault(); begin(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
   }
 
   private toolBtnStyle(active: boolean): string {

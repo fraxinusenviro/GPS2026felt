@@ -262,13 +262,14 @@ html, body {
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--color-text-dim);
-  padding: 4px 8px 4px 10px;
+  padding: 7px 8px;
   line-height: 1;
   cursor: pointer;
   user-select: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 5px;
   width: 100%;
   border: 1px solid var(--color-border);
   background: var(--color-surface-raised, rgba(255,255,255,0.06));
@@ -282,13 +283,20 @@ html, body {
   color: var(--color-accent);
   border-color: var(--color-border-hover);
 }
+.toolbar-section-label svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.75;
+}
 .toolbar-section-label::after {
   content: '▾';
-  font-size: 9px;
+  font-size: 14px;
   opacity: 0.6;
   transition: transform 0.2s ease;
   display: inline-block;
   flex-shrink: 0;
+  margin-left: auto;
 }
 .toolbar-section.collapsed > .toolbar-section-label::after {
   transform: rotate(-90deg);
@@ -4801,6 +4809,27 @@ input[type=color] {
   white-space: nowrap;
 }
 .freehand-pill.hidden { display: none; }
+
+.fh-drag-handle {
+  width: 6px;
+  align-self: stretch;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  flex-shrink: 0;
+  margin-right: 4px;
+  opacity: 0.4;
+}
+.fh-drag-handle::before {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 20px;
+  border-radius: 2px;
+  background: var(--color-border-hover);
+}
 
 .fh-geom-group { display: flex; gap: 4px; }
 

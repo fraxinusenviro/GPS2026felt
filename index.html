@@ -60,7 +60,7 @@
       <div id="map"></div>
 
       <!-- Freehand Options Pill -->
-      <div id="freehand-options" class="freehand-pill hidden" aria-label="Freehand drawing options">
+      <div id="freehand-options" class="freehand-pill hidden" aria-label="Freehand drawing options"><span class="fh-drag-handle" title="Drag to reposition"></span>
         <div class="fh-geom-group" id="fh-geom-group">
           <button id="fh-btn-line" class="fh-type-btn active">Line</button>
           <button id="fh-btn-polygon" class="fh-type-btn">Polygon</button>
@@ -98,7 +98,7 @@
       <!-- Left Toolbar -->
       <nav id="left-toolbar">
         <div class="toolbar-section">
-          <button class="toolbar-section-label" aria-expanded="true">GPS</button>
+          <button class="toolbar-section-label" aria-expanded="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M128,16a88.1,88.1,0,0,0-88,88c0,31.4,14.51,64.68,42,96.25a254.19,254.19,0,0,0,41.45,38.3,8,8,0,0,0,9.18,0A254.19,254.19,0,0,0,174,200.25c27.45-31.57,42-64.85,42-96.25A88.1,88.1,0,0,0,128,16Zm32,96H136v24a8,8,0,0,1-16,0V112H96a8,8,0,0,1,0-16h24V72a8,8,0,0,1,16,0V96h24a8,8,0,0,1,0,16Z"/></svg> GPS</button>
           <div class="toolbar-group">
             <button id="btn-gps-point" class="tool-btn active" data-tool="gps-point" title="GPS Single Point">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M128,16a88.1,88.1,0,0,0-88,88c0,31.4,14.51,64.68,42,96.25a254.19,254.19,0,0,0,41.45,38.3,8,8,0,0,0,9.18,0A254.19,254.19,0,0,0,174,200.25c27.45-31.57,42-64.85,42-96.25A88.1,88.1,0,0,0,128,16Zm32,96H136v24a8,8,0,0,1-16,0V112H96a8,8,0,0,1,0-16h24V72a8,8,0,0,1,16,0V96h24a8,8,0,0,1,0,16Z"/></svg>
@@ -120,7 +120,7 @@
         </div>
         <div class="toolbar-separator"></div>
         <div class="toolbar-section collapsed">
-          <button class="toolbar-section-label" aria-expanded="false">SKETCH</button>
+          <button class="toolbar-section-label" aria-expanded="false"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M227.32,73.37,182.63,28.69a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H216a8,8,0,0,0,0-16H115.32l112-112A16,16,0,0,0,227.32,73.37ZM79.32,188l90.34-90.34,16.69,16.68L96,204.69Zm79-101.66h0L68,176.69,51.31,160l90.35-90.34ZM48,179.31,76.69,208H48Z"/></svg> SKETCH</button>
           <div class="toolbar-group">
             <button id="btn-sketch-point" class="tool-btn" data-tool="sketch-point" title="Sketch Point">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.97 9.304A8 8 0 0 0 2 10c0 4.69 4.887 9.562 7.022 11.468"/><path d="M21.378 16.626a1 1 0 0 0-3.004-3.004l-4.01 4.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/><circle cx="10" cy="10" r="3"/></svg>
@@ -142,7 +142,7 @@
         </div>
         <div class="toolbar-separator"></div>
         <div class="toolbar-section collapsed">
-          <button class="toolbar-section-label" aria-expanded="false">EDIT</button>
+          <button class="toolbar-section-label" aria-expanded="false"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M220.49,207.8,207.8,220.49a12,12,0,0,1-17,0l-56.57-56.57L115,214.08l-.13.33A15.84,15.84,0,0,1,100.26,224l-.78,0a15.82,15.82,0,0,1-14.41-11L32.8,52.92A15.95,15.95,0,0,1,52.92,32.8L213,85.07a16,16,0,0,1,1.41,29.8l-.33.13-50.16,19.27,56.57,56.56A12,12,0,0,1,220.49,207.8Z"/></svg> EDIT</button>
           <div class="toolbar-group">
             <button id="btn-select" class="tool-btn" data-tool="select" title="Select / Edit Feature">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M220.49,207.8,207.8,220.49a12,12,0,0,1-17,0l-56.57-56.57L115,214.08l-.13.33A15.84,15.84,0,0,1,100.26,224l-.78,0a15.82,15.82,0,0,1-14.41-11L32.8,52.92A15.95,15.95,0,0,1,52.92,32.8L213,85.07a16,16,0,0,1,1.41,29.8l-.33.13-50.16,19.27,56.57,56.56A12,12,0,0,1,220.49,207.8Z"/></svg>
@@ -168,7 +168,7 @@
         </div>
         <div class="toolbar-separator"></div>
         <div class="toolbar-section collapsed">
-          <button class="toolbar-section-label" aria-expanded="false">INFO</button>
+          <button class="toolbar-section-label" aria-expanded="false"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm-4,48a12,12,0,1,1-12,12A12,12,0,0,1,124,72Zm12,112a16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40a8,8,0,0,1,0,16Z"/></svg> INFO</button>
           <div class="toolbar-group">
             <button id="btn-identify" class="tool-btn" title="Identify Features (click vector overlay features)">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm-4,48a12,12,0,1,1-12,12A12,12,0,0,1,124,72Zm12,112a16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40a8,8,0,0,1,0,16Z"/></svg>
@@ -198,7 +198,7 @@
         </div>
         <div class="toolbar-separator"></div>
         <div class="toolbar-section collapsed">
-          <button class="toolbar-section-label" aria-expanded="false">ELEV</button>
+          <button class="toolbar-section-label" aria-expanded="false"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M232,208a8,8,0,0,1-8,8H32a8,8,0,0,1,0-16H40V136a8,8,0,0,1,8-8H72a8,8,0,0,1,8,8v64H96V88a8,8,0,0,1,8-8h32a8,8,0,0,1,8,8V200h16V40a8,8,0,0,1,8-8h40a8,8,0,0,1,8,8V200h8A8,8,0,0,1,232,208Z"/></svg> ELEV</button>
           <div class="toolbar-group">
             <button id="btn-elev-export-contour" class="tool-btn" title="Export Contour GeoJSON" style="opacity:0.3">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none" stroke="currentColor" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M128 32v128M80 112l48 48 48-48"/><path d="M32 208h192"/></svg>
@@ -226,7 +226,7 @@
         </div>
         <div class="toolbar-separator"></div>
         <div class="toolbar-section collapsed">
-          <button class="toolbar-section-label" aria-expanded="false">CACHE</button>
+          <button class="toolbar-section-label" aria-expanded="false"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24C74.17,24,32,48.6,32,80v96c0,31.4,42.17,56,96,56s96-24.6,96-56V80C224,48.6,181.83,24,128,24Zm80,104c0,9.62-7.88,19.43-21.61,26.92C170.93,163.35,150.19,168,128,168s-42.93-4.65-58.39-13.08C55.88,147.43,48,137.62,48,128V111.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64Zm-21.61,74.92C170.93,211.35,150.19,216,128,216s-42.93-4.65-58.39-13.08C55.88,195.43,48,185.62,48,176V159.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64V176C208,185.62,200.12,195.43,186.39,202.92Z"/></svg> CACHE</button>
           <div class="toolbar-group">
             <button id="btn-cache" class="tool-btn" title="Tile Cache Manager">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M128,24C74.17,24,32,48.6,32,80v96c0,31.4,42.17,56,96,56s96-24.6,96-56V80C224,48.6,181.83,24,128,24Zm80,104c0,9.62-7.88,19.43-21.61,26.92C170.93,163.35,150.19,168,128,168s-42.93-4.65-58.39-13.08C55.88,147.43,48,137.62,48,128V111.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64Zm-21.61,74.92C170.93,211.35,150.19,216,128,216s-42.93-4.65-58.39-13.08C55.88,195.43,48,185.62,48,176V159.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64V176C208,185.62,200.12,195.43,186.39,202.92Z"/></svg>
@@ -236,7 +236,7 @@
         </div>
         <div class="toolbar-separator"></div>
         <div class="toolbar-section collapsed">
-          <button class="toolbar-section-label" aria-expanded="false">MAP OPT</button>
+          <button class="toolbar-section-label" aria-expanded="false"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M237.66,172l-21.19-18.8a92.11,92.11,0,0,0,0-50.44L237.66,84a8,8,0,0,0,1.92-10.28,113.88,113.88,0,0,0-49.26-49.27A8,8,0,0,0,180,26.34L161.19,47.53a92.11,92.11,0,0,0-50.38,0L92,26.34a8,8,0,0,0-10.29-1.89A113.88,113.88,0,0,0,32.42,73.72,8,8,0,0,0,34.34,84l21.19,18.8a92.11,92.11,0,0,0,0,50.44L34.34,172a8,8,0,0,0-1.92,10.28,113.88,113.88,0,0,0,49.26,49.27A8,8,0,0,0,92,229.66l18.81-21.19a92.11,92.11,0,0,0,50.38,0L180,229.66a8,8,0,0,0,10.29,1.89,113.88,113.88,0,0,0,49.29-49.27A8,8,0,0,0,237.66,172ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg> MAP OPT</button>
           <div class="toolbar-group">
             <button id="btn-locate" class="tool-btn" title="Zoom to My Location">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
@@ -262,7 +262,7 @@
         </div>
         <div class="toolbar-separator"></div>
         <div class="toolbar-section collapsed">
-          <button class="toolbar-section-label" aria-expanded="false">I/O</button>
+          <button class="toolbar-section-label" aria-expanded="false"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M74.34,77.66a8,8,0,0,1,0-11.32l48-48a8,8,0,0,1,11.32,0l48,48a8,8,0,0,1-11.32,11.32L136,43.31V128a8,8,0,0,1-16,0V43.31L85.66,77.66A8,8,0,0,1,74.34,77.66ZM240,136v64a16,16,0,0,1-16,16H32a16,16,0,0,1-16-16V136a16,16,0,0,1,32-16h68a4,4,0,0,1,4,4v3.46c0,13.45,11,24.79,24.46,24.54A24,24,0,0,0,152,128v-4a4,4,0,0,1,4-4h68A16,16,0,0,1,240,136Zm-40,32a12,12,0,1,0-12,12A12,12,0,0,0,200,168Z"/></svg> I/O</button>
           <div class="toolbar-group">
             <button id="btn-toolbar-import" class="tool-btn" title="Upload Data">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M74.34,77.66a8,8,0,0,1,0-11.32l48-48a8,8,0,0,1,11.32,0l48,48a8,8,0,0,1-11.32,11.32L136,43.31V128a8,8,0,0,1-16,0V43.31L85.66,77.66A8,8,0,0,1,74.34,77.66ZM240,136v64a16,16,0,0,1-16,16H32a16,16,0,0,1-16-16V136a16,16,0,0,1,16-16h68a4,4,0,0,1,4,4v3.46c0,13.45,11,24.79,24.46,24.54A24,24,0,0,0,152,128v-4a4,4,0,0,1,4-4h68A16,16,0,0,1,240,136Zm-40,32a12,12,0,1,0-12,12A12,12,0,0,0,200,168Z"/></svg>
@@ -344,8 +344,8 @@
         <div class="hud-drag-handle" title="Drag to reposition"></div>
         <div class="point-hud-row1">
           <span class="point-hud-title">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11"><circle cx="12" cy="12" r="5"/></svg>
-            Point tools: Values
+            <svg id="point-hud-title-icon" viewBox="0 0 24 24" fill="currentColor" width="11" height="11"><circle cx="12" cy="12" r="5"/></svg>
+            <span id="point-hud-title-text">Point tools: Values</span>
           </span>
           <select id="type-selector">
             <option value="">-- Type --</option>
@@ -391,7 +391,13 @@
     <div id="export-panel" class="side-panel" style="display:none"></div>
     <div id="cache-panel" class="side-panel" style="display:none"></div>
     <div id="project-panel" class="side-panel" style="display:none"></div>
-    <div id="feature-list-panel" class="side-panel" style="display:none"></div>
+    <div id="feature-list-panel" class="side-panel" style="display:none">
+      <div class="panel-header">
+        <h3 id="fl-panel-title">Field Data</h3>
+        <button class="panel-close" id="fl-close">✕</button>
+      </div>
+      <div class="panel-body fl-body" id="fl-body"></div>
+    </div>
 
     <div id="basemap-panel" class="floating-panel" style="display:none"></div>
     <div id="feature-editor-panel" class="floating-panel" style="display:none"></div>

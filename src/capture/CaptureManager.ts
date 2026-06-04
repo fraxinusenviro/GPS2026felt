@@ -381,18 +381,27 @@ export class CaptureManager {
     this.updateSketchPreviewFromVertices();
   }
 
-  /** Called when user taps the active sketch-line/polygon button to complete it. */
-  completeSketch(): void {
+  /** Called when user taps the active sketch-line/polygon button to complete it.
+   *  If typePreset/description are supplied (from the HUD), skip the modal. */
+  completeSketch(typePreset?: string, description?: string): void {
     const tool = this.currentTool;
     if (tool === 'sketch-line') {
       if (this.sketchVertices.length >= 2) {
-        this.promptFeatureAttributes('LineString', 'sketch');
+        if (typePreset !== undefined) {
+          void this.saveSketchFeature('LineString', typePreset, description ?? '');
+        } else {
+          this.promptFeatureAttributes('LineString', 'sketch');
+        }
       } else {
         EventBus.emit('toast', { message: 'Add at least 2 vertices first', type: 'warning' });
       }
     } else if (tool === 'sketch-polygon') {
       if (this.sketchVertices.length >= 3) {
-        this.promptFeatureAttributes('Polygon', 'sketch');
+        if (typePreset !== undefined) {
+          void this.saveSketchFeature('Polygon', typePreset, description ?? '');
+        } else {
+          this.promptFeatureAttributes('Polygon', 'sketch');
+        }
       } else {
         EventBus.emit('toast', { message: 'Add at least 3 vertices first', type: 'warning' });
       }
