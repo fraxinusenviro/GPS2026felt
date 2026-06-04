@@ -194,6 +194,7 @@ export class App {
     this.wireEvents();
     this.wireToolbar();
     this.initToolbarCollapse();
+    this.initHudDraggable();
     this.wireMapInteractions();
     this.wireCaptureControls();
     this.wireFreehandPill();
@@ -554,6 +555,71 @@ export class App {
       case 'map opt':
         break;
     }
+  }
+
+  private initHudDraggable(): void {
+    const pointHud    = document.getElementById('point-entry-hud');
+    const captureHud  = document.getElementById('capture-controls');
+    const pointHandle = pointHud?.querySelector<HTMLElement>('.hud-drag-handle');
+    const captureHandle = captureHud?.querySelector<HTMLElement>('.hud-drag-handle');
+    if (pointHud   && pointHandle)   this.makeDraggable(pointHud,   pointHandle);
+    if (captureHud && captureHandle) this.makeDraggable(captureHud, captureHandle);
+  }
+
+  private makeDraggable(el: HTMLElement, handle: HTMLElement): void {
+    let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    let containerW = 0, containerH = 0;
+    let active = false;
+
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+    const snapToPixels = () => {
+      const parent = el.offsetParent as HTMLElement | null;
+      const parentRect = parent?.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      containerW = parentRect?.width  ?? window.innerWidth;
+      containerH = parentRect?.height ?? window.innerHeight;
+      startLeft = elRect.left - (parentRect?.left ?? 0);
+      startTop  = elRect.top  - (parentRect?.top  ?? 0);
+      el.style.left      = startLeft + 'px';
+      el.style.top       = startTop  + 'px';
+      el.style.transform = 'none';
+    };
+
+    const move = (cx: number, cy: number) => {
+      if (!active) return;
+      el.style.left = clamp(startLeft + cx - startX, 0, containerW - el.offsetWidth)  + 'px';
+      el.style.top  = clamp(startTop  + cy - startY, 0, containerH - el.offsetHeight) + 'px';
+    };
+
+    const end = () => {
+      if (!active) return;
+      active = false;
+      el.classList.remove('hud-dragging');
+      document.removeEventListener('mousemove', onMM);
+      document.removeEventListener('mouseup',   onMU);
+      document.removeEventListener('touchmove', onTM);
+      document.removeEventListener('touchend',  onTE);
+    };
+
+    const onMM = (e: MouseEvent) => move(e.clientX, e.clientY);
+    const onMU = () => end();
+    const onTM = (e: TouchEvent) => { e.preventDefault(); move(e.touches[0].clientX, e.touches[0].clientY); };
+    const onTE = () => end();
+
+    const begin = (cx: number, cy: number) => {
+      snapToPixels();
+      startX = cx; startY = cy;
+      active = true;
+      el.classList.add('hud-dragging');
+      document.addEventListener('mousemove', onMM);
+      document.addEventListener('mouseup',   onMU);
+      document.addEventListener('touchmove', onTM, { passive: false });
+      document.addEventListener('touchend',  onTE);
+    };
+
+    handle.addEventListener('mousedown',  (e) => { e.preventDefault(); begin(e.clientX, e.clientY); });
+    handle.addEventListener('touchstart', (e) => { e.preventDefault(); begin(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
   }
 
   private wireToolbar(): void {

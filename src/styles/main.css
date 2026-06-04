@@ -732,10 +732,11 @@ html, body {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  padding: 8px 12px;
+  padding: 4px 12px 8px;
   z-index: 25;
   box-shadow: var(--shadow-sm);
-  min-width: 240px;
+  min-width: 0;
+  max-width: calc(100vw - var(--toolbar-width) - var(--right-ctrl-width) - 16px);
 }
 
 .point-hud-row1 {
@@ -803,6 +804,33 @@ html, body {
   color: var(--color-danger);
 }
 
+.hud-drag-handle {
+  width: 100%;
+  height: 14px;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  flex-shrink: 0;
+}
+.hud-drag-handle::before {
+  content: '';
+  display: block;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border);
+  transition: background 0.15s;
+}
+.hud-drag-handle:hover::before {
+  background: var(--color-border-hover);
+}
+.hud-dragging {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+  cursor: grabbing;
+}
+
 /* ============================================================
    Capture Controls
    ============================================================ */
@@ -817,10 +845,11 @@ html, body {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 16px;
-  padding: 10px 14px;
+  padding: 4px 14px 10px;
   z-index: 25;
   box-shadow: var(--shadow);
-  min-width: 290px;
+  min-width: 0;
+  max-width: calc(100vw - var(--toolbar-width) - var(--right-ctrl-width) - 16px);
 }
 
 #capture-meta {
