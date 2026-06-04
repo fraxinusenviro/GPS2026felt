@@ -323,11 +323,18 @@ export class App {
       this.updateToolButtonStates(tool);
       this.presetManager.updatePresetsForTool(tool);
 
-      // Show persistent point entry HUD for single-point tools; hide otherwise
+      // Show persistent point entry HUD for point and sketch-line/polygon tools
       const pointHud = document.getElementById('point-entry-hud');
       if (pointHud) {
-        const isPointTool = tool === 'gps-point' || tool === 'sketch-point';
-        pointHud.style.display = isPointTool ? 'flex' : 'none';
+        const showHud = ['gps-point', 'sketch-point', 'sketch-line', 'sketch-polygon'].includes(tool);
+        pointHud.style.display = showHud ? 'flex' : 'none';
+        const titleEl = document.getElementById('point-hud-title-text');
+        if (titleEl) {
+          if (tool === 'gps-point')        titleEl.textContent = 'GPS Point: Values';
+          else if (tool === 'sketch-point') titleEl.textContent = 'Sketch Point: Values';
+          else if (tool === 'sketch-line')  titleEl.textContent = 'Sketch Line: Type & Desc';
+          else if (tool === 'sketch-polygon') titleEl.textContent = 'Sketch Polygon: Type & Desc';
+        }
       }
     });
 
@@ -523,9 +530,12 @@ export class App {
         if (captureEl) captureEl.style.display = 'none';
         break;
       }
-      case 'sketch':
+      case 'sketch': {
+        const hudEl2 = document.getElementById('point-entry-hud');
+        if (hudEl2 && sketchTools.includes(currentTool)) hudEl2.style.display = 'none';
         if (sketchTools.includes(currentTool)) this.activateTool('gps-point');
         break;
+      }
       case 'edit':
         if (editTools.includes(currentTool)) this.activateTool('gps-point');
         this.featureListPanel.close();
@@ -560,10 +570,13 @@ export class App {
   private initHudDraggable(): void {
     const pointHud    = document.getElementById('point-entry-hud');
     const captureHud  = document.getElementById('capture-controls');
-    const pointHandle = pointHud?.querySelector<HTMLElement>('.hud-drag-handle');
+    const freehandPill = document.getElementById('freehand-options');
+    const pointHandle   = pointHud?.querySelector<HTMLElement>('.hud-drag-handle');
     const captureHandle = captureHud?.querySelector<HTMLElement>('.hud-drag-handle');
-    if (pointHud   && pointHandle)   this.makeDraggable(pointHud,   pointHandle);
-    if (captureHud && captureHandle) this.makeDraggable(captureHud, captureHandle);
+    const fhHandle      = freehandPill?.querySelector<HTMLElement>('.fh-drag-handle');
+    if (pointHud    && pointHandle)   this.makeDraggable(pointHud,    pointHandle);
+    if (captureHud  && captureHandle) this.makeDraggable(captureHud,  captureHandle);
+    if (freehandPill && fhHandle)     this.makeDraggable(freehandPill, fhHandle);
   }
 
   private makeDraggable(el: HTMLElement, handle: HTMLElement): void {
@@ -1051,7 +1064,9 @@ export class App {
     }
 
     if (tool === 'sketch-line' || tool === 'sketch-polygon') {
-      this.captureManager.completeSketch();
+      const type = (document.getElementById('type-selector') as HTMLSelectElement)?.value ?? '';
+      const desc = (document.getElementById('point-entry-desc') as HTMLInputElement)?.value ?? '';
+      this.captureManager.completeSketch(type, desc);
     } else if (tool === 'sketch-freehand') {
       // With press-drag-release, re-tapping the button cancels/deactivates the tool
       this.captureManager.setTool('gps-point');
