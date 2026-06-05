@@ -33,6 +33,8 @@ import { generateContours } from '../lib/contourGenerator';
 import { computeSlope, computeAspect, computeTPI } from '../lib/demProducts';
 import { LAYER_IDS } from '../constants';
 import type { CutFillResult } from '../lib/cutFillEngine';
+import { computeHillshadeGrid } from '../lib/cutFillEngine';
+import { exportHRDEMGeoTIFF } from '../lib/geotiffExporter';
 
 const DEBOUNCE_MS = 300;
 const MIN_ZOOM    = 10;
@@ -47,7 +49,7 @@ const BLANK_PNG =
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
-export type HRDEMProduct = 'elevation' | 'slope' | 'aspect' | 'tpi' | 'chm';
+export type HRDEMProduct = 'elevation' | 'slope' | 'aspect' | 'tpi' | 'chm' | 'hillshade' | 'roughness';
 
 export interface ProductStyle {
   // Slope
@@ -100,6 +102,11 @@ export class HRDEMLayer {
   private chmRampId:    string  = 'canopy_green';
   private chmInvert:    boolean = false;
   private chmClassPaletteId: string = 'structural';
+
+  // Hillshade parameters
+  private hillshadeAzimuth:  number = 315;
+  private hillshadeAltitude: number = 45;
+  private hillshadeZFactor:  number = 1;
 
   private contourEnabled  = false;
   private contourInterval = 1;
@@ -388,6 +395,18 @@ export class HRDEMLayer {
     if (this.lastResult) this.scheduleFetch();
   }
 
+  setHillshadeParams(azimuth: number, altitude: number, zFactor: number): void {
+    this.hillshadeAzimuth  = azimuth;
+    this.hillshadeAltitude = altitude;
+    this.hillshadeZFactor  = zFactor;
+    if (this.hrdemProduct === 'hillshade' && this.lastResult) {
+      this.renderProduct(this.canvas, this.lastResult);
+      const map = this.mapManager.getMap();
+      const src = map.getSource(this.srcId) as maplibregl.ImageSource | undefined;
+      if (src) src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
+    }
+  }
+
   /** Returns the inner HTML for this layer's legend block (used by BasemapManager unified legend). */
   public getLegendHTML(): string {
     return this.buildLegendHTML(this.lastResult);
@@ -478,6 +497,35 @@ export class HRDEMLayer {
             result.stretchMin, result.stretchMax, result.nodata, this.resolveChmRamp());
         }
         break;
+      case 'hillshade': {
+        const shade = computeHillshadeGrid(
+          result.grid, result.width, result.height, result.bbox, result.nodata,
+          this.hillshadeAzimuth, this.hillshadeAltitude, this.hillshadeZFactor,
+        );
+        canvas.width  = result.width;
+        canvas.height = result.height;
+        const hsCtx = canvas.getContext('2d')!;
+        const hsImg = hsCtx.createImageData(result.width, result.height);
+        for (let i = 0; i < shade.length; i++) {
+          const v = shade[i];
+          hsImg.data[i * 4]     = v;
+          hsImg.data[i * 4 + 1] = v;
+          hsImg.data[i * 4 + 2] = v;
+          hsImg.data[i * 4 + 3] = v > 0 ? 255 : 0;
+        }
+        hsCtx.putImageData(hsImg, 0, 0);
+        break;
+      }
+      case 'roughness': {
+        const { grid: roughGrid, min: roughMin, max: roughMax } = HRDEMLayer.computeRoughness(result);
+        const roughnessRamp = { stops: [
+          { t: 0,   r: 34,  g: 139, b: 34  },
+          { t: 0.5, r: 255, g: 220, b: 60  },
+          { t: 1,   r: 180, g: 30,  b: 20  },
+        ]};
+        renderGrid(canvas, roughGrid, result.width, result.height, roughMin, roughMax, result.nodata, roughnessRamp);
+        break;
+      }
       default:
         renderElevation(canvas, result, this.ramp);
     }
@@ -537,6 +585,82 @@ export class HRDEMLayer {
     const geojson = generateContours(result, this.contourInterval);
     this.lastContourGeoJSON = geojson as GeoJSON.FeatureCollection;
     src.setData(this.lastContourGeoJSON);
+  }
+
+  showExportModal(): void {
+    const hasData    = !!this.lastDTMResult;
+    const hasContour = !!this.lastContourGeoJSON;
+    const hasCutFill = !!(this.cutFillResultProvider?.());
+
+    EventBus.emit('show-modal', {
+      title: 'Export Elevation Data',
+      html: `
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+            <input type="radio" name="elev-export-type" value="contours" ${hasContour ? '' : 'disabled'}
+              style="margin-top:3px;accent-color:var(--color-accent)">
+            <div>
+              <div style="font-weight:600">Contours — GeoJSON</div>
+              <div style="font-size:11px;opacity:0.65;margin-top:2px">Export generated contour lines at the current interval.</div>
+              <div style="margin-top:6px;display:flex;align-items:center;gap:6px">
+                <label style="font-size:11px;opacity:0.75">Interval (m)</label>
+                <input type="number" id="elev-export-contour-ivl" value="${this.contourInterval}"
+                  min="0.1" max="100" step="0.5"
+                  style="width:60px;font-size:11px;background:var(--input-bg,#1a2a1e);color:var(--fg,#e8f5e9);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px">
+              </div>
+              ${!hasContour ? '<div style="font-size:10px;color:#f87171;margin-top:4px">Enable contours in layer settings first.</div>' : ''}
+            </div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+            <input type="radio" name="elev-export-type" value="dtm" ${hasData ? '' : 'disabled'}
+              style="margin-top:3px;accent-color:var(--color-accent)" ${!hasContour ? 'checked' : ''}>
+            <div>
+              <div style="font-weight:600">Baseline DTM — GeoTIFF</div>
+              <div style="font-size:11px;opacity:0.65;margin-top:2px">Export the raw DTM elevation grid at native resolution (Float32, EPSG:4326).</div>
+              ${!hasData ? '<div style="font-size:10px;color:#f87171;margin-top:4px">Pan/zoom the map to load elevation data first.</div>' : ''}
+            </div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+            <input type="radio" name="elev-export-type" value="dtm-cutfill" ${hasData && hasCutFill ? '' : 'disabled'}
+              style="margin-top:3px;accent-color:var(--color-accent)">
+            <div>
+              <div style="font-weight:600">DTM + Cut/Fill Surface — GeoTIFF</div>
+              <div style="font-size:11px;opacity:0.65;margin-top:2px">Export the DTM with the active cut/fill modified surface merged in (Float32, EPSG:4326).</div>
+              ${!hasCutFill ? '<div style="font-size:10px;color:#f87171;margin-top:4px">No active cut/fill result to merge.</div>' : ''}
+            </div>
+          </label>
+        </div>`,
+      confirmLabel: 'Export',
+      onConfirm: () => {
+        const sel = document.querySelector<HTMLInputElement>('input[name="elev-export-type"]:checked');
+        const type = sel?.value ?? 'dtm';
+        if (type === 'contours') {
+          const ivlEl = document.getElementById('elev-export-contour-ivl') as HTMLInputElement | null;
+          const ivl = ivlEl ? parseFloat(ivlEl.value) : this.contourInterval;
+          if (!isNaN(ivl) && ivl !== this.contourInterval && this.lastResult) {
+            const geojson = generateContours(this.lastResult, ivl) as GeoJSON.FeatureCollection;
+            const ivStr = ivl % 1 === 0 ? ivl.toFixed(0) : String(ivl);
+            const json = JSON.stringify(geojson, null, 2);
+            const blob = new Blob([json], { type: 'application/geo+json' });
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.download = `contours-${ivStr}m.geojson`; a.href = url; a.click();
+            URL.revokeObjectURL(url);
+          } else {
+            this.exportContourGeoJSON();
+          }
+        } else if (type === 'dtm') {
+          if (this.lastDTMResult) exportHRDEMGeoTIFF(this.lastDTMResult, 'dtm-baseline.tif');
+          else if (this.lastResult) exportHRDEMGeoTIFF(this.lastResult, 'dtm-baseline.tif');
+        } else if (type === 'dtm-cutfill') {
+          const cf = this.cutFillResultProvider?.();
+          const base = this.lastDTMResult ?? this.lastResult;
+          if (base && cf?.modifiedGrid) {
+            exportHRDEMGeoTIFF(base, 'dtm-cutfill.tif', cf.modifiedGrid);
+          }
+        }
+      },
+    });
   }
 
   exportContourGeoJSON(): void {
@@ -656,6 +780,34 @@ export class HRDEMLayer {
     }
 
     this.updateLegend(result);
+  }
+
+  /** Compute terrain roughness as max elevation range in 3×3 neighbourhood. */
+  private static computeRoughness(result: HRDEMResult): { grid: Float32Array; min: number; max: number } {
+    const { grid, width, height, nodata } = result;
+    const out = new Float32Array(grid.length).fill(NaN);
+    let min = Infinity, max = -Infinity;
+    for (let row = 1; row < height - 1; row++) {
+      for (let col = 1; col < width - 1; col++) {
+        const center = grid[row * width + col];
+        if (!isFinite(center) || (nodata !== null && Math.abs(center - nodata) < 0.001)) continue;
+        let lo = Infinity, hi = -Infinity;
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const v = grid[(row + dr) * width + (col + dc)];
+            if (!isFinite(v) || (nodata !== null && Math.abs(v - nodata) < 0.001)) continue;
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
+          }
+        }
+        if (!isFinite(lo)) continue;
+        const r = hi - lo;
+        out[row * width + col] = r;
+        if (r < min) min = r;
+        if (r > max) max = r;
+      }
+    }
+    return { grid: out, min: isFinite(min) ? min : 0, max: isFinite(max) ? max : 1 };
   }
 
   /** Compute CHM (DSM minus DTM) on the intersection of two grids. */
@@ -2155,7 +2307,7 @@ export class HRDEMLayer {
     this.elevEventUnsubs.push(
       EventBus.on('elev:sample-activate', () => this.activateSampleTool()),
       EventBus.on('elev:profile-activate', () => this.activateProfileTool()),
-      EventBus.on('elev:export-contour', () => this.exportContourGeoJSON()),
+      EventBus.on('elev:export-modal', () => this.showExportModal()),
       EventBus.on('elev:cancel', () => { if (this.activeTool !== 'none') this.cancelTool(); }),
     );
   }
@@ -2298,9 +2450,9 @@ export class HRDEMLayer {
   }
 
   private refreshToolbarContourLabel(): void {
-    // Export contour button is now in the left toolbar — update its dim state
+    // Export button always active — modal handles all export types
     const exportBtn = document.getElementById('btn-elev-export-contour');
-    if (exportBtn) exportBtn.style.opacity = this.contourEnabled ? '1' : '0.3';
+    if (exportBtn) exportBtn.style.opacity = '1';
   }
 
   private updateContourLabelText(_el: HTMLElement): void {
@@ -2338,16 +2490,19 @@ export class HRDEMLayer {
               <div style="font-size:9px;opacity:0.5;margin-top:3px">Check browser console</div>`;
     }
     switch (this.hrdemProduct) {
-      case 'slope':  return this.buildSlopeLegend(result);
-      case 'aspect': return this.buildAspectLegend();
-      case 'tpi':    return this.buildTPILegend(result);
-      case 'chm':    return this.buildCHMLegend(result);
-      default:       return this.buildElevationLegend(result);
+      case 'slope':     return this.buildSlopeLegend(result);
+      case 'aspect':    return this.buildAspectLegend();
+      case 'tpi':       return this.buildTPILegend(result);
+      case 'chm':       return this.buildCHMLegend(result);
+      case 'hillshade': return `<div style="font-size:9px;opacity:0.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Hillshade</div><div style="height:8px;border-radius:2px;background:linear-gradient(to right,#000,#fff);border:1px solid rgba(255,255,255,0.12)"></div><div style="display:flex;justify-content:space-between;font-size:9px;opacity:0.5;margin-top:2px"><span>Shadow</span><span>Lit</span></div>`;
+      case 'roughness': return `<div style="font-size:9px;opacity:0.6;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Roughness</div><div style="height:8px;border-radius:2px;background:linear-gradient(to right,#228b22,#ffdc3c,#b41e14);border:1px solid rgba(255,255,255,0.12)"></div><div style="display:flex;justify-content:space-between;font-size:9px;opacity:0.5;margin-top:2px"><span>Smooth</span><span>Rough</span></div>`;
+      default:          return this.buildElevationLegend(result);
     }
   }
 
   private productLabel(): string {
-    return { elevation: 'Elevation', slope: 'Slope', aspect: 'Aspect', tpi: 'TPI', chm: 'Canopy Height' }[this.hrdemProduct] ?? 'Elevation';
+    const labels: Record<string, string> = { elevation: 'Elevation', slope: 'Slope', aspect: 'Aspect', tpi: 'TPI', chm: 'Canopy Height', hillshade: 'Hillshade', roughness: 'Roughness' };
+    return labels[this.hrdemProduct] ?? 'Elevation';
   }
 
   private buildElevationLegend(result: HRDEMResult | null): string {

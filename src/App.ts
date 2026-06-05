@@ -223,7 +223,17 @@ export class App {
 
     // Permalink: update URL hash on map move
     EventBus.on<{ center: { lat: number; lng: number }; zoom: number }>('map-moveend', ({ center, zoom }) => {
-      const hash = `#${zoom.toFixed(2)}/${center.lng.toFixed(5)}/${center.lat.toFixed(5)}`;
+      const stackParam = this.basemapManager.getUrlStackParam();
+      const hash = `#${zoom.toFixed(2)}/${center.lng.toFixed(5)}/${center.lat.toFixed(5)}${stackParam ? '/' + stackParam : ''}`;
+      history.replaceState(null, '', hash);
+    });
+
+    // Also update URL when stack changes
+    EventBus.on('basemap-stack-changed', () => {
+      const center = this.mapManager.getCenter();
+      const zoom   = this.mapManager.getZoom();
+      const stackParam = this.basemapManager.getUrlStackParam();
+      const hash = `#${zoom.toFixed(2)}/${center.lng.toFixed(5)}/${center.lat.toFixed(5)}${stackParam ? '/' + stackParam : ''}`;
       history.replaceState(null, '', hash);
     });
 
@@ -910,7 +920,7 @@ export class App {
 
     // ELEV group (left toolbar)
     document.getElementById('btn-elev-export-contour')?.addEventListener('click', () => {
-      EventBus.emit('elev:export-contour');
+      EventBus.emit('elev:export-modal');
     });
     document.getElementById('btn-elev-sample')?.addEventListener('click', () => {
       EventBus.emit('elev:sample-activate');
@@ -1539,6 +1549,10 @@ export class App {
     const lat = parseFloat(parts[2]);
     if (!isNaN(zoom) && !isNaN(lng) && !isNaN(lat)) {
       this.mapManager.flyTo(lat, lng, zoom);
+    }
+    // Restore layer stack if encoded in URL (part 3)
+    if (parts[3]) {
+      this.basemapManager.restoreFromUrlStack(parts[3]);
     }
   }
 
