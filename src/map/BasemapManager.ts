@@ -533,9 +533,16 @@ export class BasemapManager {
         'hrdem-slope': 'slope', 'hrdem-aspect': 'aspect',
         'hrdem-tpi': 'tpi', 'hrdem-contours': 'elevation',
         'hrdem-chm': 'chm',
+        'raster-fn-hillshade':     'hillshade',
+        'raster-fn-dsm-hillshade': 'hillshade',
+        'raster-fn-roughness':     'roughness',
+        'raster-fn-slope-pct':     'slope',
+        'raster-fn-aspect':        'aspect',
+        'raster-fn-tpi':           'tpi',
       };
       const surfaceMap: Record<string, string> = {
         'hrdem-dsm-elevation': 'dsm',
+        'raster-fn-dsm-hillshade': 'dsm',
       };
       base.hrdemProduct = productMap[def.id] ?? 'elevation';
       base.hrdemSurface = surfaceMap[def.id] ?? 'dtm';
@@ -550,6 +557,8 @@ export class BasemapManager {
         base.hrdemRasterVisible  = true;
         base.hrdemContourEnabled = false;
       }
+      // Slope % grade default
+      if (def.id === 'raster-fn-slope-pct') base.hrdemSlopeUnit = 'percent';
     }
     this.stack.unshift(base);
     this.rebuildMap();
