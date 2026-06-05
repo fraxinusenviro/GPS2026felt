@@ -41,6 +41,8 @@ export class CutFillPanel {
   // Draw-polygon state
   private drawMode: 'idle' | 'drawing' | 'pickElev' = 'idle';
   private vertices: [number, number][] = [];
+  private freehandActive = false;
+  private freehandCleanup: (() => void) | null = null;
 
   // Layer manager
   private cutFillLayer: CutFillLayer;
@@ -57,6 +59,8 @@ export class CutFillPanel {
   private contoursOn   = false;
   private daylightOn   = false;
 
+  // Tracks whether current lastResult has already been saved to layer manager
+  private savedToLayers = false;
   // Debounce timer for live recompute
   private recomputeTimer: ReturnType<typeof setTimeout> | null = null;
   // CutFillRunStore subscription handle
@@ -150,6 +154,7 @@ export class CutFillPanel {
         <div class="cf-label">1 · Polygon footprint</div>
         <div class="cf-row">
           <button class="cf-btn" id="cf-draw-btn">Draw</button>
+          <button class="cf-btn" id="cf-freehand-btn" title="Draw polygon freehand (press and drag)">Freehand</button>
           <button class="cf-btn cf-btn-sm" id="cf-undo-btn" title="Remove last vertex">↩</button>
           <button class="cf-btn cf-btn-sm" id="cf-clear-btn">Clear</button>
           <span class="cf-hint" id="cf-vtx-count">0 pts</span>
@@ -233,7 +238,8 @@ export class CutFillPanel {
         </div>
 
         <div class="cf-label cf-label-mt">Persist</div>
-        <button class="cf-btn cf-btn-primary" id="cf-save-layers" style="width:100%">Save to Layer Manager</button>
+        <button class="cf-btn cf-btn-primary" id="cf-save-layers" style="width:100%;margin-bottom:4px">Save to Layer Manager</button>
+        <button class="cf-btn cf-btn-sm" id="cf-clear-data" style="width:100%;color:#f87171;border-color:rgba(248,113,113,0.35)">Clear Current Data</button>
       </div>
     `;
 
@@ -272,8 +278,19 @@ export class CutFillPanel {
     el.querySelector('#cf-clear-btn')?.addEventListener('click', () => {
       this.vertices = [];
       this.setDrawMode('idle');
+      this.stopFreehand();
       this.updateSketchPreview();
+      this.updateVertexCount();
       this.updateComputeBtn();
+    });
+
+    el.querySelector('#cf-freehand-btn')?.addEventListener('click', () => {
+      if (this.freehandActive) {
+        this.stopFreehand();
+      } else {
+        this.setDrawMode('idle');
+        this.startFreehand();
+      }
     });
 
     el.querySelector('#cf-pick-elev')?.addEventListener('click', () => {
@@ -352,6 +369,7 @@ export class CutFillPanel {
     });
 
     el.querySelector('#cf-save-layers')?.addEventListener('click', () => this.saveToLayers());
+    el.querySelector('#cf-clear-data')?.addEventListener('click', () => this.clearCurrentData());
   }
 
   // --------------------------------------------------------------------------
@@ -523,8 +541,9 @@ export class CutFillPanel {
       if (computeBtn) computeBtn.textContent = 'Computing…';
 
       const result = computeCutFill(hrdem, { polygon, targetElevation, slopeRatio });
-      this.lastResult  = result;
-      this.daylightFC  = null; // invalidate cached daylight
+      this.lastResult   = result;
+      this.savedToLayers = false;
+      this.daylightFC   = null; // invalidate cached daylight
 
       this.mapManager.clearSketchPreview();
       this.rerender();
@@ -582,9 +601,10 @@ export class CutFillPanel {
     const ring       = [...this.vertices, this.vertices[0]];
     const polygon    = { type: 'Polygon' as const, coordinates: [ring] };
 
-    const result    = computeCutFill(this.lastHrdem, { polygon, targetElevation, slopeRatio });
-    this.lastResult = result;
-    this.daylightFC = null;
+    const result       = computeCutFill(this.lastHrdem, { polygon, targetElevation, slopeRatio });
+    this.lastResult    = result;
+    this.savedToLayers = false;
+    this.daylightFC    = null;
 
     this.rerender();
     if (this.contoursOn) this.cutFillLayer.updateContours(result, this.getContourInterval());
@@ -740,6 +760,7 @@ export class CutFillPanel {
       daylightFC: this.daylightFC,
       params:     { targetElevation, slopeRatio, polygon },
     });
+    this.savedToLayers = true;
 
     const btn = this.el?.querySelector<HTMLButtonElement>('#cf-save-layers');
     if (btn) {
@@ -748,6 +769,117 @@ export class CutFillPanel {
       btn.disabled = true;
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
     }
+  }
+
+  private clearCurrentData(): void {
+    if (!this.lastResult) return;
+
+    if (!this.savedToLayers) {
+      const confirmed = window.confirm(
+        'This result has not been saved to the Layer Manager.\nClear anyway?'
+      );
+      if (!confirmed) return;
+    }
+
+    this.lastResult    = null;
+    this.lastHrdem     = null;
+    this.daylightFC    = null;
+    this.savedToLayers = false;
+    this.hillshadeOn   = false;
+    this.contoursOn    = false;
+    this.daylightOn    = false;
+
+    this.cutFillLayer.clear();
+
+    const resultsEl  = this.el?.querySelector<HTMLElement>('#cf-results');
+    const viewSecEl  = this.el?.querySelector<HTMLElement>('#cf-view-section');
+    if (resultsEl)  resultsEl.style.display  = 'none';
+    if (viewSecEl)  viewSecEl.style.display  = 'none';
+
+    this.updateComputeBtn();
+    this.syncDisplayState();
+  }
+
+  // ── Freehand polygon drawing ──────────────────────────────────────────────
+
+  private startFreehand(): void {
+    this.freehandActive = true;
+    const map    = this.mapManager.getMap();
+    const canvas = map.getCanvas();
+    map.dragPan.disable();
+    canvas.style.cursor = 'crosshair';
+    this.syncFreehandBtn();
+
+    let collecting = false;
+
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
+      collecting = true;
+      const r  = canvas.getBoundingClientRect();
+      const ll = map.unproject([e.clientX - r.left, e.clientY - r.top]);
+      this.vertices = [[ll.lng, ll.lat]];
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (!collecting || !(e.buttons & 1)) return;
+      e.preventDefault();
+      const r  = canvas.getBoundingClientRect();
+      const ll = map.unproject([e.clientX - r.left, e.clientY - r.top]);
+      this.vertices.push([ll.lng, ll.lat]);
+      this.updateSketchPreview();
+    };
+
+    const onUp = () => {
+      if (!collecting) return;
+      collecting = false;
+      this.vertices = this.minSpacingFilter(this.vertices, 5);
+      this.stopFreehand();
+      this.updateSketchPreview();
+      this.updateVertexCount();
+      this.updateComputeBtn();
+    };
+
+    canvas.addEventListener('pointerdown', onDown, { passive: false });
+    canvas.addEventListener('pointermove', onMove, { passive: false });
+    canvas.addEventListener('pointerup',   onUp);
+    canvas.addEventListener('pointercancel', onUp);
+
+    this.freehandCleanup = () => {
+      canvas.removeEventListener('pointerdown', onDown);
+      canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('pointerup',   onUp);
+      canvas.removeEventListener('pointercancel', onUp);
+    };
+  }
+
+  private stopFreehand(): void {
+    if (!this.freehandActive) return;
+    this.freehandActive = false;
+    this.freehandCleanup?.();
+    this.freehandCleanup = null;
+    const map = this.mapManager.getMap();
+    map.dragPan.enable();
+    map.getCanvas().style.cursor = '';
+    this.syncFreehandBtn();
+  }
+
+  private syncFreehandBtn(): void {
+    const btn = this.el?.querySelector<HTMLButtonElement>('#cf-freehand-btn');
+    if (btn) btn.classList.toggle('cf-btn-active', this.freehandActive);
+  }
+
+  private minSpacingFilter(pts: [number, number][], toleranceM: number): [number, number][] {
+    if (pts.length < 2) return pts;
+    const tolDeg = toleranceM / 111320;
+    const result: [number, number][] = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const prev = result[result.length - 1];
+      const dx = pts[i][0] - prev[0], dy = pts[i][1] - prev[1];
+      if (Math.sqrt(dx * dx + dy * dy) >= tolDeg) result.push(pts[i]);
+    }
+    return result;
   }
 
   private refreshRefSurface(): void {
