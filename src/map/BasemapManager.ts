@@ -170,6 +170,9 @@ export class BasemapManager {
         this.renderContent(this.panelState.container, this.panelState.onClose);
       }
     });
+
+    // Load persisted runs on startup
+    CutFillRunStore.getInstance().loadRuns();
   }
 
   // ---- State persistence ----
@@ -1304,6 +1307,7 @@ export class BasemapManager {
     const eyeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
     const adjSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M32,80a8,8,0,0,1,8-8H77.17a28,28,0,0,1,53.66,0H216a8,8,0,0,1,0,16H130.83a28,28,0,0,1-53.66,0H40A8,8,0,0,1,32,80Zm184,88H194.83a28,28,0,0,0-53.66,0H40a8,8,0,0,0,0,16H141.17a28,28,0,0,0,53.66,0H216a8,8,0,0,0,0-16Z"/></svg>`;
     const dragSvg = `<svg viewBox="0 0 10 16" fill="currentColor" width="14" height="22"><circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/><circle cx="3" cy="6" r="1.5"/><circle cx="7" cy="6" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/></svg>`;
+    const refreshSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M240,56v48a8,8,0,0,1-8,8H184a8,8,0,0,1,0-16h28.69L197.31,80.69A96.09,96.09,0,0,0,43.81,116.8a8,8,0,1,1-15.62-3.6A112.11,112.11,0,0,1,208,70.69l15.33,15.32V56a8,8,0,0,1,16,0Zm-16.19,82.8a8,8,0,0,0-10,5.39A96.09,96.09,0,0,1,58.69,175.31L71.31,162.69A8,8,0,0,0,65.82,149H16a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V176.69l15.32,15.32a112.11,112.11,0,0,0,179.81-45.21A8,8,0,0,0,223.81,138.8Z"/></svg>`;
 
     const defaultLineWidth = typeof cfg?.lineWidth === 'number' ? cfg.lineWidth : 1;
     const currentLineWidth = layer.vecLineWidth ?? defaultLineWidth;
@@ -1602,6 +1606,7 @@ export class BasemapManager {
             inputmode="decimal" />
           <button class="bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
           ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
+          <button class="bm-refresh-btn" data-iid="${layer.instanceId}" title="Reload layer" style="background:none;border:1px solid var(--color-border);border-radius:4px;color:var(--color-text-dim);cursor:pointer;padding:2px 4px;display:flex;align-items:center;flex-shrink:0">${refreshSvg}</button>
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
         ${isVectorLayer ? vecStylePanel : isHrdem ? hrdemAdjPanel : isCogContour ? cogContourAdjPanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
@@ -1640,7 +1645,7 @@ export class BasemapManager {
       if (!this.cutFillLayers.has(run.id)) {
         const layer = new CutFillLayer(this.mapManager, `cf-${run.id}`);
         const ds = run.displayState;
-        layer.showBoth(run.result, undefined, ds.hillshade);
+        layer.showBoth(run.result, undefined, ds.hillshade, ds.hillshadeAzimuth, ds.hillshadeAltitude, ds.hillshadeZFactor);
         layer.setElevVisible(ds.elevVisible);
         layer.setDiffVisible(ds.diffVisible);
         layer.setElevOpacity(ds.elevOpacity);
@@ -1694,6 +1699,9 @@ export class BasemapManager {
                 <input type="text" class="cf-run-rename-input" data-run="${run.id}" data-action="rename" value="${run.name}" style="display:none">
               </button>
               <button class="cf-rename-btn" data-run="${run.id}" data-action="rename-toggle" title="Rename">✎</button>
+              <button class="cf-zoom-run-btn" data-run="${run.id}" data-action="zoom-to" title="Zoom to run extent">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M229.66,218.34,179.6,168.28a88.21,88.21,0,1,0-11.32,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM144,120H120v24a8,8,0,0,1-16,0V120H80a8,8,0,0,1,0-16h24V80a8,8,0,0,1,16,0v24h24a8,8,0,0,1,0,16Z"/></svg>
+              </button>
               <button class="cf-del-run-btn" data-run="${run.id}" data-action="delete" title="Remove run">✕</button>
             </div>
             <div class="cf-run-meta-bar">${run.params.targetElevation.toFixed(1)}m · ${slope} · ${date}</div>
@@ -1712,9 +1720,6 @@ export class BasemapManager {
                   <input type="number" class="cf-lyr-input" value="${run.params.slopeRatio ?? ''}" step="0.5" min="0" placeholder="vert" data-run="${run.id}" data-action="slope" style="width:46px">
                   <button class="cf-lyr-btn" data-run="${run.id}" data-action="recompute">Apply</button>
                 </div>
-                <div class="cf-lyr-row">
-                  <label class="cf-lyr-check"><input type="checkbox" data-run="${run.id}" data-action="hillshade" ${ds.hillshade ? 'checked' : ''}> Hillshade</label>
-                </div>
                 <div class="cf-run-stats">Cut: ${fmtVol(run.result.cutVolume)} · Fill: ${fmtVol(run.result.fillVolume)}</div>
               </div>
 
@@ -1732,6 +1737,26 @@ export class BasemapManager {
                   </button>
                   <span class="cf-lyr-stack-label">Contours</span>
                   <input type="number" class="cf-lyr-input" value="${ds.contourInterval}" min="0.1" step="0.5" data-run="${run.id}" data-action="contour-interval" style="width:40px">m
+                </div>
+                <div class="cf-lyr-stack-item cf-lyr-stack-item--hillshade">
+                  <button class="cf-vis-btn${ds.hillshade ? ' cf-vis-on' : ''}" data-run="${run.id}" data-action="hillshade" title="${ds.hillshade ? 'Hide' : 'Show'} hillshade">
+                    ${ds.hillshade ? eyeSvg : eyeOffSvg}
+                  </button>
+                  <span class="cf-lyr-stack-label">Hillshade</span>
+                  <div class="cf-hillshade-params" style="${ds.hillshade ? '' : 'opacity:0.4;pointer-events:none'}">
+                    <div class="cf-hs-param-row">
+                      <label class="cf-hs-label">Az</label>
+                      <input type="number" class="cf-lyr-input" value="${ds.hillshadeAzimuth}" min="0" max="360" step="15" data-run="${run.id}" data-action="hs-azimuth" style="width:44px" title="Azimuth (°)">°
+                    </div>
+                    <div class="cf-hs-param-row">
+                      <label class="cf-hs-label">Alt</label>
+                      <input type="number" class="cf-lyr-input" value="${ds.hillshadeAltitude}" min="1" max="90" step="5" data-run="${run.id}" data-action="hs-altitude" style="width:40px" title="Sun altitude (°)">°
+                    </div>
+                    <div class="cf-hs-param-row">
+                      <label class="cf-hs-label">Z</label>
+                      <input type="number" class="cf-lyr-input" value="${ds.hillshadeZFactor}" min="0.1" max="10" step="0.1" data-run="${run.id}" data-action="hs-zfactor" style="width:40px" title="Z-factor">
+                    </div>
+                  </div>
                 </div>
                 <div class="cf-lyr-stack-item">
                   <button class="cf-vis-btn${ds.elevVisible ? ' cf-vis-on' : ''}" data-run="${run.id}" data-action="elev-vis" title="${ds.elevVisible ? 'Hide' : 'Show'} elevation surface">
@@ -1856,11 +1881,62 @@ export class BasemapManager {
         const ds = run.displayState;
 
         switch (action) {
+          case 'zoom-to': {
+            const bbox = run.result.bbox;
+            this.mapManager.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], 40);
+            return;
+          }
           case 'hillshade': {
-            ds.hillshade = (el as HTMLInputElement).checked;
-            layer.showBoth(run.result, undefined, ds.hillshade);
+            ds.hillshade = !ds.hillshade;
+            layer.showBoth(run.result, undefined, ds.hillshade, ds.hillshadeAzimuth, ds.hillshadeAltitude, ds.hillshadeZFactor);
             layer.setElevVisible(ds.elevVisible);
             layer.setDiffVisible(ds.diffVisible);
+            el.classList.toggle('cf-vis-on', ds.hillshade);
+            el.innerHTML = ds.hillshade ? eyeSvg : eyeOffSvg;
+            // Toggle the params opacity
+            const paramsEl = container.querySelector<HTMLElement>(`[data-run="${runId}"][data-action="hillshade"]`)
+              ?.closest('.cf-lyr-stack-item--hillshade')
+              ?.querySelector<HTMLElement>('.cf-hillshade-params');
+            if (paramsEl) {
+              paramsEl.style.opacity = ds.hillshade ? '' : '0.4';
+              paramsEl.style.pointerEvents = ds.hillshade ? '' : 'none';
+            }
+            break;
+          }
+          case 'hs-azimuth': {
+            const v = parseFloat((el as HTMLInputElement).value);
+            if (isFinite(v)) {
+              ds.hillshadeAzimuth = v;
+              if (ds.hillshade) {
+                layer.showBoth(run.result, undefined, true, ds.hillshadeAzimuth, ds.hillshadeAltitude, ds.hillshadeZFactor);
+                layer.setElevVisible(ds.elevVisible);
+                layer.setDiffVisible(ds.diffVisible);
+              }
+            }
+            break;
+          }
+          case 'hs-altitude': {
+            const v = parseFloat((el as HTMLInputElement).value);
+            if (isFinite(v)) {
+              ds.hillshadeAltitude = v;
+              if (ds.hillshade) {
+                layer.showBoth(run.result, undefined, true, ds.hillshadeAzimuth, ds.hillshadeAltitude, ds.hillshadeZFactor);
+                layer.setElevVisible(ds.elevVisible);
+                layer.setDiffVisible(ds.diffVisible);
+              }
+            }
+            break;
+          }
+          case 'hs-zfactor': {
+            const v = parseFloat((el as HTMLInputElement).value);
+            if (isFinite(v) && v > 0) {
+              ds.hillshadeZFactor = v;
+              if (ds.hillshade) {
+                layer.showBoth(run.result, undefined, true, ds.hillshadeAzimuth, ds.hillshadeAltitude, ds.hillshadeZFactor);
+                layer.setElevVisible(ds.elevVisible);
+                layer.setDiffVisible(ds.diffVisible);
+              }
+            }
             break;
           }
           case 'contours':
@@ -1934,7 +2010,7 @@ export class BasemapManager {
             run.params.targetElevation = targetElev;
             run.params.slopeRatio = slopeRatio;
             run.daylightFC = null;
-            layer.showBoth(newResult, undefined, ds.hillshade);
+            layer.showBoth(newResult, undefined, ds.hillshade, ds.hillshadeAzimuth, ds.hillshadeAltitude, ds.hillshadeZFactor);
             layer.setElevVisible(ds.elevVisible);
             layer.setDiffVisible(ds.diffVisible);
             if (ds.contours) layer.updateContours(newResult, ds.contourInterval);
@@ -1960,9 +2036,13 @@ export class BasemapManager {
       <div class="panel-body bm-panel-body">
 
         ${this.sectionToggle('active-layers', 'Basemap Stack', 'drag to reorder · top = drawn on top', false)}
-        ${this.sectionBody('active-layers', `<div class="bm-stack" id="bm-stack">
-          ${this.stack.map((layer, idx) => this.renderStackItem(layer, idx)).join('')}
-        </div>`)}
+        ${this.sectionBody('active-layers', `
+          <div style="display:flex;justify-content:flex-end;padding:2px 0 4px">
+            <button id="bm-refresh-all" title="Reload all basemap layers" style="background:none;border:1px solid rgba(91,175,130,0.25);border-radius:4px;cursor:pointer;padding:2px 8px;color:var(--color-accent,#4ade80);font-size:11px;display:flex;align-items:center;gap:4px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M240,56v48a8,8,0,0,1-8,8H184a8,8,0,0,1,0-16h28.69L197.31,80.69A96.09,96.09,0,0,0,43.81,116.8a8,8,0,1,1-15.62-3.6A112.11,112.11,0,0,1,208,70.69l15.33,15.32V56a8,8,0,0,1,16,0Zm-16.19,82.8a8,8,0,0,0-10,5.39A96.09,96.09,0,0,1,58.69,175.31L71.31,162.69A8,8,0,0,0,65.82,149H16a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V176.69l15.32,15.32a112.11,112.11,0,0,0,179.81-45.21A8,8,0,0,0,223.81,138.8Z"/></svg> Reload All</button>
+          </div>
+          <div class="bm-stack" id="bm-stack">
+            ${this.stack.map((layer, idx) => this.renderStackItem(layer, idx)).join('')}
+          </div>`)}
 
         ${this.renderFeatureLayersSection()}
         ${this.renderCollectedDataSection()}
@@ -1986,6 +2066,21 @@ export class BasemapManager {
 
   private wireContent(container: HTMLElement, onClose: () => void): void {
     const allDefs = ALL_DEFS();
+
+    // Per-layer refresh buttons
+    container.querySelectorAll<HTMLButtonElement>('.bm-refresh-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.rebuildMap();
+        this.saveStack();
+      });
+    });
+
+    // Master refresh
+    container.querySelector<HTMLButtonElement>('#bm-refresh-all')?.addEventListener('click', () => {
+      this.rebuildMap();
+      this.saveStack();
+    });
 
     // Collapse section toggles
     container.querySelectorAll<HTMLButtonElement>('.bm-section-toggle').forEach(btn => {

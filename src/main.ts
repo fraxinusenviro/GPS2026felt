@@ -15,6 +15,94 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// Login overlay
+function showLoginOverlay(): void {
+  const overlay = document.createElement('div');
+  overlay.id = 'login-overlay';
+  overlay.style.cssText = [
+    'position:fixed', 'inset:0', 'z-index:99999',
+    'background:rgba(0,0,0,0.88)',
+    'display:flex', 'align-items:center', 'justify-content:center',
+    'font-family:inherit',
+  ].join(';');
+
+  overlay.innerHTML = `
+    <div style="
+      background:#0b1a10;
+      border:1px solid rgba(91,175,130,0.22);
+      border-radius:12px;
+      padding:36px 40px 32px;
+      min-width:320px;
+      max-width:380px;
+      box-shadow:0 8px 40px rgba(0,0,0,0.7);
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:20px;
+    ">
+      <img src="/logo_text_white.png" alt="Fraxinus" style="max-width:200px;height:auto;opacity:0.92" />
+      <div style="color:rgba(200,220,200,0.5);font-size:12px;letter-spacing:0.06em;text-transform:uppercase;margin-top:-8px">
+        Field Mapping
+      </div>
+      <div style="width:100%;display:flex;flex-direction:column;gap:10px">
+        <input id="login-pw" type="password" placeholder="Password"
+          autocomplete="current-password"
+          style="
+            width:100%;box-sizing:border-box;
+            background:#0d2518;
+            border:1px solid rgba(91,175,130,0.3);
+            border-radius:6px;
+            color:#e8f5e9;
+            padding:10px 14px;
+            font-size:14px;
+            outline:none;
+            font-family:inherit;
+          " />
+        <div id="login-error" style="color:#f87171;font-size:12px;text-align:center;display:none">
+          Incorrect password — please try again.
+        </div>
+        <button id="login-submit" style="
+          background:rgba(74,222,128,0.15);
+          border:1px solid rgba(74,222,128,0.4);
+          border-radius:6px;
+          color:#4ade80;
+          padding:10px;
+          font-size:14px;
+          cursor:pointer;
+          font-family:inherit;
+          font-weight:500;
+          letter-spacing:0.02em;
+        ">Enter</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const pwInput = overlay.querySelector<HTMLInputElement>('#login-pw')!;
+  const submitBtn = overlay.querySelector<HTMLButtonElement>('#login-submit')!;
+  const errorEl = overlay.querySelector<HTMLElement>('#login-error')!;
+
+  const attempt = () => {
+    if (pwInput.value === 'Fraxinusenviro') {
+      overlay.style.transition = 'opacity 0.4s';
+      overlay.style.opacity = '0';
+      setTimeout(() => { overlay.remove(); }, 400);
+    } else {
+      errorEl.style.display = 'block';
+      pwInput.value = '';
+      pwInput.focus();
+      setTimeout(() => { errorEl.style.display = 'none'; }, 3000);
+    }
+  };
+
+  submitBtn.addEventListener('click', attempt);
+  pwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') attempt(); });
+  pwInput.focus();
+}
+
+showLoginOverlay();
+
 // Boot app
 const app = new App();
 app.init().catch(err => {

@@ -192,6 +192,9 @@ export function computeHillshadeGrid(
   height: number,
   bbox: [number, number, number, number],
   nodata: number | null,
+  azimuthDeg = 315,
+  altitudeDeg = 45,
+  zFactor = 1,
 ): Uint8Array {
   const [west, south, east, north] = bbox;
   const latMid = (south + north) / 2;
@@ -199,8 +202,8 @@ export function computeHillshadeGrid(
   const cx = ((east  - west)  / width)  * 111320 * Math.cos(latMid * Math.PI / 180);
 
   // Sun direction: azimuth 315° (NW), altitude 45°
-  const azRad  = (315 - 90) * Math.PI / 180;
-  const altRad = 45 * Math.PI / 180;
+  const azRad  = (azimuthDeg - 90) * Math.PI / 180;
+  const altRad = altitudeDeg * Math.PI / 180;
   const lx =  Math.cos(altRad) * Math.cos(azRad);
   const ly =  Math.cos(altRad) * Math.sin(azRad);
   const lz =  Math.sin(altRad);
@@ -227,8 +230,8 @@ export function computeHillshadeGrid(
         continue;
       }
 
-      const dzdx = ((ne + 2*e + se) - (nw + 2*w + sw)) / (8 * cx);
-      const dzdy = ((nw + 2*n + ne) - (sw + 2*s + se)) / (8 * cy);
+      const dzdx = ((ne + 2*e + se) - (nw + 2*w + sw)) * zFactor / (8 * cx);
+      const dzdy = ((nw + 2*n + ne) - (sw + 2*s + se)) * zFactor / (8 * cy);
 
       const nx = -dzdx;
       const ny = dzdy;
