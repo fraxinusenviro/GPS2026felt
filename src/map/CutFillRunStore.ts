@@ -139,6 +139,7 @@ export class CutFillRunStore {
           height: r.result.height,
           bbox: r.result.bbox,
           nodata: r.result.nodata,
+          targetElevation: r.result.targetElevation,
           stretchMin: r.result.stretchMin,
           stretchMax: r.result.stretchMax,
           cutVolume: r.result.cutVolume,
@@ -198,6 +199,7 @@ export class CutFillRunStore {
             for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
             return arr;
           })(),
+          targetElevation: s.result.targetElevation,
           width: s.result.width,
           height: s.result.height,
           bbox: s.result.bbox,
