@@ -916,7 +916,7 @@ export class App {
       EventBus.emit('elev:sample-activate');
     });
     document.getElementById('btn-elev-profile')?.addEventListener('click', () => {
-      this.profilePanel.toggle();
+      EventBus.emit('elev:profile-activate');
     });
     document.getElementById('btn-elev-cutfill')?.addEventListener('click', () => {
       this.cutFillPanel.toggle();
@@ -1120,8 +1120,6 @@ export class App {
   // ============================================================
   private wireMapInteractions(): void {
     EventBus.on<{ lngLat: { lat: number; lng: number } }>('map-click', ({ lngLat }) => {
-      // Profile panel consumes clicks when drawing a line
-      if (this.profilePanel.handleMapClick(lngLat.lng, lngLat.lat)) return;
       // Cut/fill panel consumes clicks when in draw or pick-elevation mode
       if (this.cutFillPanel.handleMapClick(lngLat.lng, lngLat.lat)) return;
 
