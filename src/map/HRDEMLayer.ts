@@ -137,10 +137,16 @@ export class HRDEMLayer {
   private profileLineColor         = '#ffdd00';
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private profileVertexMarkers: any[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private profileSegLabelMarkers: any[] = [];
 
   private sampleMode:    'elevation' | 'slope' | 'aspect' | 'chm' = 'elevation';
   private profileMode:   'dtm' | 'dsm' | 'both' | 'dtm+dtw' | 'dtm+dsm+dtw' = 'dtm';
   private profileChartH  = 160;
+  private profilePanelW  = 0;    // 0 = auto (full container width minus margins)
+  private profilePanelX: number | null = null;
+  private profilePanelTop: number | null = null;
+  private profileDtwSmooth = 0;  // moving-average radius for water table line
   private lastDTMResult: HRDEMResult | null = null;
   private lastDSMResult: HRDEMResult | null = null;
   private lastDTWResult: HRDEMResult | null = null;
@@ -962,6 +968,8 @@ export class HRDEMLayer {
   private clearProfileLine(): void {
     for (const m of this.profileVertexMarkers) m.remove();
     this.profileVertexMarkers = [];
+    for (const m of this.profileSegLabelMarkers) m.remove();
+    this.profileSegLabelMarkers = [];
     if (!this.profileLineSrcId) return;
     const src = this.mapManager.getMap().getSource(this.profileLineSrcId) as maplibregl.GeoJSONSource | undefined;
     if (src) src.setData(EMPTY_FC);
@@ -1073,6 +1081,33 @@ export class HRDEMLayer {
         .addTo(map);
       this.profileVertexMarkers.push(marker);
     });
+  }
+
+  private updateSegmentLabels(points: [number, number][], segDists: number[]): void {
+    for (const m of this.profileSegLabelMarkers) m.remove();
+    this.profileSegLabelMarkers = [];
+    if (!this.profileLineSrcId || points.length < 2) return;
+    const map = this.mapManager.getMap();
+    for (let i = 0; i < points.length - 1; i++) {
+      const midLon = (points[i][0] + points[i + 1][0]) / 2;
+      const midLat = (points[i][1] + points[i + 1][1]) / 2;
+      const d = segDists[i];
+      const lbl = d < 1 ? `${(d * 1000).toFixed(0)} m` : `${d.toFixed(2)} km`;
+      const el = document.createElement('div');
+      el.style.cssText = [
+        `background:rgba(0,0,0,0.7)`,
+        `border:1px solid ${this.profileLineColor}`,
+        'color:#fff', 'border-radius:3px',
+        'padding:1px 4px', 'font-size:9px', 'font-family:sans-serif',
+        'white-space:nowrap', 'pointer-events:none', 'user-select:none',
+      ].join(';');
+      el.textContent = lbl;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const marker = new (maplibregl as any).Marker({ element: el, anchor: 'center' })
+        .setLngLat([midLon, midLat])
+        .addTo(map);
+      this.profileSegLabelMarkers.push(marker);
+    }
   }
 
   activateSampleTool(): void {
@@ -1201,7 +1236,7 @@ export class HRDEMLayer {
     // Color-code the map line using cut/fill classification when C/F data is present
     if (pts4 && pts4.some(p => p.elev !== null)) {
       const dtmPts = this.profileMode === 'dsm'
-        ? this.sampleProfileLineMulti(savedPoints, 200, this.lastDTMResult) // re-fetch DTM for comparison baseline
+        ? this.sampleProfileLineMulti(savedPoints, 200, this.lastDTMResult)
         : pts;
       const coloredFeatures = this.buildColorCodedLineFeatures(savedPoints, dtmPts, pts4);
       if (coloredFeatures.length > 0 && this.profileLineSrcId) {
@@ -1209,6 +1244,16 @@ export class HRDEMLayer {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         src?.setData({ type: 'FeatureCollection', features: coloredFeatures } as any);
       }
+    }
+
+    // Add segment distance labels on the map
+    this.updateSegmentLabels(savedPoints, segDists);
+
+    // Bring profile line layers above C/F run layers (which insert before collected-points)
+    const mapFinal = this.mapManager.getMap();
+    if (mapFinal.getLayer(this.profileLineBorderLayerId) && mapFinal.getLayer(LAYER_IDS.COLLECTED_POINTS)) {
+      try { mapFinal.moveLayer(this.profileLineBorderLayerId, LAYER_IDS.COLLECTED_POINTS); } catch { /* ignore */ }
+      try { mapFinal.moveLayer(this.profileLineLayerId,       LAYER_IDS.COLLECTED_POINTS); } catch { /* ignore */ }
     }
   }
 
@@ -1455,36 +1500,96 @@ export class HRDEMLayer {
     const elevRange = elevMax - elevMin || 1;
 
     const container = this.mapManager.getMap().getContainer();
-    // Full-width: 10 px margin each side, 10 px padding each side inside panel
-    const W    = Math.max(320, container.clientWidth - 40);
+
+    // Sizing / positioning — persists across re-opens via class fields
+    const initPanelW = this.profilePanelW > 0 ? this.profilePanelW : container.clientWidth - 20;
+    let W = Math.max(300, initPanelW - 20); // SVG inner width (panel minus 10px padding each side)
     const padL = 40, padR = 10, padT = 18, padB = 58;
 
-    // Visibility flags for optional profile series
+    // Visibility + smoothing flags for optional profile series
     let showDsm = true;
     let showDtw = true;
     let showCf  = true;
+    let dtwSmooth = this.profileDtwSmooth;
+
+    const smoothPts = (pts: Array<{dist: number; elev: number}>, r: number) => {
+      if (r <= 0 || pts.length < 3) return pts;
+      return pts.map((p, i) => {
+        const lo = Math.max(0, i - r), hi = Math.min(pts.length - 1, i + r);
+        const sum = pts.slice(lo, hi + 1).reduce((a, b) => a + b.elev, 0);
+        return { dist: p.dist, elev: sum / (hi - lo + 1) };
+      });
+    };
 
     const buildSvg = () => this.buildProfileSvg(
       valid, elevMin, elevMax, elevRange, distMax, segDists,
       this.profileLineColor, W, this.profileChartH, padL, padR, padT, padB, 9,
       (showDsm && valid2 && valid2.length > 1) ? valid2 : undefined,
-      (showDtw && valid3 && valid3.length > 1) ? valid3 : undefined,
+      (showDtw && valid3 && valid3.length > 1) ? smoothPts(valid3, dtwSmooth) : undefined,
       (showCf  && valid4 && valid4.length > 1) ? valid4 : undefined,
     );
 
     const el = document.createElement('div');
-    el.style.cssText = [
-      'position:absolute', 'bottom:70px', 'left:10px', 'right:10px',
-      'z-index:30',
-      'background:rgba(10,22,16,0.96)',
-      'border:1px solid rgba(91,175,130,0.25)',
-      'border-radius:6px', 'padding:8px 10px 6px',
-      'pointer-events:auto',
-      'box-shadow:0 4px 20px rgba(0,0,0,0.6)',
-    ].join(';');
+    // Start at stored position if previously dragged; otherwise default to bottom-left
+    if (this.profilePanelX !== null && this.profilePanelTop !== null) {
+      el.style.cssText = [
+        'position:absolute',
+        `left:${this.profilePanelX}px`,
+        `top:${this.profilePanelTop}px`,
+        `width:${initPanelW}px`,
+        'z-index:30',
+        'background:rgba(10,22,16,0.96)',
+        'border:1px solid rgba(91,175,130,0.25)',
+        'border-radius:6px', 'padding:8px 10px 6px',
+        'pointer-events:auto',
+        'box-shadow:0 4px 20px rgba(0,0,0,0.6)',
+      ].join(';');
+    } else {
+      el.style.cssText = [
+        'position:absolute', 'bottom:70px', 'left:10px',
+        `width:${initPanelW}px`,
+        'z-index:30',
+        'background:rgba(10,22,16,0.96)',
+        'border:1px solid rgba(91,175,130,0.25)',
+        'border-radius:6px', 'padding:8px 10px 6px',
+        'pointer-events:auto',
+        'box-shadow:0 4px 20px rgba(0,0,0,0.6)',
+      ].join(';');
+    }
 
     const header = document.createElement('div');
-    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px';
+    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;cursor:move;user-select:none';
+
+    // ── Drag-to-move the entire panel ─────────────────────────────────────────
+    header.addEventListener('pointerdown', (startEvt) => {
+      if ((startEvt.target as HTMLElement).closest('button,select,input')) return;
+      startEvt.preventDefault();
+      header.setPointerCapture(startEvt.pointerId);
+      const contRect = container.getBoundingClientRect();
+      const elRect   = el.getBoundingClientRect();
+      const startL   = elRect.left  - contRect.left;
+      const startT   = elRect.top   - contRect.top;
+      el.style.left   = `${startL}px`;
+      el.style.top    = `${startT}px`;
+      el.style.bottom = '';
+      const ox = startEvt.clientX, oy = startEvt.clientY;
+
+      const onMove = (e: PointerEvent) => {
+        e.preventDefault();
+        const newL = Math.max(0, Math.min(container.clientWidth  - el.offsetWidth,  startL + (e.clientX - ox)));
+        const newT = Math.max(0, Math.min(container.clientHeight - el.offsetHeight, startT + (e.clientY - oy)));
+        el.style.left = `${newL}px`;
+        el.style.top  = `${newT}px`;
+        this.profilePanelX   = newL;
+        this.profilePanelTop = newT;
+      };
+      const onUp = () => {
+        header.removeEventListener('pointermove', onMove);
+        header.removeEventListener('pointerup',   onUp);
+      };
+      header.addEventListener('pointermove', onMove);
+      header.addEventListener('pointerup',   onUp);
+    });
 
     const titleWrap = document.createElement('span');
     titleWrap.style.cssText = 'display:flex;align-items:center;gap:6px';
@@ -1627,6 +1732,29 @@ export class HRDEMLayer {
       btnWrap.insertBefore(legWrap, hoverToggleBtn);
     }
 
+    // ── DTW smoothing slider (only when water table series present) ───────────
+    let smoothWrap: HTMLDivElement | null = null;
+    if (valid3 && valid3.length > 1) {
+      smoothWrap = document.createElement('div');
+      smoothWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-top:3px;padding-top:3px;border-top:1px solid rgba(91,175,130,0.12)';
+      smoothWrap.innerHTML = '<span style="font-size:9px;color:#5baf82;opacity:0.8">Water smooth</span>';
+      const smoothSlider = document.createElement('input');
+      smoothSlider.type = 'range'; smoothSlider.min = '0'; smoothSlider.max = '15'; smoothSlider.step = '1';
+      smoothSlider.value = String(dtwSmooth);
+      smoothSlider.style.cssText = 'width:64px;accent-color:#1e88e5;cursor:pointer';
+      const smoothVal = document.createElement('span');
+      smoothVal.style.cssText = 'font-size:9px;color:#90caf9;min-width:14px';
+      smoothVal.textContent = String(dtwSmooth);
+      smoothSlider.addEventListener('input', () => {
+        dtwSmooth = parseInt(smoothSlider.value, 10);
+        this.profileDtwSmooth = dtwSmooth;
+        smoothVal.textContent = String(dtwSmooth);
+        svgWrap.innerHTML = buildSvg();
+      });
+      smoothWrap.appendChild(smoothSlider);
+      smoothWrap.appendChild(smoothVal);
+    }
+
     // ── Hover mouse tracking ──────────────────────────────────────────────────
     const drawHover = (mouseX: number) => {
       const curH     = this.profileChartH;
@@ -1734,9 +1862,7 @@ export class HRDEMLayer {
       hoverCanvas.getContext('2d')?.clearRect(0, 0, hoverCanvas.width, hoverCanvas.height);
     });
 
-    // ── Resize grip ───────────────────────────────────────────────────────────
-    // Use Pointer Events + setPointerCapture so drag works even when the
-    // cursor moves over the MapLibre canvas, which otherwise intercepts events
+    // ── Vertical resize grip (drag up = taller, drag down = shorter) ─────────
     resizeGrip.addEventListener('pointerdown', (startEvt) => {
       startEvt.preventDefault();
       startEvt.stopPropagation();
@@ -1762,19 +1888,61 @@ export class HRDEMLayer {
           });
         }
       };
-
       const onUp = () => {
         resizeGrip.removeEventListener('pointermove', onMove);
         resizeGrip.removeEventListener('pointerup', onUp);
       };
-
       resizeGrip.addEventListener('pointermove', onMove);
       resizeGrip.addEventListener('pointerup', onUp);
     });
 
+    // ── Right-edge horizontal resize grip ─────────────────────────────────────
+    const rightGrip = document.createElement('div');
+    rightGrip.title = 'Drag to resize width';
+    rightGrip.style.cssText = [
+      'position:absolute', 'top:0', 'right:0', 'bottom:0', 'width:7px',
+      'cursor:ew-resize', 'user-select:none', 'touch-action:none',
+      'display:flex', 'align-items:center', 'justify-content:center',
+    ].join(';');
+    rightGrip.innerHTML = '<div style="width:3px;height:40px;border-radius:2px;background:rgba(122,170,136,0.35)"></div>';
+    el.style.position = 'absolute';  // ensure relative positioning context
+
+    rightGrip.addEventListener('pointerdown', (startEvt) => {
+      startEvt.preventDefault();
+      rightGrip.setPointerCapture(startEvt.pointerId);
+      const startX  = startEvt.clientX;
+      const startW  = el.getBoundingClientRect().width;
+      let rafPending = false;
+
+      const onMove = (e: PointerEvent) => {
+        e.preventDefault();
+        const newPanelW = Math.max(300, Math.min(container.clientWidth - 20, startW + (e.clientX - startX)));
+        if (!rafPending) {
+          rafPending = true;
+          requestAnimationFrame(() => {
+            this.profilePanelW = Math.round(newPanelW);
+            el.style.width     = `${this.profilePanelW}px`;
+            W = this.profilePanelW - 20;
+            svgWrap.innerHTML  = buildSvg();
+            hoverCanvas.width  = W;
+            hoverTooltip.style.display = 'none';
+            rafPending = false;
+          });
+        }
+      };
+      const onUp = () => {
+        rightGrip.removeEventListener('pointermove', onMove);
+        rightGrip.removeEventListener('pointerup',   onUp);
+      };
+      rightGrip.addEventListener('pointermove', onMove);
+      rightGrip.addEventListener('pointerup',   onUp);
+    });
+
     el.appendChild(header);
+    if (smoothWrap) el.appendChild(smoothWrap);
     el.appendChild(resizeGrip);
     el.appendChild(chartContainer);
+    el.appendChild(rightGrip);
 
     container.appendChild(el);
     this.profilePanelEl = el;
