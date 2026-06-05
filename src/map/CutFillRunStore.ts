@@ -2,12 +2,14 @@ import type { CutFillResult } from '../lib/cutFillEngine';
 import type { HRDEMResult } from '../lib/hrdemWCS';
 
 export interface CutFillRunDisplayState {
-  view: 'elevation' | 'diff';
+  elevVisible: boolean;
+  diffVisible: boolean;
   hillshade: boolean;
   contours: boolean;
   contourInterval: number;
   daylight: boolean;
-  opacity: number;
+  elevOpacity: number;
+  diffOpacity: number;
 }
 
 export interface CutFillRun {
@@ -46,12 +48,14 @@ export class CutFillRunStore {
       name: `C/F Run ${this.runs.length + 1}`,
       createdAt: Date.now(),
       displayState: {
-        view: 'elevation',
+        elevVisible: true,
+        diffVisible: false,
         hillshade: false,
         contours: false,
         contourInterval: 1,
         daylight: false,
-        opacity: 0.85,
+        elevOpacity: 0.85,
+        diffOpacity: 0.85,
       },
     };
     this.runs.push(run);
@@ -69,6 +73,22 @@ export class CutFillRunStore {
     if (!run) return;
     Object.assign(run, updates);
     // No notify — caller manages UI updates directly
+  }
+
+  renameRun(id: string, name: string): void {
+    const run = this.runs.find(r => r.id === id);
+    if (!run) return;
+    run.name = name.trim() || run.name;
+    this.notify();
+  }
+
+  moveRun(id: string, direction: 'up' | 'down'): void {
+    const idx = this.runs.findIndex(r => r.id === id);
+    if (idx < 0) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= this.runs.length) return;
+    [this.runs[idx], this.runs[swapIdx]] = [this.runs[swapIdx], this.runs[idx]];
+    this.notify();
   }
 
   getRuns(): CutFillRun[] { return [...this.runs]; }
