@@ -58,6 +58,12 @@ const LABEL_OVERRIDES: Record<string, string> = {
   'hrdem-contours':       'NRCan HRDEM Contours',
   'hrdem-dsm-elevation':  'NRCan HRDEM DSM Elevation',
   'hrdem-chm':            'NRCan HRDEM Canopy Height (CHM)',
+  'raster-fn-hillshade':       'Hillshade (DTM)',
+  'raster-fn-dsm-hillshade':   'Hillshade (DSM)',
+  'raster-fn-roughness':       'Terrain Roughness',
+  'raster-fn-slope-pct':       'Slope (% Grade)',
+  'raster-fn-aspect':          'Aspect (Directional)',
+  'raster-fn-tpi':             'Topographic Position Index (TPI)',
 };
 
 // ── Layer descriptions ────────────────────────────────────────────────────────
@@ -92,6 +98,12 @@ const LAYER_DESCRIPTIONS: Record<string, string> = {
   'wi-gei':                 'Groundwater Expression Index (GEI) — a field-validated spectral index derived from satellite imagery highlighting persistent moisture and groundwater discharge. Calibrated against field wetland assessments across NS.',
   'wi-dtw-contour':         'Single-threshold contour extracted from the DTW COG raster. Default threshold 50 cm depth to water — approximates the functional wetland boundary for rapid field targeting. Threshold is adjustable in layer settings.',
   'wi-pdep':                'Probability of Depression (PDEP) — a machine-learning model predicting the likelihood of terrain depressions that retain standing water. Higher values (darker purple) indicate greater depression probability. Developed for NS.',
+  'raster-fn-hillshade':    'Greyscale hillshade computed from the NRCan HRDEM DTM. Renders pure Lambertian shading without an underlying colour ramp — ideal for draping over imagery or other rasters. Sun azimuth, altitude, and Z-factor are adjustable in the layer settings.',
+  'raster-fn-dsm-hillshade':'Greyscale hillshade computed from the NRCan HRDEM DSM. Retains the height of tree canopy and structures in the shading, making canopy edges and building rooflines clearly visible. Azimuth, altitude, and Z-factor configurable in layer settings.',
+  'raster-fn-roughness':    'Terrain roughness index — computed as the elevation range within each 3×3 cell neighbourhood on the NRCan HRDEM DTM. Smooth terrain (low values) appears green; rough, highly dissected terrain (high values) appears red. Useful for identifying exposed bedrock, landslide debris, and structural complexity.',
+  'raster-fn-slope-pct':    'Slope gradient displayed in percent grade (rise/run × 100) derived from the NRCan HRDEM DTM. A practical metric for engineering and earthworks — slope % directly maps to cut-and-fill constraints. Colour ramp and invert settings are configurable.',
+  'raster-fn-aspect':       'Terrain aspect — slope-facing direction rendered as a directional colour wheel on the NRCan HRDEM DTM. North-facing slopes appear cool blue; south-facing warm red; east orange; west purple. Used for solar exposure analysis, cold-air drainage mapping, and species habitat modelling.',
+  'raster-fn-tpi':          'Topographic Position Index (TPI) from the NRCan HRDEM DTM — computed as the difference between each cell\'s elevation and the mean of its 8 neighbours. Positive values (red) indicate ridge crests; negative (blue) indicate valley floors and drains. Diverging colour ramp and stretch configurable.',
 };
 
 // ── Thumbnail resolution ──────────────────────────────────────────────────────
@@ -108,6 +120,7 @@ function getThumb(def: BasemapDef): { src: string; isTile: boolean } {
 
 function typeLabel(def: BasemapDef): string {
   if (def.url.startsWith('cog://')) return 'COG Raster';
+  if (def.group === 'Raster Functions') return 'Raster Function';
   switch (def.type) {
     case 'raster':       return 'Raster';
     case 'nsprd-vector': return 'Vector';
@@ -253,11 +266,18 @@ export class DataLibraryModal {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/></svg>
               Standard Basemaps
             </button>
-            ${groups.map(g => `
+            ${groups.map(g => {
+              const icon = g === 'Raster Functions'
+                ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 3v18M3 12h18M4.22 4.22l15.56 15.56M19.78 4.22 4.22 19.78"/></svg>`
+                : g === 'Elevation'
+                ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="3 17 9 11 13 15 21 7"/></svg>`
+                : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
+              return `
               <button class="dl-nav-item${this.activeGroup === g ? ' active' : ''}" data-group="${g}">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                ${icon}
                 ${g}
-              </button>`).join('')}
+              </button>`;
+            }).join('')}
           </nav>
 
           <div class="dl-sidebar-actions">

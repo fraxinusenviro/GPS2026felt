@@ -67,6 +67,10 @@ interface StackLayer {
   hrdemChmRampId?:    string;    // key of CHM_RAMPS, default 'canopy_green'
   hrdemChmInvert?:    boolean;
   hrdemChmClassPaletteId?: string;        // key of CHM_CLASS_PALETTES, default 'structural'
+  // Hillshade parameters (for raster-fn-hillshade)
+  hrdemHillshadeAzimuth?:  number;        // default 315
+  hrdemHillshadeAltitude?: number;        // default 45
+  hrdemHillshadeZFactor?:  number;        // default 1
   // COG threshold contour
   cogContourThreshold?:   number;  // default 0.5 (metres for DTW)
   cogContourLineColor?:   string;  // default '#1565c0'
@@ -191,6 +195,7 @@ export class BasemapManager {
         localStorage.setItem(BM_STACK_PROJECT_KEY, this.currentProjectId);
       }
     } catch { /* ignore QuotaExceededError */ }
+    EventBus.emit('basemap-stack-changed');
   }
 
   private restoreStack(): boolean {
@@ -556,6 +561,63 @@ export class BasemapManager {
     this.stack = this.stack.filter(l => l.instanceId !== instanceId);
     this.rebuildMap();
     this.saveStack();
+  }
+
+  /** Encode current stack as a compact base64 string for URL sharing. */
+  getUrlStackParam(): string {
+    try {
+      const knownIds = new Set(ALL_DEFS().map(d => d.id));
+      const compact = this.stack
+        .filter(l => knownIds.has(l.defId))
+        .map(l => {
+          const e: Record<string, unknown> = { d: l.defId };
+          if (Math.round(l.opacity * 100) !== 100) e.o = Math.round(l.opacity * 100);
+          if (!l.visible) e.v = 0;
+          if (l.hrdemProduct && l.hrdemProduct !== 'elevation') e.p = l.hrdemProduct;
+          if (l.hrdemRampId) e.r = l.hrdemRampId;
+          if (l.hrdemRampInvert) e.ri = 1;
+          if (l.hrdemContourEnabled) e.ce = 1;
+          if (l.hrdemContourInterval) e.ci = l.hrdemContourInterval;
+          if (l.cogRampId) e.cr = l.cogRampId;
+          return e;
+        });
+      return btoa(JSON.stringify(compact));
+    } catch { return ''; }
+  }
+
+  /** Restore stack from a base64 URL param (does not clobber if param is empty). */
+  restoreFromUrlStack(encoded: string): void {
+    if (!encoded) return;
+    try {
+      const compact = JSON.parse(atob(encoded)) as Array<Record<string, unknown>>;
+      if (!Array.isArray(compact) || compact.length === 0) return;
+      const allDefs = ALL_DEFS();
+      const stack: StackLayer[] = [];
+      for (const e of compact) {
+        const defId = e['d'] as string;
+        const def = allDefs.find(d => d.id === defId);
+        if (!def) continue;
+        const opacity = typeof e['o'] === 'number' ? (e['o'] as number) / 100 : 1;
+        const visible = e['v'] !== 0;
+        const layer: StackLayer = {
+          instanceId: `${defId}-${Date.now()}-${Math.random().toString(36).slice(2,5)}`,
+          defId, label: def.label, url: def.url,
+          type: def.type, tileSize: def.tile_size ?? 256, maxZoom: def.max_zoom ?? 22,
+          opacity, visible, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
+        };
+        if (e['p']) layer.hrdemProduct = e['p'] as string;
+        if (e['r']) layer.hrdemRampId = e['r'] as string;
+        if (e['ri']) layer.hrdemRampInvert = true;
+        if (e['ce']) layer.hrdemContourEnabled = true;
+        if (e['ci']) layer.hrdemContourInterval = e['ci'] as number;
+        if (e['cr']) layer.cogRampId = e['cr'] as string;
+        stack.push(layer);
+      }
+      if (stack.length === 0) return;
+      this.stack = stack;
+      this.rebuildMap();
+      this.saveStack();
+    } catch { /* ignore malformed */ }
   }
 
   private addUserLayerToStack(ul: UserLayerInfo, container: HTMLElement, onClose: () => void): void {
@@ -946,11 +1008,30 @@ export class BasemapManager {
           l.hrdemContourColor    ?? (isContourLayer ? '#000000' : '#ffffff'),
           l.hrdemContourWidth    ?? (isContourLayer ? 0.5 : 1.2),
         );
-        hrdemInst.setSurface(l.hrdemSurface ?? 'dtm');
-        hrdemInst.setProduct((l.hrdemProduct ?? 'elevation') as HRDEMProduct);
+        // Determine surface from defId for raster function layers
+        const rasterFnSurface = l.defId === 'raster-fn-dsm-hillshade' ? 'dsm' : (l.hrdemSurface ?? 'dtm');
+        hrdemInst.setSurface(rasterFnSurface);
+        // Determine product from defId if not explicitly stored
+        const effectiveProduct = l.hrdemProduct ?? (
+          l.defId === 'raster-fn-hillshade'     ? 'hillshade'
+          : l.defId === 'raster-fn-dsm-hillshade' ? 'hillshade'
+          : l.defId === 'raster-fn-roughness'   ? 'roughness'
+          : l.defId === 'raster-fn-slope-pct'   ? 'slope'
+          : l.defId === 'raster-fn-aspect'      ? 'aspect'
+          : l.defId === 'raster-fn-tpi'         ? 'tpi'
+          : 'elevation'
+        );
+        hrdemInst.setProduct(effectiveProduct as HRDEMProduct);
+        if (effectiveProduct === 'hillshade') {
+          hrdemInst.setHillshadeParams(
+            l.hrdemHillshadeAzimuth  ?? 315,
+            l.hrdemHillshadeAltitude ?? 45,
+            l.hrdemHillshadeZFactor  ?? 1,
+          );
+        }
         hrdemInst.setProductStyle({
           slopeRampId:  l.hrdemSlopeRampId  ?? 'classic',
-          slopeUnit:    (l.hrdemSlopeUnit    ?? 'degrees') as 'degrees' | 'percent',
+          slopeUnit:    (l.hrdemSlopeUnit ?? (l.defId === 'raster-fn-slope-pct' ? 'percent' : 'degrees')) as 'degrees' | 'percent',
           slopeStretch: (l.hrdemSlopeStretch ?? 'auto') as 'auto' | 'full' | '0-45' | '0-90',
           slopeInvert:  l.hrdemSlopeInvert   ?? false,
           aspectSat:    (l.hrdemAspectSat    ?? 80) / 100,
@@ -1382,7 +1463,19 @@ export class BasemapManager {
       </div>` : '';
 
     const isHrdem = ltype === 'hrdem-wcs';
-    const hrdemProduct      = layer.hrdemProduct         ?? (layer.defId === 'hrdem-slope' ? 'slope' : layer.defId === 'hrdem-aspect' ? 'aspect' : layer.defId === 'hrdem-tpi' ? 'tpi' : 'elevation');
+    const hrdemProduct      = layer.hrdemProduct         ?? (
+      layer.defId === 'hrdem-slope'            ? 'slope'
+      : layer.defId === 'hrdem-aspect'         ? 'aspect'
+      : layer.defId === 'hrdem-tpi'            ? 'tpi'
+      : layer.defId === 'hrdem-chm'            ? 'chm'
+      : layer.defId === 'raster-fn-hillshade'  ? 'hillshade'
+      : layer.defId === 'raster-fn-dsm-hillshade' ? 'hillshade'
+      : layer.defId === 'raster-fn-roughness'  ? 'roughness'
+      : layer.defId === 'raster-fn-slope-pct'  ? 'slope'
+      : layer.defId === 'raster-fn-aspect'     ? 'aspect'
+      : layer.defId === 'raster-fn-tpi'        ? 'tpi'
+      : 'elevation'
+    );
     const hrdemRampId       = layer.hrdemRampId          ?? 'terrain';
     const hrdemInvert       = layer.hrdemRampInvert      ?? false;
     const hrdemRasterVis    = layer.hrdemRasterVisible   ?? (layer.defId === 'hrdem-contours' ? false : true);
@@ -1520,6 +1613,59 @@ export class BasemapManager {
           </div>
         </div>`;
 
+    } else if (layer.defId === 'raster-fn-hillshade' || layer.defId === 'raster-fn-dsm-hillshade') {
+      const hsAz  = layer.hrdemHillshadeAzimuth  ?? 315;
+      const hsAlt = layer.hrdemHillshadeAltitude ?? 45;
+      const hsZ   = layer.hrdemHillshadeZFactor  ?? 1;
+      hrdemInnerContent = `
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div style="display:flex;align-items:center;gap:5px">
+            <span style="font-size:9px;opacity:.55;width:54px">Azimuth</span>
+            <input type="range" class="bm-hrdem-hs-az" data-iid="${iid}" min="0" max="360" step="15" value="${hsAz}" style="flex:1;accent-color:var(--color-accent);height:14px" />
+            <span class="bm-hrdem-hs-az-val" data-iid="${iid}" style="font-size:10px;opacity:.55;width:30px;text-align:right">${hsAz}°</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:5px">
+            <span style="font-size:9px;opacity:.55;width:54px">Altitude</span>
+            <input type="range" class="bm-hrdem-hs-alt" data-iid="${iid}" min="1" max="90" step="5" value="${hsAlt}" style="flex:1;accent-color:var(--color-accent);height:14px" />
+            <span class="bm-hrdem-hs-alt-val" data-iid="${iid}" style="font-size:10px;opacity:.55;width:30px;text-align:right">${hsAlt}°</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:5px">
+            <span style="font-size:9px;opacity:.55;width:54px">Z-factor</span>
+            <input type="range" class="bm-hrdem-hs-zf" data-iid="${iid}" min="0.1" max="5" step="0.1" value="${hsZ}" style="flex:1;accent-color:var(--color-accent);height:14px" />
+            <span class="bm-hrdem-hs-zf-val" data-iid="${iid}" style="font-size:10px;opacity:.55;width:30px;text-align:right">${hsZ}×</span>
+          </div>
+        </div>`;
+
+    } else if (layer.defId === 'raster-fn-roughness') {
+      hrdemInnerContent = `<div style="font-size:10px;opacity:.65">Terrain roughness — elevation range within a 3×3 cell window. No configurable parameters; colour ramp is fixed green→yellow→red.</div>`;
+
+    } else if (layer.defId === 'raster-fn-slope-pct') {
+      const hrdemSlopeRampId2  = layer.hrdemSlopeRampId  ?? 'classic';
+      const hrdemSlopeInvert2  = layer.hrdemSlopeInvert  ?? false;
+      const slopeRampEntry2    = SLOPE_RAMPS[hrdemSlopeRampId2] ?? SLOPE_RAMPS['classic'];
+      const slopeGradient2     = rampToHorizontalGradient(hrdemSlopeInvert2 ? invertRamp(slopeRampEntry2.ramp) : slopeRampEntry2.ramp);
+      hrdemInnerContent = `
+        <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px">
+          ${Object.entries(SLOPE_RAMPS).map(([k,r]) => chip(r.label, hrdemSlopeRampId2===k, 'bm-hrdem-slope-ramp-chip', `data-ramp="${k}"`)).join('')}
+        </div>
+        <div class="bm-hrdem-slope-preview" data-iid="${iid}" style="height:7px;border-radius:2px;border:1px solid var(--border,#444);background:${slopeGradient2};margin-bottom:6px"></div>
+        <div style="font-size:10px;opacity:.55;font-style:italic">Displaying slope as % grade (0–100%).</div>`;
+
+    } else if (layer.defId === 'raster-fn-aspect') {
+      hrdemInnerContent = `<div style="font-size:10px;opacity:.65">Terrain aspect (slope direction). Rendered as a directional colour wheel — N cool blue, E orange, S warm red, W purple.</div>`;
+
+    } else if (layer.defId === 'raster-fn-tpi') {
+      const hrdemTpiRampId2  = layer.hrdemTpiRampId  ?? 'rdylbu';
+      const hrdemTpiInvert2  = layer.hrdemTpiInvert  ?? false;
+      const tpiRampEntry2    = TPI_RAMPS[hrdemTpiRampId2] ?? TPI_RAMPS['rdylbu'];
+      const tpiGradient2     = rampToHorizontalGradient(hrdemTpiInvert2 ? invertRamp(tpiRampEntry2.ramp) : tpiRampEntry2.ramp);
+      hrdemInnerContent = `
+        <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px">
+          ${Object.entries(TPI_RAMPS).map(([k,r]) => chip(r.label, hrdemTpiRampId2===k, 'bm-hrdem-tpi-ramp-chip', `data-ramp="${k}"`)).join('')}
+        </div>
+        <div class="bm-hrdem-tpi-preview" data-iid="${iid}" style="height:7px;border-radius:2px;border:1px solid var(--border,#444);background:${tpiGradient2};margin-bottom:6px"></div>
+        <div style="font-size:10px;opacity:.55;font-style:italic">Topographic Position Index — ridges (red) vs valleys (blue).</div>`;
+
     } else {
       // Default: elevation panel (DTM or DSM elevation)
       hrdemInnerContent = `
@@ -1607,6 +1753,7 @@ export class BasemapManager {
           <button class="bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
           ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
           <button class="bm-refresh-btn" data-iid="${layer.instanceId}" title="Reload layer" style="background:none;border:1px solid var(--color-border);border-radius:4px;color:var(--color-text-dim);cursor:pointer;padding:2px 4px;display:flex;align-items:center;flex-shrink:0">${refreshSvg}</button>
+          <button class="bm-dup-btn" data-iid="${layer.instanceId}" title="Duplicate layer" style="background:none;border:1px solid var(--color-border);border-radius:4px;color:var(--color-text-dim);cursor:pointer;padding:2px 5px;font-size:12px;flex-shrink:0">⧉</button>
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
         ${isVectorLayer ? vecStylePanel : isHrdem ? hrdemAdjPanel : isCogContour ? cogContourAdjPanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
@@ -1671,7 +1818,7 @@ export class BasemapManager {
     </button>`;
 
     const fmtVol = (m3: number) =>
-      m3 >= 1000 ? `${(m3 / 1000).toFixed(2)} km³` : `${m3.toFixed(0)} m³`;
+      `${m3.toLocaleString(undefined, { maximumFractionDigits: 1 })} m³`;
 
     const eyeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
     const eyeOffSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M96.68,57.87a4,4,0,0,1,2.08-6.6A130.13,130.13,0,0,1,128,48c34.88,0,66.57,13.26,91.66,38.35,18.83,18.83,27.3,37.62,27.65,38.41a8,8,0,0,1,0,6.5c-.35.79-8.82,19.57-27.65,38.4q-4.28,4.26-8.79,8.07a4,4,0,0,1-5.55-.36ZM213.92,210.62a8,8,0,1,1-11.84,10.76L180,197.13A127.21,127.21,0,0,1,128,208c-34.88,0-66.57-13.26-91.66-38.34C17.51,150.83,9,132.05,8.69,131.26a8,8,0,0,1,0-6.5C9,124,17.51,105.18,36.34,86.35a135,135,0,0,1,25-19.78L42.08,45.38A8,8,0,1,1,53.92,34.62Zm-65.49-48.25-52.69-58a40,40,0,0,0,52.69,58Z"/></svg>`;
@@ -2164,6 +2311,20 @@ export class BasemapManager {
       });
     });
 
+    container.querySelectorAll<HTMLButtonElement>('.bm-dup-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const src = this.stack.find(l => l.instanceId === iid);
+        if (!src) return;
+        const clone: StackLayer = { ...src, instanceId: `${src.defId}-${Date.now()}`, label: `${src.label} (copy)` };
+        const idx = this.stack.indexOf(src);
+        this.stack.splice(idx, 0, clone);
+        this.saveStack();
+        this.rebuildMap();
+        this.renderContent(container, onClose);
+      });
+    });
+
     // Adjustment panel toggles
     container.querySelectorAll<HTMLButtonElement>('.bm-adj-toggle').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -2554,6 +2715,54 @@ export class BasemapManager {
         if (!isFinite(w) || w <= 0) return;
         layer.hrdemContourWidth = w;
         applyContour(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    // Hillshade sliders (azimuth, altitude, z-factor)
+    const applyHillshadeParams = (iid: string, layer: StackLayer) => {
+      this.hrdemLayers.get(iid)?.setHillshadeParams(
+        layer.hrdemHillshadeAzimuth  ?? 315,
+        layer.hrdemHillshadeAltitude ?? 45,
+        layer.hrdemHillshadeZFactor  ?? 1,
+      );
+    };
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-hs-az').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const iid = slider.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemHillshadeAzimuth = parseInt(slider.value);
+        const lbl = container.querySelector<HTMLElement>(`.bm-hrdem-hs-az-val[data-iid="${iid}"]`);
+        if (lbl) lbl.textContent = `${slider.value}°`;
+        applyHillshadeParams(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-hs-alt').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const iid = slider.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemHillshadeAltitude = parseInt(slider.value);
+        const lbl = container.querySelector<HTMLElement>(`.bm-hrdem-hs-alt-val[data-iid="${iid}"]`);
+        if (lbl) lbl.textContent = `${slider.value}°`;
+        applyHillshadeParams(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-hs-zf').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const iid = slider.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.hrdemHillshadeZFactor = parseFloat(slider.value);
+        const lbl = container.querySelector<HTMLElement>(`.bm-hrdem-hs-zf-val[data-iid="${iid}"]`);
+        if (lbl) lbl.textContent = `${parseFloat(slider.value).toFixed(1)}×`;
+        applyHillshadeParams(iid, layer);
         this.saveStack();
       });
     });

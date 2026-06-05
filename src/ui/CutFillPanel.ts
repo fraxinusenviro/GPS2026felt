@@ -679,7 +679,7 @@ export class CutFillPanel {
     if (viewSec) viewSec.style.display = 'block';
 
     const fmt = (m3: number) =>
-      m3 >= 1000 ? `${(m3 / 1000).toFixed(2)} km³` : `${m3.toFixed(0)} m³`;
+      `${m3.toLocaleString(undefined, { maximumFractionDigits: 1 })} m³`;
     const fmtArea = (m2: number) =>
       m2 >= 10000 ? `${(m2 / 10000).toFixed(2)} ha` : `${m2.toFixed(0)} m²`;
 
