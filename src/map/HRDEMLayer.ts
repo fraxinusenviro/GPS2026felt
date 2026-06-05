@@ -231,7 +231,7 @@ export class HRDEMLayer {
       },
       LAYER_IDS.COLLECTED_POLYGONS_FILL,
     );
-    // Colored line on top
+    // Colored line on top — data-driven color keyed on seg_type property
     map.addLayer(
       {
         id:     this.profileLineLayerId,
@@ -239,7 +239,13 @@ export class HRDEMLayer {
         source: this.profileLineSrcId,
         layout: { 'line-cap': 'round', 'line-join': 'round', visibility: 'visible' },
         paint: {
-          'line-color':      this.profileLineColor,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          'line-color': ['match', ['get', 'seg_type'],
+            'cut',      '#ef4444',
+            'fill',     '#3b82f6',
+            'existing', '#c0c0c0',
+            this.profileLineColor,
+          ] as any,
           'line-width':      4,
           'line-dasharray':  [5, 2],
           'line-opacity':    0.95,
@@ -982,6 +988,67 @@ export class HRDEMLayer {
     this.updateVertexMarkers();
   }
 
+  private buildColorCodedLineFeatures(
+    points: [number, number][],
+    ptsDTM: Array<{ dist: number; elev: number | null }>,
+    ptsCF:  Array<{ dist: number; elev: number | null }>,
+  ): GeoJSON.Feature[] {
+    const segDists  = this.computeSegDists(points);
+    const totalDist = segDists.reduce((a, b) => a + b, 0);
+    if (totalDist === 0 || ptsDTM.length === 0) return [];
+
+    // Interpolate lng/lat at cumulative distance d along the polyline
+    const lnglat = (d: number): [number, number] => {
+      let acc = 0;
+      for (let s = 0; s < points.length - 1; s++) {
+        const sd = segDists[s];
+        if (s === points.length - 2 || acc + sd >= d - 1e-9) {
+          const t = sd > 0 ? Math.min(1, (d - acc) / sd) : 0;
+          return [
+            points[s][0] + t * (points[s + 1][0] - points[s][0]),
+            points[s][1] + t * (points[s + 1][1] - points[s][1]),
+          ];
+        }
+        acc += sd;
+      }
+      return points[points.length - 1];
+    };
+
+    type Sample = { lon: number; lat: number; seg_type: string };
+    const samples: Sample[] = ptsDTM.map((p, i) => {
+      const cfElev  = ptsCF[i]?.elev ?? null;
+      const dtmElev = p.elev;
+      let seg_type = 'existing';
+      if (dtmElev !== null && cfElev !== null) {
+        if (dtmElev > cfElev + 0.15)      seg_type = 'cut';
+        else if (dtmElev < cfElev - 0.15) seg_type = 'fill';
+      }
+      const [lon, lat] = lnglat(p.dist);
+      return { lon, lat, seg_type };
+    });
+
+    const features: GeoJSON.Feature[] = [];
+    let i = 0;
+    while (i < samples.length) {
+      const type   = samples[i].seg_type;
+      const coords: [number, number][] = [];
+      while (i < samples.length && samples[i].seg_type === type) {
+        coords.push([samples[i].lon, samples[i].lat]);
+        i++;
+      }
+      // Bridge: include first point of the next group to eliminate gaps
+      if (i < samples.length) coords.push([samples[i].lon, samples[i].lat]);
+      if (coords.length >= 2) {
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: coords },
+          properties: { seg_type: type },
+        } as GeoJSON.Feature);
+      }
+    }
+    return features;
+  }
+
   private updateVertexMarkers(): void {
     for (const m of this.profileVertexMarkers) m.remove();
     this.profileVertexMarkers = [];
@@ -1130,6 +1197,19 @@ export class HRDEMLayer {
     }
 
     this.showProfilePanel(pts, segDists, pts2, pts3, pts4);
+
+    // Color-code the map line using cut/fill classification when C/F data is present
+    if (pts4 && pts4.some(p => p.elev !== null)) {
+      const dtmPts = this.profileMode === 'dsm'
+        ? this.sampleProfileLineMulti(savedPoints, 200, this.lastDTMResult) // re-fetch DTM for comparison baseline
+        : pts;
+      const coloredFeatures = this.buildColorCodedLineFeatures(savedPoints, dtmPts, pts4);
+      if (coloredFeatures.length > 0 && this.profileLineSrcId) {
+        const src = this.mapManager.getMap().getSource(this.profileLineSrcId) as maplibregl.GeoJSONSource | undefined;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        src?.setData({ type: 'FeatureCollection', features: coloredFeatures } as any);
+      }
+    }
   }
 
   private showSamplePopup(
@@ -1379,9 +1459,17 @@ export class HRDEMLayer {
     const W    = Math.max(320, container.clientWidth - 40);
     const padL = 40, padR = 10, padT = 18, padB = 58;
 
+    // Visibility flags for optional profile series
+    let showDsm = true;
+    let showDtw = true;
+    let showCf  = true;
+
     const buildSvg = () => this.buildProfileSvg(
       valid, elevMin, elevMax, elevRange, distMax, segDists,
-      this.profileLineColor, W, this.profileChartH, padL, padR, padT, padB, 9, valid2, valid3, valid4,
+      this.profileLineColor, W, this.profileChartH, padL, padR, padT, padB, 9,
+      (showDsm && valid2 && valid2.length > 1) ? valid2 : undefined,
+      (showDtw && valid3 && valid3.length > 1) ? valid3 : undefined,
+      (showCf  && valid4 && valid4.length > 1) ? valid4 : undefined,
     );
 
     const el = document.createElement('div');
@@ -1410,7 +1498,12 @@ export class HRDEMLayer {
     snapBtn.style.cssText = 'background:none;border:1px solid rgba(91,175,130,0.3);border-radius:3px;color:#7a9;cursor:pointer;padding:2px 6px;line-height:1;display:inline-flex;align-items:center';
     snapBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor"><path d="M208,56H180.28L166.65,35.56A8,8,0,0,0,160,32H96a8,8,0,0,0-6.65,3.56L75.71,56H48A24,24,0,0,0,24,80V192a24,24,0,0,0,24,24H208a24,24,0,0,0,24-24V80A24,24,0,0,0,208,56Zm-44,76a36,36,0,1,1-36-36A36,36,0,0,1,164,132Z"/></svg>';
     snapBtn.addEventListener('click', () =>
-      this.takeSnapshot(valid, elevMin, elevMax, el, elevRange, distMax, segDists, valid2, valid3, valid4),
+      this.takeSnapshot(
+        valid, elevMin, elevMax, el, elevRange, distMax, segDists,
+        (showDsm && valid2 && valid2.length > 1) ? valid2 : undefined,
+        (showDtw && valid3 && valid3.length > 1) ? valid3 : undefined,
+        (showCf  && valid4 && valid4.length > 1) ? valid4 : undefined,
+      ),
     );
 
     const close = document.createElement('button');
@@ -1492,6 +1585,47 @@ export class HRDEMLayer {
     });
 
     btnWrap.insertBefore(hoverToggleBtn, snapBtn);
+
+    // ── Legend visibility toggles for optional series ─────────────────────────
+    if ((valid2 && valid2.length > 1) || (valid3 && valid3.length > 1) || (valid4 && valid4.length > 1)) {
+      const legWrap = document.createElement('span');
+      legWrap.style.cssText = 'display:flex;align-items:center;gap:3px;margin-right:2px';
+
+      const mkLegBtn = (label: string, clr: string, flagGet: () => boolean, flagSet: (v: boolean) => void) => {
+        const btn = document.createElement('button');
+        const sync = () => {
+          const on = flagGet();
+          btn.style.cssText = [
+            `background:${on ? clr + '22' : 'none'}`,
+            `border:1px solid ${on ? clr : 'rgba(255,255,255,0.15)'}`,
+            `color:${on ? clr : 'rgba(91,175,130,0.4)'}`,
+            'border-radius:3px', 'cursor:pointer', 'padding:1px 5px',
+            'font-size:9px', 'font-family:inherit', 'line-height:1.5',
+          ].join(';');
+        };
+        btn.textContent = label;
+        btn.title = `Toggle ${label}`;
+        sync();
+        btn.addEventListener('click', () => {
+          flagSet(!flagGet());
+          sync();
+          svgWrap.innerHTML = buildSvg();
+        });
+        return btn;
+      };
+
+      if (valid2 && valid2.length > 1) {
+        legWrap.appendChild(mkLegBtn('DSM', '#88ccff', () => showDsm, v => { showDsm = v; }));
+      }
+      if (valid3 && valid3.length > 1) {
+        legWrap.appendChild(mkLegBtn('Water', '#1e88e5', () => showDtw, v => { showDtw = v; }));
+      }
+      if (valid4 && valid4.length > 1) {
+        legWrap.appendChild(mkLegBtn('C/F', '#fb923c', () => showCf, v => { showCf = v; }));
+      }
+
+      btnWrap.insertBefore(legWrap, hoverToggleBtn);
+    }
 
     // ── Hover mouse tracking ──────────────────────────────────────────────────
     const drawHover = (mouseX: number) => {
