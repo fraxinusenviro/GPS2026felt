@@ -17,6 +17,11 @@ if ('serviceWorker' in navigator) {
 
 // Login overlay
 function showLoginOverlay(): void {
+  const buildDate = new Date(__APP_BUILD_DATE__).toLocaleDateString('en-CA', {
+    year: 'numeric', month: 'short', day: 'numeric',
+  });
+  const version = __APP_VERSION__;
+
   const overlay = document.createElement('div');
   overlay.id = 'login-overlay';
   overlay.style.cssText = [
@@ -30,22 +35,53 @@ function showLoginOverlay(): void {
     <div style="
       background:#0b1a10;
       border:1px solid rgba(91,175,130,0.22);
-      border-radius:12px;
-      padding:36px 40px 32px;
-      min-width:320px;
-      max-width:380px;
-      box-shadow:0 8px 40px rgba(0,0,0,0.7);
+      border-radius:14px;
+      padding:40px 44px 36px;
+      min-width:340px;
+      max-width:400px;
+      width:90vw;
+      box-shadow:0 12px 60px rgba(0,0,0,0.75), 0 0 0 1px rgba(91,175,130,0.08);
       display:flex;
       flex-direction:column;
       align-items:center;
-      gap:20px;
+      gap:0;
     ">
-      <img src="/logo_text_white.png" alt="Fraxinus" style="max-width:200px;height:auto;opacity:0.92" />
-      <div style="color:rgba(200,220,200,0.5);font-size:12px;letter-spacing:0.06em;text-transform:uppercase;margin-top:-8px">
-        Field Mapping
+
+      <!-- Logo -->
+      <img src="./logo_text_white.png" alt="Fraxinus Environmental &amp; Geomatics"
+        style="max-width:220px;width:100%;height:auto;margin-bottom:18px" />
+
+      <!-- Divider -->
+      <div style="width:100%;height:1px;background:rgba(91,175,130,0.15);margin-bottom:18px"></div>
+
+      <!-- App info block -->
+      <div style="text-align:center;margin-bottom:22px;display:flex;flex-direction:column;gap:6px">
+        <div style="color:#c8e6c9;font-size:16px;font-weight:600;letter-spacing:0.03em">
+          Fraxinus Field Mapper
+        </div>
+        <div style="color:rgba(160,210,170,0.6);font-size:12px;letter-spacing:0.04em">
+          GPS Data Collection &amp; Cut/Fill Analysis
+        </div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:4px">
+          <span style="
+            background:rgba(74,222,128,0.1);
+            border:1px solid rgba(74,222,128,0.25);
+            border-radius:4px;
+            color:rgba(74,222,128,0.75);
+            font-size:10px;
+            padding:2px 8px;
+            letter-spacing:0.05em;
+          ">v${version}</span>
+          <span style="color:rgba(160,210,170,0.4);font-size:10px">${buildDate}</span>
+        </div>
       </div>
+
+      <!-- Password form -->
       <div style="width:100%;display:flex;flex-direction:column;gap:10px">
-        <input id="login-pw" type="password" placeholder="Password"
+        <label style="color:rgba(160,210,170,0.55);font-size:11px;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:2px">
+          Access Password
+        </label>
+        <input id="login-pw" type="password" placeholder="Enter password"
           autocomplete="current-password"
           style="
             width:100%;box-sizing:border-box;
@@ -53,12 +89,13 @@ function showLoginOverlay(): void {
             border:1px solid rgba(91,175,130,0.3);
             border-radius:6px;
             color:#e8f5e9;
-            padding:10px 14px;
+            padding:11px 14px;
             font-size:14px;
             outline:none;
             font-family:inherit;
+            transition:border-color 0.2s;
           " />
-        <div id="login-error" style="color:#f87171;font-size:12px;text-align:center;display:none">
+        <div id="login-error" style="color:#f87171;font-size:12px;text-align:center;display:none;padding:4px 0">
           Incorrect password — please try again.
         </div>
         <button id="login-submit" style="
@@ -66,14 +103,22 @@ function showLoginOverlay(): void {
           border:1px solid rgba(74,222,128,0.4);
           border-radius:6px;
           color:#4ade80;
-          padding:10px;
+          padding:11px;
           font-size:14px;
           cursor:pointer;
           font-family:inherit;
           font-weight:500;
-          letter-spacing:0.02em;
-        ">Enter</button>
+          letter-spacing:0.03em;
+          transition:background 0.15s, border-color 0.15s;
+          margin-top:2px;
+        ">Sign In</button>
       </div>
+
+      <!-- Footer note -->
+      <div style="margin-top:20px;color:rgba(160,210,170,0.3);font-size:10px;text-align:center;letter-spacing:0.03em">
+        Authorized use only · Fraxinus Environmental &amp; Geomatics
+      </div>
+
     </div>
   `;
 
