@@ -39,6 +39,8 @@ export class ProfilePanel {
   private samples:     ProfileSample[] | null = null;
   private hoverIdx:    number | null = null;
   private loading      = false;
+  private showDtm = true;
+  private showCf  = true;
 
   constructor(
     private readonly mapManager:      MapManager,
@@ -117,8 +119,8 @@ export class ProfilePanel {
       </div>
 
       <div class="pf-legend" id="pf-legend" style="display:none">
-        <span class="pf-leg-item pf-leg-dtm">— DTM</span>
-        <span class="pf-leg-item pf-leg-cf" id="pf-leg-cf" style="display:none">— Cut / Fill</span>
+        <button class="pf-leg-btn pf-leg-dtm" id="pf-leg-dtm-btn" title="Click to toggle DTM line">— DTM</button>
+        <button class="pf-leg-btn pf-leg-cf" id="pf-leg-cf-btn" style="display:none" title="Click to toggle Cut/Fill line">— Cut/Fill</button>
         <button class="cf-btn cf-btn-sm" id="pf-export-csv" style="margin-left:auto">↓ CSV</button>
       </div>
     `;
@@ -184,6 +186,18 @@ export class ProfilePanel {
         this.drawChart(this.samples, null);
       }
     });
+
+    el.querySelector('#pf-leg-dtm-btn')?.addEventListener('click', () => {
+      this.showDtm = !this.showDtm;
+      el.querySelector('#pf-leg-dtm-btn')?.classList.toggle('pf-leg-inactive', !this.showDtm);
+      if (this.samples) this.drawChart(this.samples, this.hoverIdx);
+    });
+
+    el.querySelector('#pf-leg-cf-btn')?.addEventListener('click', () => {
+      this.showCf = !this.showCf;
+      el.querySelector('#pf-leg-cf-btn')?.classList.toggle('pf-leg-inactive', !this.showCf);
+      if (this.samples) this.drawChart(this.samples, this.hoverIdx);
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -213,19 +227,68 @@ export class ProfilePanel {
 
   private stopDrawing(): void {
     this.setDrawMode('idle');
-    this.mapManager.clearSketchPreview();
+    this.mapManager.clearProfilePreview();
     this.mapManager.getMap().getCanvas().style.cursor = '';
   }
 
   private updatePreview(): void {
     const verts = this.vertices;
-    if (verts.length === 0) { this.mapManager.clearSketchPreview(); return; }
+    if (verts.length === 0) { this.mapManager.clearProfilePreview(); return; }
+
     const features: object[] = [];
+
     if (verts.length >= 2) {
-      features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: verts }, properties: {} });
+      if (this.samples && this.samples.length >= 2) {
+        // Color-coded segments
+        const points = this.sampleLinePoints(verts, this.samples.length);
+        let currentType: string | null = null;
+        let currentCoords: [number, number][] = [];
+
+        for (let i = 0; i < this.samples.length; i++) {
+          const pt: [number, number] = [points[i].lon, points[i].lat];
+          const type = this.getSegmentType(this.samples[i]);
+
+          if (currentType === null) {
+            currentType = type;
+            currentCoords = [pt];
+          } else if (type !== currentType) {
+            currentCoords.push(pt); // overlap 1 point for continuity
+            if (currentCoords.length >= 2) {
+              features.push({
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: currentCoords },
+                properties: { seg_type: currentType }
+              });
+            }
+            currentType = type;
+            currentCoords = [pt];
+          } else {
+            currentCoords.push(pt);
+          }
+        }
+        if (currentCoords.length >= 2 && currentType !== null) {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: currentCoords },
+            properties: { seg_type: currentType }
+          });
+        }
+      } else {
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: verts },
+          properties: { seg_type: 'existing' }
+        });
+      }
     }
-    verts.forEach(v => features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: v }, properties: {} }));
-    this.mapManager.updateSketchPreview(features);
+
+    verts.forEach(v => features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: v },
+      properties: {}
+    }));
+
+    this.mapManager.updateProfilePreview(features);
 
     const cnt = this.el?.querySelector('#pf-vtx-count');
     if (cnt) cnt.textContent = `${verts.length} pts`;
@@ -305,11 +368,12 @@ export class ProfilePanel {
 
     const hasCf = this.samples.some(s => s.cutfill !== null);
     const legend  = this.el?.querySelector<HTMLElement>('#pf-legend');
-    const cfLegEl = this.el?.querySelector<HTMLElement>('#pf-leg-cf');
+    const cfLegEl = this.el?.querySelector<HTMLElement>('#pf-leg-cf-btn');
     if (legend) legend.style.display = 'flex';
-    if (cfLegEl) cfLegEl.style.display = hasCf ? 'inline' : 'none';
+    if (cfLegEl) cfLegEl.style.display = hasCf ? 'inline-flex' : 'none';
 
     this.drawChart(this.samples, this.hoverIdx);
+    this.updatePreview();
   }
 
   // --------------------------------------------------------------------------
@@ -451,8 +515,47 @@ export class ProfilePanel {
       ctx.stroke();
     };
 
-    drawLine(s => s.dtm,     '#60a5fa', 1.5);
-    drawLine(s => s.cutfill, '#fb923c', 1.5);
+    // Draw DTM line (solid blue)
+    if (this.showDtm) {
+      drawLine(s => s.dtm, '#60a5fa', 1.5);
+    }
+
+    // Draw C/F modified surface line: colored per-segment (cut=red, fill=blue, unchanged=grey)
+    if (this.showCf && samples.some(s => s.cutfill !== null)) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(ML, MT, cw, ch);
+      ctx.clip();
+      ctx.lineWidth = 1.5;
+      ctx.lineJoin = 'round';
+
+      // Group consecutive samples by segment type and draw each group
+      let segStart = 0;
+      while (segStart < samples.length) {
+        const s0 = samples[segStart];
+        if (s0.cutfill === null) { segStart++; continue; }
+        const type0 = s0.dtm !== null && Math.abs(s0.dtm - s0.cutfill) >= 0.15
+          ? (s0.dtm > s0.cutfill ? 'cut' : 'fill') : 'existing';
+        ctx.strokeStyle = type0 === 'cut' ? '#ef4444' : type0 === 'fill' ? '#3b82f6' : '#94a3b8';
+        ctx.beginPath();
+        let penDown = false;
+        let i = segStart;
+        while (i < samples.length) {
+          const si = samples[i];
+          if (si.cutfill === null) { i++; continue; }
+          const typeI = si.dtm !== null && Math.abs(si.dtm - si.cutfill) >= 0.15
+            ? (si.dtm > si.cutfill ? 'cut' : 'fill') : 'existing';
+          if (typeI !== type0) break;
+          const x = xPx(si.distM), y = yPx(si.cutfill);
+          if (!penDown) { ctx.moveTo(x, y); penDown = true; }
+          else ctx.lineTo(x, y);
+          i++;
+        }
+        ctx.stroke();
+        segStart = Math.max(segStart + 1, i);
+      }
+      ctx.restore();
+    }
 
     ctx.restore();
 
@@ -532,6 +635,12 @@ export class ProfilePanel {
     this.loading = on;
     const el = this.el?.querySelector<HTMLElement>('#pf-loading');
     if (el) el.style.display = on ? 'flex' : 'none';
+  }
+
+  private getSegmentType(s: ProfileSample): string {
+    if (s.cutfill === null) return 'existing';
+    if (s.dtm === null || Math.abs(s.dtm - s.cutfill) < 0.15) return 'existing';
+    return s.dtm > s.cutfill ? 'cut' : 'fill';
   }
 
   private getLineBbox(): [number, number, number, number] {

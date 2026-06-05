@@ -229,7 +229,7 @@ export class HRDEMLayer {
           'line-opacity': 0.8,
         },
       },
-      LAYER_IDS.USER_ACCURACY,
+      LAYER_IDS.COLLECTED_POLYGONS_FILL,
     );
     // Colored line on top
     map.addLayer(
@@ -245,7 +245,7 @@ export class HRDEMLayer {
           'line-opacity':    0.95,
         },
       },
-      LAYER_IDS.USER_ACCURACY,
+      LAYER_IDS.COLLECTED_POLYGONS_FILL,
     );
 
     this.ensureToolbar();

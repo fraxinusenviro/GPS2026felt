@@ -650,6 +650,47 @@ export class MapManager {
         this.map.getCanvas().style.cursor = '';
       });
     });
+
+    // Profile preview layers (dedicated, above all C/F and collected layers)
+    this.map.addSource('profile-preview', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
+    this.map.addLayer({
+      id: 'profile-preview-border',
+      type: 'line',
+      source: 'profile-preview',
+      filter: ['==', '$type', 'LineString'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': 'rgba(0,0,0,0.55)', 'line-width': 6 }
+    });
+    this.map.addLayer({
+      id: 'profile-preview-line',
+      type: 'line',
+      source: 'profile-preview',
+      filter: ['==', '$type', 'LineString'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['match', ['get', 'seg_type'],
+          'cut',  '#ef4444',
+          'fill', '#3b82f6',
+          '#f1f5f9'
+        ],
+        'line-width': 3.5
+      }
+    });
+    this.map.addLayer({
+      id: 'profile-preview-vertices',
+      type: 'circle',
+      source: 'profile-preview',
+      filter: ['==', '$type', 'Point'],
+      paint: {
+        'circle-radius': 4,
+        'circle-color': '#ffffff',
+        'circle-stroke-color': '#64748b',
+        'circle-stroke-width': 1.5
+      }
+    });
   }
 
   private setupUserLocation(): void {
@@ -775,6 +816,18 @@ export class MapManager {
 
   clearSketchPreview(): void {
     this.updateSketchPreview([]);
+  }
+
+  updateProfilePreview(features: object[]): void {
+    if (!this.initialized) return;
+    (this.map.getSource('profile-preview') as maplibregl.GeoJSONSource)?.setData({
+      type: 'FeatureCollection',
+      features: features as never[]
+    });
+  }
+
+  clearProfilePreview(): void {
+    this.updateProfilePreview([]);
   }
 
   updateUserLocation(lat: number, lon: number, accuracy: number | null): void {

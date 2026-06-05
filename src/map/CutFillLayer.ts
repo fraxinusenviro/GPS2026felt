@@ -290,6 +290,98 @@ export class CutFillLayer {
   }
 
   // --------------------------------------------------------------------------
+  // Independent surface visibility and opacity
+  // --------------------------------------------------------------------------
+
+  setElevVisible(visible: boolean): void {
+    if (!this.added) return;
+    this.mapManager.getMap().setLayoutProperty(
+      this.LYR_ELEV, 'visibility', visible ? 'visible' : 'none');
+  }
+
+  setDiffVisible(visible: boolean): void {
+    if (!this.added) return;
+    this.mapManager.getMap().setLayoutProperty(
+      this.LYR_DIFF, 'visibility', visible ? 'visible' : 'none');
+  }
+
+  setElevOpacity(opacity: number): void {
+    if (!this.added) return;
+    this.mapManager.getMap().setPaintProperty(this.LYR_ELEV, 'raster-opacity', opacity);
+  }
+
+  setDiffOpacity(opacity: number): void {
+    if (!this.added) return;
+    this.mapManager.getMap().setPaintProperty(this.LYR_DIFF, 'raster-opacity', opacity);
+  }
+
+  // --------------------------------------------------------------------------
+  // Render both surfaces without forcing visibility on either
+  // --------------------------------------------------------------------------
+
+  showBoth(result: CutFillResult, ramp?: ColorRamp, hillshadeOn = false): void {
+    this.result = result;
+    this.ensureLayers();
+    const map = this.mapManager.getMap();
+    const r = ramp ?? HRDEM_RAMPS['terrain'].ramp;
+
+    // Render elevation image
+    if (hillshadeOn) {
+      this.renderElevHillshadeComposite(result, r);
+    } else {
+      renderGrid(this.elevCanvas, result.modifiedGrid, result.width, result.height,
+        result.stretchMin, result.stretchMax, result.nodata, r);
+    }
+    const coords = bboxToCoords(result.bbox);
+    (map.getSource(this.SRC_ELEV) as maplibregl.ImageSource)
+      .updateImage({ url: this.elevCanvas.toDataURL('image/png'), coordinates: coords });
+
+    // Render diff image
+    const diffArr = result.diffGrid;
+    let maxAbs = 0;
+    for (let i = 0; i < diffArr.length; i++) {
+      const a = Math.abs(diffArr[i]);
+      if (a > maxAbs) maxAbs = a;
+    }
+    if (maxAbs < 0.01) maxAbs = 1;
+
+    const shade = hillshadeOn
+      ? computeHillshadeGrid(result.modifiedGrid, result.width, result.height, result.bbox, result.nodata)
+      : null;
+
+    this.diffCanvas.width  = result.width;
+    this.diffCanvas.height = result.height;
+    const ctx = this.diffCanvas.getContext('2d')!;
+    const img = ctx.createImageData(result.width, result.height);
+    const px  = img.data;
+
+    for (let i = 0; i < diffArr.length; i++) {
+      const v = diffArr[i];
+      const pi = i * 4;
+      if (result.nodata !== null && Math.abs(result.originalGrid[i] - result.nodata) < 0.001) {
+        px[pi + 3] = 0;
+        continue;
+      }
+      const t = 0.5 + v / (2 * maxAbs);
+      let [rv, g, b] = sampleRamp(CUTFILL_DIFF_RAMP, Math.max(0, Math.min(1, t)));
+      if (shade !== null) {
+        const brightness = 0.35 + 0.65 * (shade[i] / 255);
+        rv = Math.round(rv * brightness);
+        g  = Math.round(g  * brightness);
+        b  = Math.round(b  * brightness);
+      }
+      px[pi]     = rv;
+      px[pi + 1] = g;
+      px[pi + 2] = b;
+      px[pi + 3] = Math.abs(v) < 0.01 ? 120 : 220;
+    }
+
+    ctx.putImageData(img, 0, 0);
+    (map.getSource(this.SRC_DIFF) as maplibregl.ImageSource)
+      .updateImage({ url: this.diffCanvas.toDataURL('image/png'), coordinates: coords });
+  }
+
+  // --------------------------------------------------------------------------
   // Contours on the modified surface
   // --------------------------------------------------------------------------
 
@@ -382,7 +474,7 @@ export class CutFillLayer {
     const map = this.mapManager.getMap();
     if (map.getLayer(this.LYR_ELEV))    map.setPaintProperty(this.LYR_ELEV, 'raster-opacity', opacity);
     if (map.getLayer(this.LYR_DIFF))    map.setPaintProperty(this.LYR_DIFF, 'raster-opacity', opacity);
-    if (map.getLayer(this.LYR_CONTOUR)) map.setPaintProperty(this.LYR_CONTOUR, 'line-opacity', opacity);
+    if (map.getLayer(this.LYR_CONTOUR)) map.setPaintProperty(this.LYR_CONTOUR, 'line-opacity', Math.min(1, opacity + 0.1));
   }
 
   // --------------------------------------------------------------------------

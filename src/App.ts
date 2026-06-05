@@ -22,6 +22,7 @@ import { EventBus } from './utils/EventBus';
 import { generateSessionId, DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack } from './constants';
 import { MeasurePanel }  from './ui/MeasurePanel';
 import { CutFillPanel }  from './ui/CutFillPanel';
+import { ProfilePanel }  from './ui/ProfilePanel';
 import { FeatureListPanel } from './ui/FeatureListPanel';
 import { StatsPanel } from './ui/StatsPanel';
 import { UndoManager } from './utils/UndoManager';
@@ -58,6 +59,7 @@ export class App {
 
   private measurePanel!:  MeasurePanel;
   private cutFillPanel!:  CutFillPanel;
+  private profilePanel!:  ProfilePanel;
   private featureListPanel!: FeatureListPanel;
   private statsPanel!: StatsPanel;
   private dataLibraryModal!: DataLibraryModal;
@@ -170,6 +172,11 @@ export class App {
     this.measurePanel = new MeasurePanel(this.mapManager);
     this.cutFillPanel = new CutFillPanel(this.mapManager, this.basemapManager);
     this.basemapManager.setCutFillResultProvider(() => this.cutFillPanel.getLastResult());
+    this.profilePanel = new ProfilePanel(
+      this.mapManager,
+      this.basemapManager,
+      () => this.cutFillPanel.getLastResult(),
+    );
     this.featureListPanel = new FeatureListPanel(
       (lat, lon) => this.mapManager.flyTo(lat, lon, 17),
       (f) => EventBus.emit('feature-selected', { feature: f }),
@@ -909,7 +916,7 @@ export class App {
       EventBus.emit('elev:sample-activate');
     });
     document.getElementById('btn-elev-profile')?.addEventListener('click', () => {
-      EventBus.emit('elev:profile-activate');
+      this.profilePanel.toggle();
     });
     document.getElementById('btn-elev-cutfill')?.addEventListener('click', () => {
       this.cutFillPanel.toggle();
@@ -1113,6 +1120,8 @@ export class App {
   // ============================================================
   private wireMapInteractions(): void {
     EventBus.on<{ lngLat: { lat: number; lng: number } }>('map-click', ({ lngLat }) => {
+      // Profile panel consumes clicks when drawing a line
+      if (this.profilePanel.handleMapClick(lngLat.lng, lngLat.lat)) return;
       // Cut/fill panel consumes clicks when in draw or pick-elevation mode
       if (this.cutFillPanel.handleMapClick(lngLat.lng, lngLat.lat)) return;
 

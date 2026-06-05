@@ -127,6 +127,7 @@ export class BasemapManager {
   private cutFillResultProvider: (() => import('../lib/cutFillEngine').CutFillResult | null) | null = null;
   private cutFillLayers = new Map<string, CutFillLayer>();
   private collapsedRuns = new Set<string>();
+  private collapsedRunSettings = new Set<string>();
   private panelState: { container: HTMLElement; onClose: () => void } | null = null;
   private unifiedLegendEl: HTMLElement | null = null;
   private unifiedLegendCollapsed = true;
@@ -1639,11 +1640,13 @@ export class BasemapManager {
       if (!this.cutFillLayers.has(run.id)) {
         const layer = new CutFillLayer(this.mapManager, `cf-${run.id}`);
         const ds = run.displayState;
-        if (ds.view === 'diff') layer.showDiff(run.result, ds.hillshade);
-        else layer.show(run.result, undefined, ds.hillshade);
+        layer.showBoth(run.result, undefined, ds.hillshade);
+        layer.setElevVisible(ds.elevVisible);
+        layer.setDiffVisible(ds.diffVisible);
+        layer.setElevOpacity(ds.elevOpacity);
+        layer.setDiffOpacity(ds.diffOpacity);
         if (ds.contours) layer.updateContours(run.result, ds.contourInterval);
         if (ds.daylight && run.daylightFC) layer.setDaylight(run.daylightFC);
-        layer.setOpacity(ds.opacity);
         this.cutFillLayers.set(run.id, layer);
       }
     }
@@ -1665,50 +1668,89 @@ export class BasemapManager {
     const fmtVol = (m3: number) =>
       m3 >= 1000 ? `${(m3 / 1000).toFixed(2)} km³` : `${m3.toFixed(0)} m³`;
 
+    const eyeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
+    const eyeOffSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M96.68,57.87a4,4,0,0,1,2.08-6.6A130.13,130.13,0,0,1,128,48c34.88,0,66.57,13.26,91.66,38.35,18.83,18.83,27.3,37.62,27.65,38.41a8,8,0,0,1,0,6.5c-.35.79-8.82,19.57-27.65,38.4q-4.28,4.26-8.79,8.07a4,4,0,0,1-5.55-.36ZM213.92,210.62a8,8,0,1,1-11.84,10.76L180,197.13A127.21,127.21,0,0,1,128,208c-34.88,0-66.57-13.26-91.66-38.34C17.51,150.83,9,132.05,8.69,131.26a8,8,0,0,1,0-6.5C9,124,17.51,105.18,36.34,86.35a135,135,0,0,1,25-19.78L42.08,45.38A8,8,0,1,1,53.92,34.62Zm-65.49-48.25-52.69-58a40,40,0,0,0,52.69,58Z"/></svg>`;
+
     const content = runs.length === 0
       ? `<div class="cf-lyr-empty">No runs saved. Use the Cut/Fill tool and click "Save to Layer Manager".</div>`
-      : runs.map(run => {
+      : runs.map((run, i) => {
           const ds = run.displayState;
           const isCollapsed = this.collapsedRuns.has(run.id);
-          const date = new Date(run.createdAt).toLocaleDateString();
+          const isSettingsCollapsed = this.collapsedRunSettings.has(run.id);
+          const date = new Date(run.createdAt).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
           const slope = run.params.slopeRatio != null ? `${run.params.slopeRatio}:1` : 'vert';
+          const isFirst = i === 0;
+          const isLast = i === runs.length - 1;
+
           return `<div class="cf-run-group">
-            <button class="cf-run-header" data-run-toggle="${run.id}">
-              <span class="cf-run-name">${run.name}</span>
-              <span class="cf-run-meta">${run.params.targetElevation.toFixed(1)}m · ${slope} · ${date}</span>
-              <span class="bm-toggle-chevron cf-run-chevron" style="${isCollapsed ? 'transform:rotate(-90deg)' : ''}">▾</span>
-            </button>
+            <div class="cf-run-hdr">
+              <div class="cf-run-reorder">
+                <button class="cf-reorder-btn" data-run="${run.id}" data-action="move-up"${isFirst ? ' disabled' : ''} title="Move up">▲</button>
+                <button class="cf-reorder-btn" data-run="${run.id}" data-action="move-down"${isLast ? ' disabled' : ''} title="Move down">▼</button>
+              </div>
+              <button class="cf-run-toggle" data-run-toggle="${run.id}" title="${isCollapsed ? 'Expand' : 'Collapse'}">
+                <span class="cf-run-chevron" style="${isCollapsed ? 'transform:rotate(-90deg)' : ''}">▾</span>
+                <span class="cf-run-name-disp" data-run-name-disp="${run.id}">${run.name}</span>
+                <input type="text" class="cf-run-rename-input" data-run="${run.id}" data-action="rename" value="${run.name}" style="display:none">
+              </button>
+              <button class="cf-rename-btn" data-run="${run.id}" data-action="rename-toggle" title="Rename">✎</button>
+              <button class="cf-del-run-btn" data-run="${run.id}" data-action="delete" title="Remove run">✕</button>
+            </div>
+            <div class="cf-run-meta-bar">${run.params.targetElevation.toFixed(1)}m · ${slope} · ${date}</div>
             <div class="cf-run-body" data-run-body="${run.id}" style="${isCollapsed ? 'display:none' : ''}">
-              <div class="cf-lyr-row">
-                <span class="cf-lyr-label">View</span>
-                <button class="cf-lyr-btn ${ds.view === 'elevation' ? 'cf-lyr-active' : ''}" data-run="${run.id}" data-action="view-elev">Elev</button>
-                <button class="cf-lyr-btn ${ds.view === 'diff' ? 'cf-lyr-active' : ''}" data-run="${run.id}" data-action="view-diff">Diff</button>
+
+              <!-- Settings sub-section -->
+              <button class="cf-settings-toggle" data-run-settings-toggle="${run.id}">
+                <span class="cf-settings-chevron" style="${isSettingsCollapsed ? 'transform:rotate(-90deg)' : ''}">▾</span>
+                Settings
+              </button>
+              <div class="cf-settings-body" data-run-settings="${run.id}" style="${isSettingsCollapsed ? 'display:none' : ''}">
+                <div class="cf-lyr-row">
+                  <span class="cf-lyr-label">Target</span>
+                  <input type="number" class="cf-lyr-input" value="${run.params.targetElevation}" step="0.1" data-run="${run.id}" data-action="target-elev" style="width:54px">m
+                  <span class="cf-lyr-label" style="margin-left:4px">Slope</span>
+                  <input type="number" class="cf-lyr-input" value="${run.params.slopeRatio ?? ''}" step="0.5" min="0" placeholder="vert" data-run="${run.id}" data-action="slope" style="width:46px">
+                  <button class="cf-lyr-btn" data-run="${run.id}" data-action="recompute">Apply</button>
+                </div>
+                <div class="cf-lyr-row">
+                  <label class="cf-lyr-check"><input type="checkbox" data-run="${run.id}" data-action="hillshade" ${ds.hillshade ? 'checked' : ''}> Hillshade</label>
+                </div>
+                <div class="cf-run-stats">Cut: ${fmtVol(run.result.cutVolume)} · Fill: ${fmtVol(run.result.fillVolume)}</div>
               </div>
-              <div class="cf-lyr-row">
-                <label class="cf-lyr-check"><input type="checkbox" data-run="${run.id}" data-action="hillshade" ${ds.hillshade ? 'checked' : ''}> Hillshade</label>
+
+              <!-- Layer stack: Daylight → Contours → Elevation → Difference -->
+              <div class="cf-lyr-stack">
+                <div class="cf-lyr-stack-item">
+                  <button class="cf-vis-btn${ds.daylight ? ' cf-vis-on' : ''}" data-run="${run.id}" data-action="daylight" title="${ds.daylight ? 'Hide' : 'Show'} daylight lines">
+                    ${ds.daylight ? eyeSvg : eyeOffSvg}
+                  </button>
+                  <span class="cf-lyr-stack-label">Daylight</span>
+                </div>
+                <div class="cf-lyr-stack-item">
+                  <button class="cf-vis-btn${ds.contours ? ' cf-vis-on' : ''}" data-run="${run.id}" data-action="contours" title="${ds.contours ? 'Hide' : 'Show'} contours">
+                    ${ds.contours ? eyeSvg : eyeOffSvg}
+                  </button>
+                  <span class="cf-lyr-stack-label">Contours</span>
+                  <input type="number" class="cf-lyr-input" value="${ds.contourInterval}" min="0.1" step="0.5" data-run="${run.id}" data-action="contour-interval" style="width:40px">m
+                </div>
+                <div class="cf-lyr-stack-item">
+                  <button class="cf-vis-btn${ds.elevVisible ? ' cf-vis-on' : ''}" data-run="${run.id}" data-action="elev-vis" title="${ds.elevVisible ? 'Hide' : 'Show'} elevation surface">
+                    ${ds.elevVisible ? eyeSvg : eyeOffSvg}
+                  </button>
+                  <span class="cf-lyr-stack-label">Elevation</span>
+                  <input type="range" min="0" max="100" value="${Math.round(ds.elevOpacity * 100)}" data-run="${run.id}" data-action="elev-opacity" class="cf-lyr-range">
+                  <span class="cf-lyr-opacity-val" data-run="${run.id}" data-opacity-label="elev">${Math.round(ds.elevOpacity * 100)}%</span>
+                </div>
+                <div class="cf-lyr-stack-item">
+                  <button class="cf-vis-btn${ds.diffVisible ? ' cf-vis-on' : ''}" data-run="${run.id}" data-action="diff-vis" title="${ds.diffVisible ? 'Hide' : 'Show'} difference surface">
+                    ${ds.diffVisible ? eyeSvg : eyeOffSvg}
+                  </button>
+                  <span class="cf-lyr-stack-label">Difference</span>
+                  <input type="range" min="0" max="100" value="${Math.round(ds.diffOpacity * 100)}" data-run="${run.id}" data-action="diff-opacity" class="cf-lyr-range">
+                  <span class="cf-lyr-opacity-val" data-run="${run.id}" data-opacity-label="diff">${Math.round(ds.diffOpacity * 100)}%</span>
+                </div>
               </div>
-              <div class="cf-lyr-row">
-                <button class="cf-lyr-btn ${ds.contours ? 'cf-lyr-active' : ''}" data-run="${run.id}" data-action="contours">Contours</button>
-                <input type="number" class="cf-lyr-input" value="${ds.contourInterval}" min="0.1" step="0.5" data-run="${run.id}" data-action="contour-interval" style="width:46px">m
-              </div>
-              <div class="cf-lyr-row">
-                <button class="cf-lyr-btn ${ds.daylight ? 'cf-lyr-active' : ''}" data-run="${run.id}" data-action="daylight">Daylight</button>
-              </div>
-              <div class="cf-lyr-row">
-                <span class="cf-lyr-label">Opacity</span>
-                <input type="range" min="0" max="100" value="${Math.round(ds.opacity * 100)}" data-run="${run.id}" data-action="opacity" style="flex:1;min-width:0">
-              </div>
-              <div class="cf-lyr-row">
-                <span class="cf-lyr-label">Target</span>
-                <input type="number" class="cf-lyr-input" value="${run.params.targetElevation}" step="0.1" data-run="${run.id}" data-action="target-elev" style="width:58px">m
-                <button class="cf-lyr-btn" data-run="${run.id}" data-action="recompute">Apply</button>
-              </div>
-              <div class="cf-lyr-row">
-                <span class="cf-lyr-label">Slope H:V</span>
-                <input type="number" class="cf-lyr-input" value="${run.params.slopeRatio ?? ''}" step="0.5" min="0" placeholder="vert" data-run="${run.id}" data-action="slope" style="width:58px">
-              </div>
-              <div class="cf-run-stats">Cut: ${fmtVol(run.result.cutVolume)} · Fill: ${fmtVol(run.result.fillVolume)}</div>
-              <button class="cf-lyr-del" data-run="${run.id}" data-action="delete">Remove Run</button>
+
             </div>
           </div>`;
         }).join('');
@@ -1718,8 +1760,10 @@ export class BasemapManager {
 
   private wireCutFillSection(container: HTMLElement): void {
     const store = CutFillRunStore.getInstance();
+    const eyeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
+    const eyeOffSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M96.68,57.87a4,4,0,0,1,2.08-6.6A130.13,130.13,0,0,1,128,48c34.88,0,66.57,13.26,91.66,38.35,18.83,18.83,27.3,37.62,27.65,38.41a8,8,0,0,1,0,6.5c-.35.79-8.82,19.57-27.65,38.4q-4.28,4.26-8.79,8.07a4,4,0,0,1-5.55-.36ZM213.92,210.62a8,8,0,1,1-11.84,10.76L180,197.13A127.21,127.21,0,0,1,128,208c-34.88,0-66.57-13.26-91.66-38.34C17.51,150.83,9,132.05,8.69,131.26a8,8,0,0,1,0-6.5C9,124,17.51,105.18,36.34,86.35a135,135,0,0,1,25-19.78L42.08,45.38A8,8,0,1,1,53.92,34.62Zm-65.49-48.25-52.69-58a40,40,0,0,0,52.69,58Z"/></svg>`;
 
-    // Run group collapse toggles (header click)
+    // Run group body collapse toggles
     container.querySelectorAll<HTMLButtonElement>('[data-run-toggle]').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = btn.dataset.runToggle!;
@@ -1732,10 +1776,60 @@ export class BasemapManager {
       });
     });
 
+    // Settings sub-section collapse toggles
+    container.querySelectorAll<HTMLButtonElement>('[data-run-settings-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.runSettingsToggle!;
+        if (this.collapsedRunSettings.has(id)) this.collapsedRunSettings.delete(id);
+        else this.collapsedRunSettings.add(id);
+        const body = container.querySelector<HTMLElement>(`[data-run-settings="${id}"]`);
+        const chevron = btn.querySelector<HTMLElement>('.cf-settings-chevron');
+        if (body) body.style.display = this.collapsedRunSettings.has(id) ? 'none' : '';
+        if (chevron) chevron.style.transform = this.collapsedRunSettings.has(id) ? 'rotate(-90deg)' : '';
+      });
+    });
+
+    // Rename toggle: show/hide input
+    container.querySelectorAll<HTMLButtonElement>('[data-action="rename-toggle"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const runId = btn.dataset.run!;
+        const nameDisp = container.querySelector<HTMLElement>(`[data-run-name-disp="${runId}"]`);
+        const input = container.querySelector<HTMLInputElement>(`[data-run="${runId}"][data-action="rename"]`);
+        if (!nameDisp || !input) return;
+        const isEditing = input.style.display !== 'none';
+        if (isEditing) {
+          const newName = input.value.trim();
+          if (newName) store.renameRun(runId, newName); // triggers re-render
+        } else {
+          nameDisp.style.display = 'none';
+          input.style.display = '';
+          input.focus();
+          input.select();
+        }
+      });
+    });
+
+    // Rename input: commit on blur or Enter
+    container.querySelectorAll<HTMLInputElement>('[data-action="rename"]').forEach(input => {
+      const commit = () => {
+        const runId = input.dataset.run!;
+        const newName = input.value.trim();
+        if (newName) store.renameRun(runId, newName); // triggers re-render
+      };
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        if (e.key === 'Escape') { store.renameRun(input.dataset.run!, input.dataset.run!); } // re-render to reset
+      });
+    });
+
     // Run action controls
     container.querySelectorAll<HTMLElement>('[data-run][data-action]').forEach(el => {
       const runId  = el.dataset.run!;
       const action = el.dataset.action!;
+
+      if (['rename', 'rename-toggle'].includes(action)) return; // handled above
 
       const eventType = el.tagName === 'INPUT'
         ? ((el as HTMLInputElement).type === 'checkbox' ? 'change' : 'input')
@@ -1744,33 +1838,37 @@ export class BasemapManager {
       el.addEventListener(eventType, () => {
         const run   = store.getById(runId);
         const layer = this.cutFillLayers.get(runId);
+
+        switch (action) {
+          case 'move-up':
+            store.moveRun(runId, 'up'); // triggers re-render via subscription
+            return;
+          case 'move-down':
+            store.moveRun(runId, 'down');
+            return;
+          case 'delete':
+            if (layer) layer.clear();
+            store.removeRun(runId);
+            return;
+        }
+
         if (!run || !layer) return;
         const ds = run.displayState;
 
         switch (action) {
-          case 'view-elev':
-            ds.view = 'elevation';
-            layer.show(run.result, undefined, ds.hillshade);
-            container.querySelectorAll<HTMLElement>(`[data-run="${runId}"][data-action="view-elev"]`).forEach(b => b.classList.add('cf-lyr-active'));
-            container.querySelectorAll<HTMLElement>(`[data-run="${runId}"][data-action="view-diff"]`).forEach(b => b.classList.remove('cf-lyr-active'));
-            break;
-          case 'view-diff':
-            ds.view = 'diff';
-            layer.showDiff(run.result, ds.hillshade);
-            container.querySelectorAll<HTMLElement>(`[data-run="${runId}"][data-action="view-elev"]`).forEach(b => b.classList.remove('cf-lyr-active'));
-            container.querySelectorAll<HTMLElement>(`[data-run="${runId}"][data-action="view-diff"]`).forEach(b => b.classList.add('cf-lyr-active'));
-            break;
           case 'hillshade': {
             ds.hillshade = (el as HTMLInputElement).checked;
-            if (ds.view === 'diff') layer.showDiff(run.result, ds.hillshade);
-            else layer.show(run.result, undefined, ds.hillshade);
+            layer.showBoth(run.result, undefined, ds.hillshade);
+            layer.setElevVisible(ds.elevVisible);
+            layer.setDiffVisible(ds.diffVisible);
             break;
           }
           case 'contours':
             ds.contours = !ds.contours;
             if (ds.contours) layer.updateContours(run.result, ds.contourInterval);
             else layer.setContoursVisible(false);
-            (el as HTMLButtonElement).classList.toggle('cf-lyr-active', ds.contours);
+            el.classList.toggle('cf-vis-on', ds.contours);
+            el.innerHTML = ds.contours ? eyeSvg : eyeOffSvg;
             break;
           case 'contour-interval': {
             const iv = parseFloat((el as HTMLInputElement).value);
@@ -1788,12 +1886,35 @@ export class BasemapManager {
             } else {
               layer.setDaylightVisible(false);
             }
-            (el as HTMLButtonElement).classList.toggle('cf-lyr-active', ds.daylight);
+            el.classList.toggle('cf-vis-on', ds.daylight);
+            el.innerHTML = ds.daylight ? eyeSvg : eyeOffSvg;
             break;
-          case 'opacity': {
+          case 'elev-vis':
+            ds.elevVisible = !ds.elevVisible;
+            layer.setElevVisible(ds.elevVisible);
+            el.classList.toggle('cf-vis-on', ds.elevVisible);
+            el.innerHTML = ds.elevVisible ? eyeSvg : eyeOffSvg;
+            break;
+          case 'diff-vis':
+            ds.diffVisible = !ds.diffVisible;
+            layer.setDiffVisible(ds.diffVisible);
+            el.classList.toggle('cf-vis-on', ds.diffVisible);
+            el.innerHTML = ds.diffVisible ? eyeSvg : eyeOffSvg;
+            break;
+          case 'elev-opacity': {
             const opacity = parseInt((el as HTMLInputElement).value) / 100;
-            ds.opacity = opacity;
-            layer.setOpacity(opacity);
+            ds.elevOpacity = opacity;
+            layer.setElevOpacity(opacity);
+            const valEl = container.querySelector<HTMLElement>(`[data-run="${runId}"][data-opacity-label="elev"]`);
+            if (valEl) valEl.textContent = `${Math.round(opacity * 100)}%`;
+            break;
+          }
+          case 'diff-opacity': {
+            const opacity = parseInt((el as HTMLInputElement).value) / 100;
+            ds.diffOpacity = opacity;
+            layer.setDiffOpacity(opacity);
+            const valEl = container.querySelector<HTMLElement>(`[data-run="${runId}"][data-opacity-label="diff"]`);
+            if (valEl) valEl.textContent = `${Math.round(opacity * 100)}%`;
             break;
           }
           case 'recompute': {
@@ -1813,8 +1934,9 @@ export class BasemapManager {
             run.params.targetElevation = targetElev;
             run.params.slopeRatio = slopeRatio;
             run.daylightFC = null;
-            if (ds.view === 'diff') layer.showDiff(newResult, ds.hillshade);
-            else layer.show(newResult, undefined, ds.hillshade);
+            layer.showBoth(newResult, undefined, ds.hillshade);
+            layer.setElevVisible(ds.elevVisible);
+            layer.setDiffVisible(ds.diffVisible);
             if (ds.contours) layer.updateContours(newResult, ds.contourInterval);
             if (ds.daylight) {
               run.daylightFC = computeDaylightFeatures(newResult);
@@ -1822,10 +1944,6 @@ export class BasemapManager {
             }
             break;
           }
-          case 'delete':
-            layer.clear();
-            store.removeRun(runId); // triggers re-render via subscription
-            break;
         }
       });
     });
