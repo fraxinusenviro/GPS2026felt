@@ -156,14 +156,14 @@ export class CutFillLayer {
   // Show modified elevation (with optional baked hillshade)
   // --------------------------------------------------------------------------
 
-  show(result: CutFillResult, ramp?: ColorRamp, withHillshade = false): void {
+  show(result: CutFillResult, ramp?: ColorRamp, withHillshade = false, azimuthDeg = 315, altitudeDeg = 45, zFactor = 1): void {
     this.result = result;
     this.ensureLayers();
     const map = this.mapManager.getMap();
     const r = ramp ?? HRDEM_RAMPS['terrain'].ramp;
 
     if (withHillshade) {
-      this.renderElevHillshadeComposite(result, r);
+      this.renderElevHillshadeComposite(result, r, azimuthDeg, altitudeDeg, zFactor);
     } else {
       renderGrid(this.elevCanvas, result.modifiedGrid, result.width, result.height,
         result.stretchMin, result.stretchMax, result.nodata, r);
@@ -181,7 +181,7 @@ export class CutFillLayer {
   // Show cut/fill difference overlay (with optional baked hillshade)
   // --------------------------------------------------------------------------
 
-  showDiff(result: CutFillResult, withHillshade = false): void {
+  showDiff(result: CutFillResult, withHillshade = false, azimuthDeg = 315, altitudeDeg = 45, zFactor = 1): void {
     this.result = result;
     this.ensureLayers();
     const map = this.mapManager.getMap();
@@ -195,7 +195,7 @@ export class CutFillLayer {
     if (maxAbs < 0.01) maxAbs = 1;
 
     const shade = withHillshade
-      ? computeHillshadeGrid(result.modifiedGrid, result.width, result.height, result.bbox, result.nodata)
+      ? computeHillshadeGrid(result.modifiedGrid, result.width, result.height, result.bbox, result.nodata, azimuthDeg, altitudeDeg, zFactor)
       : null;
 
     this.diffCanvas.width  = result.width;
@@ -243,13 +243,14 @@ export class CutFillLayer {
   // Hillshade as standalone overlay (when not baked into raster)
   // --------------------------------------------------------------------------
 
-  setHillshadeVisible(visible: boolean, result?: CutFillResult): void {
+  setHillshadeVisible(visible: boolean, result?: CutFillResult, azimuthDeg = 315, altitudeDeg = 45, zFactor = 1): void {
     this.ensureLayers();
     const map = this.mapManager.getMap();
 
     if (visible && result) {
       const shade = computeHillshadeGrid(
-        result.modifiedGrid, result.width, result.height, result.bbox, result.nodata);
+        result.modifiedGrid, result.width, result.height, result.bbox, result.nodata,
+        azimuthDeg, altitudeDeg, zFactor);
 
       this.hillshadeCanvas.width  = result.width;
       this.hillshadeCanvas.height = result.height;
@@ -319,7 +320,7 @@ export class CutFillLayer {
   // Render both surfaces without forcing visibility on either
   // --------------------------------------------------------------------------
 
-  showBoth(result: CutFillResult, ramp?: ColorRamp, hillshadeOn = false): void {
+  showBoth(result: CutFillResult, ramp?: ColorRamp, hillshadeOn = false, azimuthDeg = 315, altitudeDeg = 45, zFactor = 1): void {
     this.result = result;
     this.ensureLayers();
     const map = this.mapManager.getMap();
@@ -327,7 +328,7 @@ export class CutFillLayer {
 
     // Render elevation image
     if (hillshadeOn) {
-      this.renderElevHillshadeComposite(result, r);
+      this.renderElevHillshadeComposite(result, r, azimuthDeg, altitudeDeg, zFactor);
     } else {
       renderGrid(this.elevCanvas, result.modifiedGrid, result.width, result.height,
         result.stretchMin, result.stretchMax, result.nodata, r);
@@ -346,7 +347,7 @@ export class CutFillLayer {
     if (maxAbs < 0.01) maxAbs = 1;
 
     const shade = hillshadeOn
-      ? computeHillshadeGrid(result.modifiedGrid, result.width, result.height, result.bbox, result.nodata)
+      ? computeHillshadeGrid(result.modifiedGrid, result.width, result.height, result.bbox, result.nodata, azimuthDeg, altitudeDeg, zFactor)
       : null;
 
     this.diffCanvas.width  = result.width;
@@ -500,9 +501,10 @@ export class CutFillLayer {
   // Internal helpers
   // --------------------------------------------------------------------------
 
-  private renderElevHillshadeComposite(result: CutFillResult, ramp: ColorRamp): void {
+  private renderElevHillshadeComposite(result: CutFillResult, ramp: ColorRamp, azimuthDeg = 315, altitudeDeg = 45, zFactor = 1): void {
     const shade = computeHillshadeGrid(
-      result.modifiedGrid, result.width, result.height, result.bbox, result.nodata);
+      result.modifiedGrid, result.width, result.height, result.bbox, result.nodata,
+      azimuthDeg, altitudeDeg, zFactor);
 
     this.elevCanvas.width  = result.width;
     this.elevCanvas.height = result.height;
