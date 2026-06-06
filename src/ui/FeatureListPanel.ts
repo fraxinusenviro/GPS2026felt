@@ -3,6 +3,7 @@ import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
 
 export class FeatureListPanel {
+  private overlay: HTMLElement;
   private panel: HTMLElement;
   private body: HTMLElement;
   private isOpen = false;
@@ -14,10 +15,13 @@ export class FeatureListPanel {
     private flyTo: (lat: number, lng: number) => void,
     private selectFeature: (f: FieldFeature) => void,
   ) {
-    this.panel = document.getElementById('feature-list-panel')!;
-    this.body  = document.getElementById('fl-body')!;
+    this.overlay = document.getElementById('feature-list-overlay')!;
+    this.panel   = document.getElementById('feature-list-panel')!;
+    this.body    = document.getElementById('fl-body')!;
 
     document.getElementById('fl-close')?.addEventListener('click', () => this.close());
+    // Close on backdrop click
+    this.overlay.addEventListener('click', (e) => { if (e.target === this.overlay) this.close(); });
 
     EventBus.on<{ feature: FieldFeature }>('feature-added',   () => { if (this.isOpen) void this.reload(); });
     EventBus.on<{ feature: FieldFeature }>('feature-updated', () => { if (this.isOpen) void this.reload(); });
@@ -28,15 +32,15 @@ export class FeatureListPanel {
 
   async open(): Promise<void> {
     this.isOpen = true;
-    this.panel.style.display = 'flex';
-    requestAnimationFrame(() => this.panel.classList.add('open'));
+    this.overlay.style.display = 'flex';
+    requestAnimationFrame(() => this.overlay.classList.add('open'));
     await this.reload();
   }
 
   close(): void {
     this.isOpen = false;
-    this.panel.classList.remove('open');
-    setTimeout(() => { if (!this.isOpen) this.panel.style.display = 'none'; }, 300);
+    this.overlay.classList.remove('open');
+    setTimeout(() => { if (!this.isOpen) this.overlay.style.display = 'none'; }, 280);
   }
 
   private async reload(): Promise<void> {

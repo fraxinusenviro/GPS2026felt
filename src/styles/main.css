@@ -843,23 +843,25 @@ html, body {
 .point-hud-presets {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  padding: 0 12px 8px;
+  gap: 7px;
+  padding: 0 12px 10px;
 }
 .point-hud-preset-chip {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 9px 4px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--color-border);
+  gap: 8px;
+  padding: 10px 16px 10px 12px;
+  border-radius: 10px;
+  border: 1.5px solid var(--color-border);
   background: var(--color-surface-3);
   color: var(--color-text);
-  font-size: 11px;
+  font-size: 14px;
   font-family: var(--font);
+  font-weight: 500;
   cursor: pointer;
   transition: border-color 0.12s, background 0.12s;
   white-space: nowrap;
+  min-height: 44px;
 }
 .point-hud-preset-chip:hover {
   border-color: var(--color-accent);
@@ -871,11 +873,11 @@ html, body {
   color: var(--color-accent);
 }
 .point-hud-preset-swatch {
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   flex-shrink: 0;
-  border: 1.5px solid rgba(255,255,255,0.25);
+  border: 2px solid rgba(255,255,255,0.3);
 }
 
 /* Type + description fields */
@@ -3988,14 +3990,78 @@ input[type=color] {
 }
 
 /* ============================================================
-   Feature List Panel
+   Feature List Modal
    ============================================================ */
+.fl-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 800;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.25s;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.fl-modal-overlay.open { opacity: 1; }
+
+.fl-modal-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 540px;
+  max-height: calc(100vh - 80px);
+  overflow: hidden;
+  transform: translateY(12px);
+  transition: transform 0.25s;
+}
+.fl-modal-overlay.open .fl-modal-card { transform: translateY(0); }
+
+.fl-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+.fl-modal-icon { color: var(--color-accent); display: flex; align-items: center; }
+.fl-modal-header h3 {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+}
+.fl-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.fl-modal-close:hover { background: var(--color-danger-dim); color: var(--color-danger); }
+
 .fl-body {
   display: flex;
   flex-direction: column;
   gap: 0;
   overflow: hidden;
-  height: 100%;
+  flex: 1;
+  padding: 14px;
 }
 .fl-search {
   width: 100%;
