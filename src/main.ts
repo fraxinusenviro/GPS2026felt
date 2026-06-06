@@ -36,9 +36,9 @@ function showLoginOverlay(): void {
       background:#0b1a10;
       border:1px solid rgba(91,175,130,0.22);
       border-radius:14px;
-      padding:40px 44px 36px;
-      min-width:340px;
-      max-width:400px;
+      padding:36px 36px 28px;
+      min-width:320px;
+      max-width:380px;
       width:90vw;
       box-shadow:0 12px 60px rgba(0,0,0,0.75), 0 0 0 1px rgba(91,175,130,0.08);
       display:flex;
@@ -49,18 +49,18 @@ function showLoginOverlay(): void {
 
       <!-- Logo -->
       <img src="./logo_text_white.png" alt="Fraxinus Environmental &amp; Geomatics"
-        style="max-width:220px;width:100%;height:auto;margin-bottom:18px" />
+        style="max-width:200px;width:100%;height:auto;margin-bottom:16px" />
 
       <!-- Divider -->
-      <div style="width:100%;height:1px;background:rgba(91,175,130,0.15);margin-bottom:18px"></div>
+      <div style="width:100%;height:1px;background:rgba(91,175,130,0.15);margin-bottom:16px"></div>
 
       <!-- App info block -->
-      <div style="text-align:center;margin-bottom:22px;display:flex;flex-direction:column;gap:6px">
-        <div style="color:#c8e6c9;font-size:16px;font-weight:600;letter-spacing:0.03em">
-          Fraxinus Field Mapper
+      <div style="text-align:center;margin-bottom:20px;display:flex;flex-direction:column;gap:5px">
+        <div style="color:#c8e6c9;font-size:15px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase">
+          FIELD MAPPER
         </div>
-        <div style="color:rgba(160,210,170,0.6);font-size:12px;letter-spacing:0.04em">
-          GPS Data Collection &amp; Cut/Fill Analysis
+        <div style="color:rgba(160,210,170,0.6);font-size:11px;letter-spacing:0.03em">
+          GPS data collector &amp; GIS tools
         </div>
         <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:4px">
           <span style="
@@ -76,46 +76,44 @@ function showLoginOverlay(): void {
         </div>
       </div>
 
-      <!-- Password form -->
-      <div style="width:100%;display:flex;flex-direction:column;gap:10px">
-        <label style="color:rgba(160,210,170,0.55);font-size:11px;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:2px">
-          Access Password
-        </label>
-        <input id="login-pw" type="password" placeholder="Enter password"
-          autocomplete="current-password"
-          style="
-            width:100%;box-sizing:border-box;
-            background:#0d2518;
-            border:1px solid rgba(91,175,130,0.3);
-            border-radius:6px;
-            color:#e8f5e9;
-            padding:11px 14px;
-            font-size:14px;
-            outline:none;
+      <!-- PIN display -->
+      <div id="pin-display" style="
+        display:flex;
+        gap:12px;
+        margin-bottom:18px;
+        height:16px;
+        align-items:center;
+        justify-content:center;
+      ">
+        ${Array.from({length:6}).map((_,i) => `<div id="pin-dot-${i}" style="width:12px;height:12px;border-radius:50%;background:rgba(91,175,130,0.2);border:1.5px solid rgba(91,175,130,0.35);transition:background 0.1s,border-color 0.1s"></div>`).join('')}
+      </div>
+
+      <!-- Error -->
+      <div id="login-error" style="color:#f87171;font-size:11px;text-align:center;display:none;padding:2px 0;margin-bottom:6px;letter-spacing:0.03em">
+        Incorrect PIN — try again
+      </div>
+
+      <!-- Number pad -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:100%;max-width:240px">
+        ${[1,2,3,4,5,6,7,8,9,'','0','⌫'].map(k => {
+          if (k === '') return `<div></div>`;
+          return `<button class="pin-key" data-key="${k}" style="
+            background:rgba(91,175,130,0.08);
+            border:1px solid rgba(91,175,130,0.2);
+            border-radius:8px;
+            color:#c8e6c9;
+            font-size:20px;
             font-family:inherit;
-            transition:border-color 0.2s;
-          " />
-        <div id="login-error" style="color:#f87171;font-size:12px;text-align:center;display:none;padding:4px 0">
-          Incorrect password — please try again.
-        </div>
-        <button id="login-submit" style="
-          background:rgba(74,222,128,0.15);
-          border:1px solid rgba(74,222,128,0.4);
-          border-radius:6px;
-          color:#4ade80;
-          padding:11px;
-          font-size:14px;
-          cursor:pointer;
-          font-family:inherit;
-          font-weight:500;
-          letter-spacing:0.03em;
-          transition:background 0.15s, border-color 0.15s;
-          margin-top:2px;
-        ">Sign In</button>
+            padding:14px 0;
+            cursor:pointer;
+            transition:background 0.1s,border-color 0.1s;
+            user-select:none;
+          ">${k}</button>`;
+        }).join('')}
       </div>
 
       <!-- Footer note -->
-      <div style="margin-top:20px;color:rgba(160,210,170,0.3);font-size:10px;text-align:center;letter-spacing:0.03em">
+      <div style="margin-top:18px;color:rgba(160,210,170,0.3);font-size:10px;text-align:center;letter-spacing:0.03em">
         Authorized use only · Fraxinus Environmental &amp; Geomatics
       </div>
 
@@ -124,26 +122,65 @@ function showLoginOverlay(): void {
 
   document.body.appendChild(overlay);
 
-  const pwInput = overlay.querySelector<HTMLInputElement>('#login-pw')!;
-  const submitBtn = overlay.querySelector<HTMLButtonElement>('#login-submit')!;
   const errorEl = overlay.querySelector<HTMLElement>('#login-error')!;
+  const dots = Array.from({length:6}, (_,i) => overlay.querySelector<HTMLElement>(`#pin-dot-${i}`)!);
+  let pin = '';
+
+  const updateDots = () => {
+    dots.forEach((d, i) => {
+      const filled = i < pin.length;
+      d.style.background = filled ? '#4ade80' : 'rgba(91,175,130,0.2)';
+      d.style.borderColor = filled ? '#4ade80' : 'rgba(91,175,130,0.35)';
+    });
+  };
+
+  const shakeError = () => {
+    errorEl.style.display = 'block';
+    pin = '';
+    updateDots();
+    setTimeout(() => { errorEl.style.display = 'none'; }, 2500);
+  };
 
   const attempt = () => {
-    if (pwInput.value === 'Fraxinusenviro') {
+    if (pin === '191919') {
       overlay.style.transition = 'opacity 0.4s';
       overlay.style.opacity = '0';
       setTimeout(() => { overlay.remove(); }, 400);
     } else {
-      errorEl.style.display = 'block';
-      pwInput.value = '';
-      pwInput.focus();
-      setTimeout(() => { errorEl.style.display = 'none'; }, 3000);
+      shakeError();
     }
   };
 
-  submitBtn.addEventListener('click', attempt);
-  pwInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') attempt(); });
-  pwInput.focus();
+  overlay.querySelectorAll<HTMLButtonElement>('.pin-key').forEach(btn => {
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const key = btn.dataset.key!;
+      if (key === '⌫') {
+        pin = pin.slice(0, -1);
+        updateDots();
+      } else if (pin.length < 6) {
+        pin += key;
+        updateDots();
+        if (pin.length === 6) setTimeout(attempt, 120);
+      }
+    });
+    btn.addEventListener('pointerenter', () => { btn.style.background = 'rgba(91,175,130,0.18)'; btn.style.borderColor = 'rgba(91,175,130,0.4)'; });
+    btn.addEventListener('pointerleave', () => { btn.style.background = 'rgba(91,175,130,0.08)'; btn.style.borderColor = 'rgba(91,175,130,0.2)'; });
+  });
+
+  document.addEventListener('keydown', function kh(e) {
+    if (/^\d$/.test(e.key) && pin.length < 6) {
+      pin += e.key;
+      updateDots();
+      if (pin.length === 6) setTimeout(attempt, 120);
+    } else if (e.key === 'Backspace') {
+      pin = pin.slice(0, -1);
+      updateDots();
+    } else if (e.key === 'Enter') {
+      attempt();
+    }
+    if (!document.getElementById('login-overlay')) document.removeEventListener('keydown', kh);
+  });
 }
 
 showLoginOverlay();
