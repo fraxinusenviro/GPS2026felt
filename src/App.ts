@@ -661,7 +661,7 @@ export class App {
 
         // Toggle tools: tapping an already-active tool completes/stops it
         // gps-point is two-phase: first click = activate HUD, second click = drop point
-        const isToggle = ['sketch-line', 'sketch-polygon', 'sketch-freehand', 'lasso-select', 'gps-line', 'gps-polygon', 'gps-point-stream', 'gps-point', 'measure'].includes(tool);
+        const isToggle = ['sketch-line', 'sketch-polygon', 'sketch-freehand', 'lasso-select', 'gps-line', 'gps-polygon', 'gps-point-stream', 'measure'].includes(tool);
         if (isToggle && currentTool === tool) {
           if (tool === 'measure') {
             this.measurePanel.stop();
