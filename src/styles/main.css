@@ -783,36 +783,107 @@ html, body {
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 0;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 10px;
-  padding: 4px 12px 8px;
+  border-radius: 12px;
+  padding: 0 0 10px;
   z-index: 25;
-  box-shadow: var(--shadow-sm);
-  min-width: 0;
+  box-shadow: 0 6px 28px rgba(0,0,0,0.45), 0 0 0 1px rgba(74,222,128,0.08);
+  min-width: 260px;
   max-width: calc(100vw - var(--toolbar-width) - var(--right-ctrl-width) - 16px);
+  overflow: hidden;
 }
 
-.point-hud-row1 {
+.point-hud-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 8px;
 }
 
 .point-hud-title {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 10px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--color-accent);
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  padding-right: 6px;
-  border-right: 1px solid var(--color-border);
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.point-hud-coords {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 8px;
+}
+.point-hud-coords-sep { color: var(--color-border-hover); }
+.point-hud-acc {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(74,222,128,0.08);
+  color: var(--color-accent);
+  border: 1px solid rgba(74,222,128,0.18);
+}
+
+/* Preset chips row */
+.point-hud-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 12px 8px;
+}
+.point-hud-preset-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-3);
+  color: var(--color-text);
+  font-size: 11px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+  white-space: nowrap;
+}
+.point-hud-preset-chip:hover {
+  border-color: var(--color-accent);
+  background: rgba(74,222,128,0.07);
+}
+.point-hud-preset-chip.active {
+  border-color: var(--color-accent);
+  background: rgba(74,222,128,0.12);
+  color: var(--color-accent);
+}
+.point-hud-preset-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1.5px solid rgba(255,255,255,0.25);
+}
+
+/* Type + description fields */
+.point-hud-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 0 12px 8px;
 }
 
 #point-entry-hud select,
@@ -824,6 +895,8 @@ html, body {
   padding: 5px 8px;
   font-size: 12px;
   font-family: var(--font);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 #point-entry-hud select:focus,
@@ -832,8 +905,34 @@ html, body {
   border-color: var(--color-accent);
 }
 
+/* Drop Point button */
+.point-hud-drop-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 4px 12px 0;
+  padding: 9px 14px;
+  background: rgba(74,222,128,0.15);
+  border: 1px solid rgba(74,222,128,0.45);
+  border-radius: 8px;
+  color: var(--color-accent);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font);
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.point-hud-drop-btn:hover {
+  background: rgba(74,222,128,0.25);
+  border-color: rgba(74,222,128,0.7);
+}
+.point-hud-drop-btn:active {
+  transform: scale(0.97);
+}
+
 #type-selector { flex: 1; min-width: 0; }
-#point-entry-desc { width: 100%; box-sizing: border-box; }
 
 .hud-close-btn {
   position: absolute;

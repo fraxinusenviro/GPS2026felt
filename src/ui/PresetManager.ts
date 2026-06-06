@@ -77,6 +77,29 @@ export class PresetManager {
     }
 
     this.populateCaptureTypeSelector(tool);
+
+    if (tool === 'gps-point') this.refreshPointHudPresets();
+  }
+
+  refreshPointHudPresets(): void {
+    const container = document.getElementById('point-hud-presets');
+    if (!container) return;
+    const pointPresets = this.getPresetsForGeomType('Point').slice(0, 6);
+    container.innerHTML = '';
+    if (pointPresets.length === 0) return;
+    const sel = document.getElementById('type-selector') as HTMLSelectElement | null;
+    pointPresets.forEach(p => {
+      const chip = document.createElement('button');
+      chip.className = 'point-hud-preset-chip' + (sel?.value === p.label ? ' active' : '');
+      chip.dataset.presetLabel = p.label;
+      chip.innerHTML = `<span class="point-hud-preset-swatch" style="background:${p.color}"></span>${p.label}`;
+      chip.addEventListener('click', () => {
+        if (sel) sel.value = p.label;
+        container.querySelectorAll('.point-hud-preset-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+      });
+      container.appendChild(chip);
+    });
   }
 
   populateCaptureTypeSelector(tool: string): void {

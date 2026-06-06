@@ -1,4 +1,4 @@
-import type { AppSettings, FieldFeature, ToolMode, GeometryType, GeoJSONGeometry, LayerPreset } from './types';
+import type { AppSettings, FieldFeature, ToolMode, GeometryType, GeoJSONGeometry, LayerPreset, GPSState } from './types';
 import { StorageManager } from './storage/StorageManager';
 import { MapManager } from './map/MapManager';
 import { BasemapManager } from './map/BasemapManager';
@@ -347,11 +347,19 @@ export class App {
         pointHud.style.display = showHud ? 'flex' : 'none';
         const titleEl = document.getElementById('point-hud-title-text');
         if (titleEl) {
-          if (tool === 'gps-point')        titleEl.textContent = 'GPS Point: Values';
-          else if (tool === 'sketch-point') titleEl.textContent = 'Sketch Point: Values';
-          else if (tool === 'sketch-line')  titleEl.textContent = 'Sketch Line: Type & Desc';
-          else if (tool === 'sketch-polygon') titleEl.textContent = 'Sketch Polygon: Type & Desc';
+          if (tool === 'gps-point')          titleEl.textContent = 'GPS Point Capture';
+          else if (tool === 'sketch-point')  titleEl.textContent = 'Sketch Point';
+          else if (tool === 'sketch-line')   titleEl.textContent = 'Sketch Line';
+          else if (tool === 'sketch-polygon') titleEl.textContent = 'Sketch Polygon';
         }
+        // GPS-specific elements: coords bar, presets, drop button
+        const isGps = tool === 'gps-point';
+        const coordsEl = document.getElementById('point-hud-coords');
+        const presetsEl = document.getElementById('point-hud-presets');
+        const dropBtn = document.getElementById('btn-drop-gps-point');
+        if (coordsEl) coordsEl.style.display = isGps ? '' : 'none';
+        if (presetsEl) presetsEl.style.display = isGps ? '' : 'none';
+        if (dropBtn) dropBtn.style.display = isGps ? '' : 'none';
       }
     });
 
@@ -907,6 +915,28 @@ export class App {
     document.getElementById('btn-point-hud-close')?.addEventListener('click', () => {
       const hud = document.getElementById('point-entry-hud');
       if (hud) hud.style.display = 'none';
+    });
+
+    // Drop GPS Point button inside the HUD card
+    document.getElementById('btn-drop-gps-point')?.addEventListener('click', () => {
+      this.completeCurrentCapture('gps-point');
+    });
+
+    // Feed live GPS into the point HUD card coords display
+    EventBus.on<GPSState>('gps-update', (state) => {
+      const latlonEl = document.getElementById('point-hud-latlon');
+      const accEl = document.getElementById('point-hud-acc');
+      if (!latlonEl) return;
+      if (state.available) {
+        latlonEl.textContent = `${state.lat.toFixed(5)}, ${state.lon.toFixed(5)}`;
+        if (accEl) {
+          accEl.textContent = `±${Math.round(state.accuracy ?? 0)}m`;
+          accEl.style.color = (state.accuracy ?? 999) <= 5 ? '#4ade80' : (state.accuracy ?? 999) <= 15 ? '#facc15' : '#f87171';
+        }
+      } else {
+        latlonEl.textContent = 'GPS unavailable';
+        if (accEl) accEl.textContent = '±--';
+      }
     });
 
     document.getElementById('btn-capture-hud-close')?.addEventListener('click', () => {

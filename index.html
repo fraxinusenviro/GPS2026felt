@@ -33,8 +33,10 @@
         </div>
         <div id="session-id"><span class="app-name">Field Mapper</span><span id="session-label"></span></div>
         <button id="btn-project" class="icon-btn header-project-btn" title="Projects">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-          <span>Project</span>
+          <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
+            <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z" opacity="0.85"/>
+          </svg>
+          <span>Projects</span>
         </button>
       </div>
       <div id="header-right">
@@ -342,16 +344,40 @@
       <div id="point-entry-hud" style="display:none">
         <button id="btn-point-hud-close" class="hud-close-btn" title="Close">×</button>
         <div class="hud-drag-handle" title="Drag to reposition"></div>
-        <div class="point-hud-row1">
+
+        <!-- Title row -->
+        <div class="point-hud-title-row">
           <span class="point-hud-title">
             <svg id="point-hud-title-icon" viewBox="0 0 24 24" fill="currentColor" width="11" height="11"><circle cx="12" cy="12" r="5"/></svg>
-            <span id="point-hud-title-text">Point tools: Values</span>
+            <span id="point-hud-title-text">GPS Point Capture</span>
           </span>
+        </div>
+
+        <!-- Live GPS coords (only in gps-point mode) -->
+        <div id="point-hud-coords" class="point-hud-coords">
+          <span id="point-hud-latlon">---</span>
+          <span class="point-hud-coords-sep">·</span>
+          <span id="point-hud-acc" class="point-hud-acc">±--m</span>
+        </div>
+
+        <!-- Preset quick-tap chips (only in gps-point mode) -->
+        <div id="point-hud-presets" class="point-hud-presets"></div>
+
+        <!-- Type + description -->
+        <div class="point-hud-fields">
           <select id="type-selector">
             <option value="">-- Type --</option>
           </select>
+          <input type="text" id="point-entry-desc" placeholder="Description..." autocomplete="off" />
         </div>
-        <input type="text" id="point-entry-desc" placeholder="Description..." autocomplete="off" />
+
+        <!-- Drop Point button (gps-point only) -->
+        <button id="btn-drop-gps-point" class="point-hud-drop-btn" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="16" height="16">
+            <circle cx="12" cy="10" r="4"/><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+          </svg>
+          Drop Point
+        </button>
       </div>
 
       <!-- GPS Capture Controls (shown when GPS capture active or in setup) -->
