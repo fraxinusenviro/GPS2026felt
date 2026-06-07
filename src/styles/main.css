@@ -2162,6 +2162,89 @@ label textarea {
 }
 
 /* ============================================================
+   Go To Coordinates Keypad
+   ============================================================ */
+.goto-keypad {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.goto-kp-display {
+  width: 100%;
+  padding: 13px 14px;
+  font-size: 17px;
+  font-family: var(--font-mono);
+  background: var(--color-surface-2);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  letter-spacing: 0.04em;
+}
+
+.goto-kp-display:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-dim);
+}
+
+.goto-kp-hint {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: center;
+  margin-top: -4px;
+}
+
+.goto-kp-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.goto-kp-key {
+  padding: 13px 6px;
+  font-size: 17px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, transform 0.07s, box-shadow 0.1s;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.goto-kp-key:hover {
+  background: var(--color-surface-3);
+  border-color: var(--color-border-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+.goto-kp-key:active {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  transform: scale(0.91);
+}
+
+.goto-kp-sym {
+  color: var(--color-accent);
+}
+
+.goto-kp-fn {
+  color: var(--color-text-muted);
+  font-size: 15px;
+}
+
+.goto-kp-wide {
+  grid-column: span 2;
+}
+
+/* ============================================================
    MapLibre overrides
    ============================================================ */
 .maplibregl-ctrl-attrib {
