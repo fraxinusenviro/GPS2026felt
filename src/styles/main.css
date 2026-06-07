@@ -2,32 +2,97 @@
    Fraxinus Field Mapper - Main Styles
    ============================================================ */
 
+/* Cascade layer order — determines override priority without specificity fights */
+@layer base, layout, components, utilities;
+
 :root {
+  /* ── Color: Backgrounds ── */
   --color-bg: #1a2820;
   --color-surface: #1e3028;
   --color-surface-2: #243830;
   --color-surface-3: #2d4a3a;
+  --color-surface-raised: rgba(255, 255, 255, 0.06);
+  --color-input-bg: rgba(0, 0, 0, 0.3);
+
+  /* ── Color: Borders ── */
   --color-border: rgba(74, 180, 120, 0.2);
   --color-border-hover: rgba(74, 180, 120, 0.4);
+
+  /* ── Color: Accent ── */
   --color-accent: #4ade80;
   --color-accent-dark: #166534;
   --color-accent-dim: rgba(74, 222, 128, 0.15);
+
+  /* ── Color: Semantic ── */
   --color-danger: #f87171;
   --color-danger-dim: rgba(248, 113, 113, 0.15);
   --color-warn: #fbbf24;
   --color-info: #60a5fa;
+
+  /* ── Color: Text ── */
   --color-text: #f1f5f9;
   --color-text-dim: #cbd5e1;
   --color-text-muted: #94a3b8;
 
+  /* ── Color: White overlays ── */
+  --color-overlay-sm: rgba(255, 255, 255, 0.06);
+  --color-overlay-md: rgba(255, 255, 255, 0.12);
+  --color-overlay-lg: rgba(255, 255, 255, 0.15);
+
+  /* ── Spacing ── */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+
+  /* ── Typography ── */
+  --text-2xs: 8px;
+  --text-xs: 10px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* ── Border Radius ── */
+  --radius-sm: 5px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ── */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  /* ── Z-index ── */
+  --z-base: 10;
+  --z-toolbar: 20;
+  --z-hud: 25;
+  --z-panel: 40;
+  --z-side-panel: 50;
+  --z-header: 100;
+  --z-modal: 200;
+  --z-toast: 300;
+
+  /* ── Transitions ── */
+  --transition: 0.15s ease;
+  --transition-slow: 0.3s ease;
+
+  /* ── Layout ── */
   --header-height: 52px;
   --toolbar-width: 68px;
   --right-ctrl-width: 68px;
-  --radius: 8px;
-  --radius-sm: 5px;
-  --shadow: 0 4px 16px rgba(0,0,0,0.4);
-  --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
 
+  /* ── Font stacks ── */
   --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
 }
