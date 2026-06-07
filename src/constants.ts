@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auto_save: true,
   coord_format: 'dd',
   map_bg_color: '#000000',
+  outdoor_mode: false,
 };
 
 // ---- Basemap Definitions ----

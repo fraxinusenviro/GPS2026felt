@@ -110,6 +110,11 @@ export class SettingsPanel {
               <input type="checkbox" id="s-autosave" ${this.settings.auto_save ? 'checked' : ''} />
               <span class="toggle-slider"></span>
             </label>
+            <label class="toggle-label">
+              <span>☀ Outdoor Mode</span>
+              <input type="checkbox" id="s-outdoor" ${this.settings.outdoor_mode ? 'checked' : ''} />
+              <span class="toggle-slider"></span>
+            </label>
           </div>
 
           <!-- Presets (rendered by PresetManager) -->
@@ -219,6 +224,9 @@ export class SettingsPanel {
     this.settings.grid_visible = get<HTMLInputElement>('s-grid')?.checked ?? false;
     this.settings.follow_user = get<HTMLInputElement>('s-follow')?.checked ?? false;
     this.settings.auto_save = get<HTMLInputElement>('s-autosave')?.checked ?? true;
+    this.settings.outdoor_mode = get<HTMLInputElement>('s-outdoor')?.checked ?? false;
+    if (this.settings.outdoor_mode) document.documentElement.setAttribute('data-outdoor', '');
+    else document.documentElement.removeAttribute('data-outdoor');
 
     // Felt API key — stored directly in localStorage, not in AppSettings
     const feltKey = (get<HTMLInputElement>('s-felt-key')?.value ?? '').trim();

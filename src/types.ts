@@ -120,6 +120,7 @@ export interface AppSettings {
   auto_save: boolean;
   coord_format: 'dd' | 'dms' | 'utm';
   map_bg_color?: string;
+  outdoor_mode: boolean;
 }
 
 // ---- GPS State ----
