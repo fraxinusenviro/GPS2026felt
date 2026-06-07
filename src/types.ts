@@ -121,6 +121,7 @@ export interface AppSettings {
   coord_format: 'dd' | 'dms' | 'utm';
   map_bg_color?: string;
   outdoor_mode: boolean;
+  theme: 'dark' | 'light';
 }
 
 // ---- GPS State ----

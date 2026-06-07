@@ -115,6 +115,11 @@ export class SettingsPanel {
               <input type="checkbox" id="s-outdoor" ${this.settings.outdoor_mode ? 'checked' : ''} />
               <span class="toggle-slider"></span>
             </label>
+            <label class="toggle-label">
+              <span>☽ Light Theme</span>
+              <input type="checkbox" id="s-theme-light" ${this.settings.theme === 'light' ? 'checked' : ''} />
+              <span class="toggle-slider"></span>
+            </label>
           </div>
 
           <!-- Presets (rendered by PresetManager) -->
@@ -227,6 +232,13 @@ export class SettingsPanel {
     this.settings.outdoor_mode = get<HTMLInputElement>('s-outdoor')?.checked ?? false;
     if (this.settings.outdoor_mode) document.documentElement.setAttribute('data-outdoor', '');
     else document.documentElement.removeAttribute('data-outdoor');
+
+    this.settings.theme = get<HTMLInputElement>('s-theme-light')?.checked ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', this.settings.theme);
+    const darkIcon = document.getElementById('theme-icon-dark');
+    const lightIcon = document.getElementById('theme-icon-light');
+    if (darkIcon) darkIcon.style.display = this.settings.theme === 'dark' ? '' : 'none';
+    if (lightIcon) lightIcon.style.display = this.settings.theme === 'light' ? '' : 'none';
 
     // Felt API key — stored directly in localStorage, not in AppSettings
     const feltKey = (get<HTMLInputElement>('s-felt-key')?.value ?? '').trim();

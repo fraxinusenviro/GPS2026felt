@@ -255,6 +255,13 @@ export class App {
     if (settings.outdoor_mode) document.documentElement.setAttribute('data-outdoor', '');
     else document.documentElement.removeAttribute('data-outdoor');
 
+    const theme = settings.theme ?? 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+    const darkIcon = document.getElementById('theme-icon-dark');
+    const lightIcon = document.getElementById('theme-icon-light');
+    if (darkIcon) darkIcon.style.display = theme === 'dark' ? '' : 'none';
+    if (lightIcon) lightIcon.style.display = theme === 'light' ? '' : 'none';
+
     this.gridOverlay.setVisible(settings.grid_visible);
     this.updateButtonState('btn-grid', settings.grid_visible);
     this.updateButtonState('btn-follow', settings.follow_user);
@@ -718,6 +725,16 @@ export class App {
       const crosshair = document.getElementById('crosshair');
       if (crosshair) crosshair.style.display = this.settings.crosshair_visible ? 'block' : 'none';
       this.updateButtonState('btn-crosshair', this.settings.crosshair_visible);
+      this.storage.saveAppSettings(this.settings);
+    });
+
+    document.getElementById('btn-theme-toggle')?.addEventListener('click', () => {
+      this.settings.theme = this.settings.theme === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', this.settings.theme);
+      const darkIcon = document.getElementById('theme-icon-dark');
+      const lightIcon = document.getElementById('theme-icon-light');
+      if (darkIcon) darkIcon.style.display = this.settings.theme === 'dark' ? '' : 'none';
+      if (lightIcon) lightIcon.style.display = this.settings.theme === 'light' ? '' : 'none';
       this.storage.saveAppSettings(this.settings);
     });
 

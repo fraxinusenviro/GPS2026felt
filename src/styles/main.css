@@ -8,11 +8,12 @@
 :root {
   /* ── Color: Backgrounds ── */
   --color-bg: #1a2820;
-  --color-surface: #1e3028;
-  --color-surface-2: #243830;
-  --color-surface-3: #2d4a3a;
-  --color-surface-raised: rgba(255, 255, 255, 0.06);
-  --color-input-bg: rgba(0, 0, 0, 0.3);
+  --color-surface: rgba(30, 48, 40, 0.82);
+  --color-surface-2: rgba(36, 56, 48, 0.88);
+  --color-surface-3: rgba(45, 74, 58, 0.92);
+  --color-surface-raised: rgba(255, 255, 255, 0.08);
+  --color-input-bg: rgba(0, 0, 0, 0.22);
+  --color-glass-border: rgba(255, 255, 255, 0.12);
 
   /* ── Color: Borders ── */
   --color-border: rgba(74, 180, 120, 0.2);
@@ -83,6 +84,10 @@
   --z-modal: 200;
   --z-toast: 300;
 
+  /* ── Glassmorphic backdrop ── */
+  --backdrop: blur(16px) saturate(1.6);
+  --backdrop-heavy: blur(20px) saturate(1.8);
+
   /* ── Transitions ── */
   --transition: 0.15s ease;
   --transition-slow: 0.3s ease;
@@ -99,33 +104,94 @@
 
 /* ── Outdoor / High-Contrast Mode ── */
 /* Toggled by data-outdoor attribute on <html>, or via OS prefers-contrast */
-[data-outdoor],
-@media (prefers-contrast: more) { :root {
-  --color-text: #ffffff;
-  --color-text-dim: #e2e8f0;
-  --color-text-muted: #cbd5e1;
-  --color-border: rgba(74, 180, 120, 0.45);
-  --color-border-hover: rgba(74, 180, 120, 0.75);
-  --color-surface: #172820;
-  --color-surface-2: #1e3328;
-  --color-surface-3: #253d30;
-  --color-accent-dim: rgba(74, 222, 128, 0.25);
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.65);
-  --font-weight-normal: 500;
-}}
-
 [data-outdoor] {
   --color-text: #ffffff;
   --color-text-dim: #e2e8f0;
   --color-text-muted: #cbd5e1;
-  --color-border: rgba(74, 180, 120, 0.45);
-  --color-border-hover: rgba(74, 180, 120, 0.75);
-  --color-surface: #172820;
-  --color-surface-2: #1e3328;
-  --color-surface-3: #253d30;
-  --color-accent-dim: rgba(74, 222, 128, 0.25);
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.65);
+  --color-border: rgba(74, 180, 120, 0.5);
+  --color-border-hover: rgba(74, 180, 120, 0.8);
+  --color-surface: rgba(18, 36, 26, 0.96);
+  --color-surface-2: rgba(24, 44, 32, 0.97);
+  --color-surface-3: rgba(32, 56, 40, 0.98);
+  --color-accent-dim: rgba(74, 222, 128, 0.28);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
   --font-weight-normal: 500;
+  --backdrop: blur(8px) saturate(1.2);
+  --backdrop-heavy: blur(10px) saturate(1.3);
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --color-text: #ffffff;
+    --color-text-dim: #e2e8f0;
+    --color-border: rgba(74, 180, 120, 0.5);
+    --color-surface: rgba(18, 36, 26, 0.96);
+    --font-weight-normal: 500;
+  }
+}
+
+/* ── Light Theme ── */
+[data-theme="light"] {
+  --color-bg: #b8d8c4;
+  --color-surface: rgba(255, 255, 255, 0.72);
+  --color-surface-2: rgba(245, 255, 250, 0.80);
+  --color-surface-3: rgba(235, 250, 242, 0.88);
+  --color-surface-raised: rgba(255, 255, 255, 0.55);
+  --color-input-bg: rgba(255, 255, 255, 0.75);
+  --color-glass-border: rgba(22, 101, 52, 0.15);
+  --color-border: rgba(22, 101, 52, 0.22);
+  --color-border-hover: rgba(22, 101, 52, 0.48);
+  --color-text: #0a1f10;
+  --color-text-dim: #1e4228;
+  --color-text-muted: #3a7050;
+  --color-accent: #16a34a;
+  --color-accent-dark: #14532d;
+  --color-accent-dim: rgba(22, 163, 74, 0.15);
+  --color-danger: #dc2626;
+  --color-danger-dim: rgba(220, 38, 38, 0.12);
+  --color-warn: #d97706;
+  --color-info: #2563eb;
+  --shadow-sm: 0 2px 8px rgba(0, 50, 20, 0.12);
+  --shadow: 0 4px 20px rgba(0, 50, 20, 0.18);
+  --shadow-lg: 0 8px 32px rgba(0, 50, 20, 0.24);
+  --backdrop: blur(20px) saturate(2.0);
+  --backdrop-heavy: blur(24px) saturate(2.2);
+}
+
+[data-theme="light"] body {
+  background: linear-gradient(160deg, #a8d5b5 0%, #7dc49a 50%, #58b07e 100%) fixed;
+}
+
+[data-theme="light"] #header {
+  background: rgba(200, 240, 215, 0.78);
+  border-bottom-color: rgba(22, 101, 52, 0.2);
+}
+
+/* GPS badge adjustments in light mode */
+[data-theme="light"] .gps-good {
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.2);
+  box-shadow: 0 0 8px rgba(22, 163, 74, 0.3);
+}
+[data-theme="light"] .gps-fair { color: #b45309; background: rgba(217, 119, 6, 0.15); }
+[data-theme="light"] .gps-poor { color: #b91c1c; background: rgba(220, 38, 38, 0.15); }
+[data-theme="light"] .gps-unknown { color: #475569; background: rgba(71, 85, 105, 0.15); }
+
+/* Toolbar section tints in light mode */
+[data-theme="light"] .toolbar-section[data-sec="gps"] > .toolbar-section-label {
+  color: #15803d; border-color: rgba(22, 163, 74, 0.4); background: rgba(22, 163, 74, 0.12);
+}
+[data-theme="light"] .toolbar-section[data-sec="sketch"] > .toolbar-section-label {
+  color: #0369a1; border-color: rgba(3, 105, 161, 0.4); background: rgba(3, 105, 161, 0.10);
+}
+
+/* Identify popup in light mode */
+[data-theme="light"] .fm-identify-popup .maplibregl-popup-content {
+  background: rgba(245, 255, 250, 0.90);
+  border: 1px solid rgba(22, 101, 52, 0.2);
+}
+[data-theme="light"] .fm-identify-popup .maplibregl-popup-tip {
+  border-top-color: rgba(245, 255, 250, 0.90);
 }
 
 /* Bump illegibly small text in outdoor mode */
@@ -161,6 +227,26 @@ html, body {
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* ── Glassmorphic surfaces ── */
+/* Elements that float over the map canvas get backdrop blur */
+#left-toolbar,
+#right-controls,
+#point-entry-hud,
+#capture-controls,
+.layer-mgr-popover,
+.floating-panel {
+  backdrop-filter: var(--backdrop);
+  -webkit-backdrop-filter: var(--backdrop);
+}
+
+.side-panel,
+.cf-panel,
+.pf-panel,
+.measure-hud {
+  backdrop-filter: var(--backdrop-heavy);
+  -webkit-backdrop-filter: var(--backdrop-heavy);
 }
 
 /* ============================================================
@@ -2369,6 +2455,10 @@ label textarea {
 /* ============================================================
    MapLibre overrides
    ============================================================ */
+
+/* Ensure MapLibre popups (identify tool) float above the toolbars (z-index: 20) */
+.maplibregl-popup { z-index: 30; }
+
 .maplibregl-ctrl-attrib {
   background: rgba(20,40,28,0.8) !important;
   color: rgba(255,255,255,0.6) !important;
@@ -3610,17 +3700,19 @@ input[type=color] {
    Identify popup (MapLibre Popup override)
    ============================================================ */
 .fm-identify-popup .maplibregl-popup-content {
-  background: #131f16;
-  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(19, 31, 22, 0.88);
+  backdrop-filter: var(--backdrop-heavy);
+  -webkit-backdrop-filter: var(--backdrop-heavy);
+  border: 1px solid var(--color-glass-border);
   border-radius: 8px;
   padding: 0;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.55);
+  box-shadow: var(--shadow);
   overflow: hidden;
   max-height: 60vh;
   overflow-y: auto;
 }
 .fm-identify-popup .maplibregl-popup-tip {
-  border-top-color: #131f16;
+  border-top-color: rgba(19, 31, 22, 0.88);
 }
 .fm-popup-body {
   font-size: 12px;
@@ -4138,19 +4230,21 @@ input[type=color] {
    Measure HUD
    ============================================================ */
 .measure-hud {
-  position: absolute;
-  bottom: 115px;
-  left: 62px;
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 150;
-  background: rgba(20, 40, 28, 0.92);
+  background: var(--color-surface);
   border: 1px solid rgba(250, 204, 21, 0.5);
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 8px 12px;
   display: none;
   flex-direction: column;
   gap: 4px;
-  max-width: 220px;
-  backdrop-filter: blur(4px);
+  min-width: 220px;
+  max-width: calc(100vw - 32px);
+  box-shadow: var(--shadow);
 }
 .measure-hud-body {
   display: flex;
@@ -6574,23 +6668,23 @@ input[type=color] {
    ============================================================ */
 
 .cf-panel {
-  position: absolute;
-  bottom: 115px;
-  left: 62px;
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 150;
-  background: rgba(18, 36, 26, 0.95);
-  border: 1px solid rgba(74, 222, 128, 0.35);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 0;
   display: flex;
   flex-direction: column;
-  width: 240px;
+  width: 280px;
   max-height: 80vh;
   overflow-y: auto;
-  backdrop-filter: blur(6px);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+  box-shadow: var(--shadow-lg);
   font-size: 12px;
-  color: var(--color-text, #d1fae5);
+  color: var(--color-text);
 }
 
 .cf-header {
@@ -7122,21 +7216,22 @@ input[type=color] {
    ============================================================ */
 
 .pf-panel {
-  position: absolute;
-  top: 80px;
-  left: 62px;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   z-index: 150;
-  background: rgba(18, 36, 26, 0.95);
-  border: 1px solid rgba(74, 222, 128, 0.35);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 0;
   display: flex;
   flex-direction: column;
-  width: 344px;
-  backdrop-filter: blur(6px);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  box-shadow: var(--shadow-lg);
   font-size: 12px;
-  color: var(--color-text, #d1fae5);
+  color: var(--color-text);
 }
 
 .pf-header {

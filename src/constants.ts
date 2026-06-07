@@ -21,6 +21,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   coord_format: 'dd',
   map_bg_color: '#000000',
   outdoor_mode: false,
+  theme: 'dark',
 };
 
 // ---- Basemap Definitions ----
