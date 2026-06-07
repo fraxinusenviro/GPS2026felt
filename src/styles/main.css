@@ -97,6 +97,53 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
 }
 
+/* ── Outdoor / High-Contrast Mode ── */
+/* Toggled by data-outdoor attribute on <html>, or via OS prefers-contrast */
+[data-outdoor],
+@media (prefers-contrast: more) { :root {
+  --color-text: #ffffff;
+  --color-text-dim: #e2e8f0;
+  --color-text-muted: #cbd5e1;
+  --color-border: rgba(74, 180, 120, 0.45);
+  --color-border-hover: rgba(74, 180, 120, 0.75);
+  --color-surface: #172820;
+  --color-surface-2: #1e3328;
+  --color-surface-3: #253d30;
+  --color-accent-dim: rgba(74, 222, 128, 0.25);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.65);
+  --font-weight-normal: 500;
+}}
+
+[data-outdoor] {
+  --color-text: #ffffff;
+  --color-text-dim: #e2e8f0;
+  --color-text-muted: #cbd5e1;
+  --color-border: rgba(74, 180, 120, 0.45);
+  --color-border-hover: rgba(74, 180, 120, 0.75);
+  --color-surface: #172820;
+  --color-surface-2: #1e3328;
+  --color-surface-3: #253d30;
+  --color-accent-dim: rgba(74, 222, 128, 0.25);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.65);
+  --font-weight-normal: 500;
+}
+
+/* Bump illegibly small text in outdoor mode */
+[data-outdoor] .tool-btn-label,
+[data-outdoor] .map-ctrl-btn-label { font-size: 10px; }
+
+[data-outdoor] .zoom-level-badge,
+[data-outdoor] .layer-badge,
+[data-outdoor] .preset-geom-badge { font-size: 11px; }
+
+/* ── Global focus-visible ring ── */
+/* Shows for keyboard/accessibility; suppressed on mouse click */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+:focus:not(:focus-visible) { outline: none; }
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -1403,10 +1450,9 @@ label textarea {
   transition: border-color 0.15s;
 }
 
-label input:focus,
-label select:focus,
-label textarea:focus {
-  outline: none;
+label input:focus-visible,
+label select:focus-visible,
+label textarea:focus-visible {
   border-color: var(--color-accent);
 }
 
@@ -1542,8 +1588,8 @@ label textarea {
 }
 
 .icon-btn {
-  width: 40px;
-  height: 40px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
@@ -1570,6 +1616,18 @@ label textarea {
   color: var(--color-accent);
   background: var(--color-accent-dim);
   border-color: var(--color-accent);
+}
+
+/* Press / active scale feedback for all primary interactive elements */
+.btn-outline:active,
+.btn-sm:active,
+.tool-btn:active,
+.map-ctrl-btn:active,
+.icon-btn:active,
+.tab-btn:active,
+.capture-btn:active:not(:disabled) {
+  transform: scale(0.95);
+  transition: transform 0.08s ease;
 }
 
 /* ============================================================
@@ -1601,10 +1659,9 @@ label textarea {
   font-family: var(--font);
 }
 
-.form-group input:focus,
-.form-group select:focus,
-.form-group textarea:focus {
-  outline: none;
+.form-group input:focus-visible,
+.form-group select:focus-visible,
+.form-group textarea:focus-visible {
   border-color: var(--color-accent);
 }
 

@@ -252,6 +252,9 @@ export class App {
     const crosshair = document.getElementById('crosshair');
     if (crosshair) crosshair.style.display = settings.crosshair_visible ? 'block' : 'none';
 
+    if (settings.outdoor_mode) document.documentElement.setAttribute('data-outdoor', '');
+    else document.documentElement.removeAttribute('data-outdoor');
+
     this.gridOverlay.setVisible(settings.grid_visible);
     this.updateButtonState('btn-grid', settings.grid_visible);
     this.updateButtonState('btn-follow', settings.follow_user);
