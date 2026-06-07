@@ -48,6 +48,7 @@ interface StackLayer {
   hrdemContourInterval?: number;  // default 10 (metres)
   hrdemContourColor?:    string;  // default '#ffffff'
   hrdemContourWidth?:    number;  // default 1.2 (px)
+  hrdemContourMinZoom?:  number;  // default 14
   hrdemProduct?: string;          // 'elevation'|'slope'|'aspect'|'tpi'|'chm' — default 'elevation'
   hrdemSurface?: string;          // 'dtm'|'dsm' — default 'dtm'
   // Slope styling
@@ -1016,6 +1017,7 @@ export class BasemapManager {
           l.hrdemContourInterval ?? (isContourLayer ? 1 : 10),
           l.hrdemContourColor    ?? (isContourLayer ? '#000000' : '#ffffff'),
           l.hrdemContourWidth    ?? (isContourLayer ? 0.5 : 1.2),
+          l.hrdemContourMinZoom  ?? 14,
         );
         // Determine surface from defId for raster function layers
         const rasterFnSurface = l.defId === 'raster-fn-dsm-hillshade' ? 'dsm' : (l.hrdemSurface ?? 'dtm');
@@ -1493,6 +1495,7 @@ export class BasemapManager {
     const hrdemContourIvl   = layer.hrdemContourInterval ?? (isContourDef ? 1 : 10);
     const hrdemContourCol   = layer.hrdemContourColor    ?? (isContourDef ? '#000000' : '#ffffff');
     const hrdemContourWid   = layer.hrdemContourWidth    ?? (isContourDef ? 0.5 : 1.2);
+    const hrdemContourMnZ   = layer.hrdemContourMinZoom  ?? 14;
     const hrdemSlopeRampId  = layer.hrdemSlopeRampId     ?? 'classic';
     const hrdemSlopeUnit    = layer.hrdemSlopeUnit        ?? 'degrees';
     const hrdemSlopeStretch = layer.hrdemSlopeStretch    ?? 'auto';
@@ -1532,6 +1535,10 @@ export class BasemapManager {
         <div style="display:flex;align-items:center;gap:5px;margin-top:4px">
           <span style="font-size:9px;opacity:.55">Width</span>
           <input type="number" class="bm-width-num bm-hrdem-contour-wid" data-iid="${iid}" min="0.5" max="5" step="0.5" value="${hrdemContourWid}" inputmode="decimal" style="width:44px" />
+        </div>
+        <div style="display:flex;align-items:center;gap:5px;margin-top:4px">
+          <span style="font-size:9px;opacity:.55">Min zoom</span>
+          <input type="number" class="bm-hrdem-contour-mnz" data-iid="${iid}" min="1" max="22" step="1" value="${hrdemContourMnZ}" inputmode="decimal" style="width:44px;${S}" title="Contours only draw at this zoom level and above (default 14)" />
         </div>`;
 
     } else if (layer.defId === 'hrdem-slope' || layer.defId === 'hrdem-dsm-slope') {
@@ -2690,6 +2697,7 @@ export class BasemapManager {
         layer.hrdemContourInterval ?? (isCtour ? 1 : 10),
         layer.hrdemContourColor    ?? (isCtour ? '#000000' : '#ffffff'),
         layer.hrdemContourWidth    ?? (isCtour ? 0.5 : 1.2),
+        layer.hrdemContourMinZoom  ?? 14,
       );
     };
 
@@ -2723,6 +2731,19 @@ export class BasemapManager {
         const w = Number(inp.value);
         if (!isFinite(w) || w <= 0) return;
         layer.hrdemContourWidth = w;
+        applyContour(iid, layer);
+        this.saveStack();
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-hrdem-contour-mnz').forEach(inp => {
+      inp.addEventListener('change', () => {
+        const iid = inp.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        const z = Math.round(Number(inp.value));
+        if (!isFinite(z) || z < 1 || z > 22) return;
+        layer.hrdemContourMinZoom = z;
         applyContour(iid, layer);
         this.saveStack();
       });

@@ -112,6 +112,7 @@ export class HRDEMLayer {
   private contourInterval = 1;
   private contourColor    = '#000000';
   private contourWidth    = 0.5;
+  private contourMinZoom  = 14;
   private lastContourGeoJSON: GeoJSON.FeatureCollection | null = null;
 
   private instanceId     = '';
@@ -363,11 +364,12 @@ export class HRDEMLayer {
     }
   }
 
-  setContour(enabled: boolean, interval: number, color: string, width = 1.2): void {
+  setContour(enabled: boolean, interval: number, color: string, width = 1.2, minZoom = 14): void {
     this.contourEnabled  = enabled;
     this.contourInterval = Math.max(0.1, interval);
     this.contourColor    = color;
     this.contourWidth    = width;
+    this.contourMinZoom  = minZoom;
 
     const map = this.mapManager.getMap();
     if (map.getLayer(this.contourLayerId)) {
@@ -564,7 +566,11 @@ export class HRDEMLayer {
   // --------------------------------------------------------------------------
 
   private effectiveRasterVisible():  boolean { return this.layerVisible && this.rasterVisible; }
-  private effectiveContourVisible(): boolean { return this.layerVisible && this.contourEnabled; }
+  private effectiveContourVisible(): boolean {
+    if (!this.layerVisible || !this.contourEnabled) return false;
+    if (!this.active) return true; // during activation, zoom check happens in fetchAndRender
+    return this.mapManager.getMap().getZoom() >= this.contourMinZoom;
+  }
 
   private applyVisibilities(): void {
     const map = this.mapManager.getMap();
@@ -708,12 +714,18 @@ export class HRDEMLayer {
   private async fetchAndRender(): Promise<void> {
     if (!this.active) return;
     const map = this.mapManager.getMap();
+    const currentZoom = map.getZoom();
 
-    if (map.getZoom() < MIN_ZOOM) {
+    if (currentZoom < MIN_ZOOM) {
       if (map.getLayer(this.layerId))        map.setPaintProperty(this.layerId, 'raster-opacity', 0);
       if (map.getLayer(this.contourLayerId)) map.setLayoutProperty(this.contourLayerId, 'visibility', 'none');
       this.updateLegend(null);
       return;
+    }
+
+    // Hide contours below their minimum zoom without hiding the raster
+    if (this.contourEnabled && currentZoom < this.contourMinZoom) {
+      if (map.getLayer(this.contourLayerId)) map.setLayoutProperty(this.contourLayerId, 'visibility', 'none');
     }
 
     if (!this.layerVisible) return;
@@ -772,10 +784,14 @@ export class HRDEMLayer {
     }
 
     if (this.contourEnabled) {
-      this.updateContourSource(result);
-      if (map.getLayer(this.contourLayerId)) {
-        map.setLayoutProperty(this.contourLayerId, 'visibility', 'visible');
-        map.setPaintProperty(this.contourLayerId, 'line-opacity', this.intendedOpacity);
+      if (currentZoom >= this.contourMinZoom) {
+        this.updateContourSource(result);
+        if (map.getLayer(this.contourLayerId)) {
+          map.setLayoutProperty(this.contourLayerId, 'visibility', 'visible');
+          map.setPaintProperty(this.contourLayerId, 'line-opacity', this.intendedOpacity);
+        }
+      } else {
+        if (map.getLayer(this.contourLayerId)) map.setLayoutProperty(this.contourLayerId, 'visibility', 'none');
       }
     }
 

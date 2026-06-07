@@ -1590,12 +1590,26 @@ export class App {
     EventBus.emit('show-modal', {
       title: 'Go To Coordinates',
       html: `
-        <div class="form-group">
-          <label>Coordinates
-            <input type="text" id="goto-input" placeholder="lat, lon  or  UTM zone easting northing" autocomplete="off" style="width:100%" />
-          </label>
-          <div style="font-size:11px;color:var(--color-text-muted);margin-top:4px">
-            e.g. 44.562, -63.755 &nbsp;·&nbsp; 45°20'N 63°45'W
+        <div class="goto-keypad">
+          <input type="text" id="goto-input" class="goto-kp-display"
+            placeholder="Lat, Lon  ·  DMS  ·  UTM zone E N" autocomplete="off" />
+          <div class="goto-kp-hint">e.g. 44.562, −63.755 &nbsp;·&nbsp; 45°20′N 63°45′W</div>
+          <div class="goto-kp-grid">
+            <button class="goto-kp-key" data-val="7">7</button>
+            <button class="goto-kp-key" data-val="8">8</button>
+            <button class="goto-kp-key" data-val="9">9</button>
+            <button class="goto-kp-key goto-kp-fn" data-val="back">⌫</button>
+            <button class="goto-kp-key" data-val="4">4</button>
+            <button class="goto-kp-key" data-val="5">5</button>
+            <button class="goto-kp-key" data-val="6">6</button>
+            <button class="goto-kp-key goto-kp-sym" data-val="-">−</button>
+            <button class="goto-kp-key" data-val="1">1</button>
+            <button class="goto-kp-key" data-val="2">2</button>
+            <button class="goto-kp-key" data-val="3">3</button>
+            <button class="goto-kp-key goto-kp-sym" data-val=".">.</button>
+            <button class="goto-kp-key goto-kp-wide" data-val="0">0</button>
+            <button class="goto-kp-key goto-kp-sym" data-val=",">,</button>
+            <button class="goto-kp-key goto-kp-fn" data-val="clear">C</button>
           </div>
         </div>`,
       confirmLabel: 'Go',
@@ -1613,8 +1627,27 @@ export class App {
       onCancel: () => {},
     });
     requestAnimationFrame(() => {
-      const el = document.getElementById('goto-input') as HTMLInputElement | null;
-      el?.focus();
+      const input = document.getElementById('goto-input') as HTMLInputElement | null;
+      if (input) input.focus();
+      document.querySelectorAll<HTMLButtonElement>('.goto-kp-key').forEach(btn => {
+        btn.addEventListener('pointerdown', e => e.preventDefault()); // keep focus on input
+        btn.addEventListener('click', () => {
+          const inp = document.getElementById('goto-input') as HTMLInputElement | null;
+          if (!inp) return;
+          const val = btn.dataset.val ?? '';
+          if (val === 'back') {
+            const s = inp.value, start = inp.selectionStart ?? s.length;
+            if (start > 0) inp.value = s.slice(0, start - 1) + s.slice(start);
+          } else if (val === 'clear') {
+            inp.value = '';
+          } else {
+            const s = inp.value, start = inp.selectionStart ?? s.length;
+            inp.value = s.slice(0, start) + val + s.slice(start);
+            inp.setSelectionRange(start + 1, start + 1);
+          }
+          inp.focus();
+        });
+      });
     });
   }
 
