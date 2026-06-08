@@ -56,8 +56,8 @@ export class HUD {
       this.toggleSource();
     });
 
-    // Copy button
-    document.getElementById('btn-copy-coords')?.addEventListener('click', () => {
+    // Tap coords display to copy
+    document.getElementById('hud-coords')?.addEventListener('click', () => {
       this.copyCoords();
     });
   }
