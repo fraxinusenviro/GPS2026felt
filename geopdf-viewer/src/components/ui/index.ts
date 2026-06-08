@@ -1,7 +1,0 @@
-export * from './Dialog'
-export * from './Sheet'
-export * from './Tabs'
-export * from './Tooltip'
-export * from './Switch'
-export * from './ScrollArea'
-export * from './DropdownMenu'
