@@ -104,6 +104,19 @@ const LAYER_DESCRIPTIONS: Record<string, string> = {
   'raster-fn-slope-pct':    'Slope gradient displayed in percent grade (rise/run × 100) derived from the NRCan HRDEM DTM. A practical metric for engineering and earthworks — slope % directly maps to cut-and-fill constraints. Colour ramp and invert settings are configurable.',
   'raster-fn-aspect':       'Terrain aspect — slope-facing direction rendered as a directional colour wheel on the NRCan HRDEM DTM. North-facing slopes appear cool blue; south-facing warm red; east orange; west purple. Used for solar exposure analysis, cold-air drainage mapping, and species habitat modelling.',
   'raster-fn-tpi':          'Topographic Position Index (TPI) from the NRCan HRDEM DTM — computed as the difference between each cell\'s elevation and the mean of its 8 neighbours. Positive values (red) indicate ridge crests; negative (blue) indicate valley floors and drains. Diverging colour ramp and stretch configurable.',
+  'esri-light-grey':        'Minimal light-grey canvas basemap from ESRI. Low visual noise makes it ideal for overlaying thematic data layers where the basemap should recede. Labelled version available via ESRI Canvas series.',
+  'esri-natgeo':            'National Geographic-style cartographic basemap from ESRI. Rich terrain rendering with a classic atlas aesthetic. Suitable for presentation-quality maps and regional context.',
+  'esri-ocean':             'Ocean-focused basemap from ESRI with detailed bathymetric styling and seafloor terrain. Useful for coastal and marine project contexts.',
+  'esri-street':            'World street map from ESRI with roads, place names, and points of interest. Highest resolution of the ESRI basemap set (zmax 23). Good for urban and roaded environments.',
+  'esri-topo':              'Topographic basemap from ESRI combining terrain shading, contour context, and land cover. Blends satellite and cartographic elements for a practical field-navigation reference.',
+  'esri-physical':          'Physical geography basemap from ESRI showing land cover, terrain, and major hydrographic features in natural tones. Limited to zoom level 8 — best used for regional or continental-scale overviews.',
+  'esri-shaded-relief':     'Global shaded relief (hillshade) basemap from ESRI. Rendered in muted earth tones without road labels — useful as a neutral terrain-aware background for overlaying other data.',
+  'esri-terrain':           'Bare terrain base from ESRI showing topographic shading and natural surface features without cultural labels. Good for environmental and natural resources context.',
+  'google-hybrid':          'Google hybrid satellite imagery with road and place-name labels. Combines high-resolution aerial context with vector navigation features.',
+  'google-satellite':       'Google satellite/aerial imagery without labels. High-resolution coverage with frequent updates in developed areas.',
+  'google-street':          'Google road map layer with streets, transit, and points of interest. Standard Google Maps street view.',
+  'google-terrain':         'Google terrain basemap emphasising topographic relief and natural features. Useful for landscape-scale field orientation.',
+  'mapzen-terrain':         'Terrarium-encoded elevation tiles from the Mapzen/AWS open terrain dataset. Each pixel encodes absolute elevation — intended for programmatic elevation lookups rather than visual display.',
 };
 
 // ── Thumbnail resolution ──────────────────────────────────────────────────────
