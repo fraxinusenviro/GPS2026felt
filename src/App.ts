@@ -1,4 +1,4 @@
-import type { AppSettings, FieldFeature, ToolMode, GeometryType, GeoJSONGeometry, LayerPreset, GPSState } from './types';
+import type { AppSettings, FieldFeature, ToolMode, GeometryType, GeoJSONGeometry, LayerPreset, GPSState, ProjectBundle } from './types';
 import { StorageManager } from './storage/StorageManager';
 import { MapManager } from './map/MapManager';
 import { BasemapManager } from './map/BasemapManager';
@@ -391,6 +391,16 @@ export class App {
     EventBus.on('presets-changed', () => {
       this.symbolRenderer.registerAll(this.presetManager.getPresets());
       this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+    });
+
+    // Project bundle import (triggered by ImportDataPanel)
+    EventBus.on<{ bundle: ProjectBundle; mode: 'new' | 'merge' }>('import-project-bundle', async ({ bundle, mode }) => {
+      await this.importProjectBundle(bundle, mode);
+    });
+
+    // Project bundle export (triggered by ProjectPanel)
+    EventBus.on<{ projectId: string }>('export-project-bundle', async ({ projectId }) => {
+      await this.exportManager.exportProjectBundle(projectId);
     });
 
     // Buffer feature: create a Turf buffer polygon and save directly to the project polygon layer
@@ -1989,6 +1999,100 @@ export class App {
     this.projectPanel.refresh();
     if ((this.settings.active_project_id || 'default') === id) {
       EventBus.emit('toast', { message: `Project renamed to "${name}"`, type: 'success', duration: 2000 });
+    }
+  }
+
+  async importProjectBundle(bundle: ProjectBundle, mode: 'new' | 'merge'): Promise<void> {
+    const now = new Date().toISOString();
+
+    // Upsert type presets globally (shared across all projects)
+    for (const tp of bundle.type_presets) {
+      await this.storage.saveTypePreset(tp);
+    }
+
+    if (mode === 'new') {
+      const newProjectId = crypto.randomUUID();
+
+      // Map old layer preset IDs → new IDs
+      const lpIdMap = new Map<string, string>();
+      for (const lp of bundle.layer_presets) {
+        lpIdMap.set(lp.id, crypto.randomUUID());
+      }
+
+      // Determine new default_layer_id (remap from old project default)
+      const newDefaultLayerId = lpIdMap.get(bundle.project.default_layer_id) ?? '';
+
+      // Save layer presets with new IDs scoped to new project
+      for (const lp of bundle.layer_presets) {
+        await this.storage.saveLayerPreset({ ...lp, id: lpIdMap.get(lp.id)!, project_id: newProjectId });
+      }
+
+      // Save features remapped to new project and new layer IDs
+      for (const f of bundle.features) {
+        await this.storage.saveFeature({
+          ...f,
+          project_id: newProjectId,
+          layer_id: lpIdMap.get(f.layer_id) ?? f.layer_id,
+        });
+      }
+
+      // Save the project record
+      await this.storage.saveProject({
+        ...bundle.project,
+        id: newProjectId,
+        name: bundle.bundle_name + ' — imported',
+        created_at: now,
+        updated_at: now,
+        default_layer_id: newDefaultLayerId,
+      });
+
+      await this.loadProject(newProjectId);
+      EventBus.emit('toast', {
+        message: `Imported "${bundle.bundle_name}": ${bundle.features.length} feature${bundle.features.length !== 1 ? 's' : ''}`,
+        type: 'success', duration: 4000,
+      });
+
+    } else {
+      // Merge into current project
+      const currentProjectId = this.settings.active_project_id || 'default';
+      const existingLayers = await this.storage.getLayersByProject(currentProjectId);
+
+      // Match bundle layers to existing layers by name; create missing ones
+      const lpIdMap = new Map<string, string>();
+      for (const bundleLp of bundle.layer_presets) {
+        const match = existingLayers.find(el => el.name === bundleLp.name && el.geometry_type === bundleLp.geometry_type);
+        if (match) {
+          lpIdMap.set(bundleLp.id, match.id);
+        } else {
+          const newId = crypto.randomUUID();
+          lpIdMap.set(bundleLp.id, newId);
+          await this.storage.saveLayerPreset({ ...bundleLp, id: newId, project_id: currentProjectId });
+        }
+      }
+
+      // Upsert features — skip if the locally stored version is newer
+      let imported = 0;
+      for (const f of bundle.features) {
+        const existing = await this.storage.getFeature(f.id);
+        if (existing && existing.updated_at >= f.updated_at) continue;
+        await this.storage.saveFeature({
+          ...f,
+          project_id: currentProjectId,
+          layer_id: lpIdMap.get(f.layer_id) ?? f.layer_id,
+        });
+        imported++;
+      }
+
+      // Reload map display
+      this.features = await this.storage.getFeaturesByProject(currentProjectId);
+      this.projectLayerPresets = await this.storage.getLayersByProject(currentProjectId);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+      this.updateActiveLayerIndicator();
+      EventBus.emit('presets-changed', undefined);
+      EventBus.emit('toast', {
+        message: `Merged: ${imported} new/updated feature${imported !== 1 ? 's' : ''} added`,
+        type: 'success', duration: 4000,
+      });
     }
   }
 
