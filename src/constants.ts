@@ -690,6 +690,16 @@ export const BASEMAP_OVERLAYS: import('./types').BasemapDef[] = [
     tile_size: 256,
     max_zoom: 22,
   },
+  {
+    id: 'raster-fn-chm-focal',
+    label: 'CHM Focal Statistics',
+    type: 'hrdem-wcs',
+    group: 'Raster Functions',
+    url: 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic',
+    attribution: '© Natural Resources Canada — HRDEM DSM/DTM',
+    tile_size: 256,
+    max_zoom: 22,
+  },
 
   // ---- Wetland Indices (COG rasters) ----
   {

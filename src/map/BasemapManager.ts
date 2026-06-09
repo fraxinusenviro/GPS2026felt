@@ -5,7 +5,7 @@ import type { HrdemContourLayerInfo } from '../io/VectorTileRenderer';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
-import { HRDEMLayer, type HRDEMProduct } from './HRDEMLayer';
+import { HRDEMLayer, type HRDEMProduct, type ChmFocalParams } from './HRDEMLayer';
 import { CogContourLayer } from './CogContourLayer';
 import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, CHM_RAMPS, CHM_CLASSES, CHM_CLASS_PALETTES, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
 import { EventBus } from '../utils/EventBus';
@@ -72,6 +72,13 @@ interface StackLayer {
   hrdemHillshadeAzimuth?:  number;        // default 315
   hrdemHillshadeAltitude?: number;        // default 45
   hrdemHillshadeZFactor?:  number;        // default 1
+  // CHM Focal Statistics parameters (for raster-fn-chm-focal)
+  hrdemChmFocalNeighborhood?: string;     // 'rectangle'|'circle', default 'circle'
+  hrdemChmFocalWidth?:  number;           // cells (rectangle only), default 3
+  hrdemChmFocalHeight?: number;           // cells (rectangle only), default 3
+  hrdemChmFocalRadius?: number;           // cells (circle only), default 3
+  hrdemChmFocalStat?:   string;           // 'mean'|'min'|'max'|'median'|'sum'|'percentile', default 'mean'
+  hrdemChmFocalPercentile?: number;       // 0–100, default 50
   // COG threshold contour
   cogContourThreshold?:   number;  // default 0.5 (metres for DTW)
   cogContourLineColor?:   string;  // default '#1565c0'
@@ -527,11 +534,11 @@ export class BasemapManager {
   }
 
   /** Public entry-point used by DataLibraryModal to add a layer to the active stack. */
-  addDefToStack(def: BasemapDef): void {
-    this.addToStack(def);
+  addDefToStack(def: BasemapDef, params?: Record<string, unknown>): void {
+    this.addToStack(def, params);
   }
 
-  private addToStack(def: BasemapDef): void {
+  private addToStack(def: BasemapDef, params?: Record<string, unknown>): void {
     const instanceId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
     const base: StackLayer = {
       instanceId, defId: def.id, label: def.label, url: def.url,
@@ -560,6 +567,7 @@ export class BasemapManager {
         'raster-fn-slope-pct':     'slope',
         'raster-fn-aspect':        'aspect',
         'raster-fn-tpi':           'tpi',
+        'raster-fn-chm-focal':     'chm-focal',
       };
       const surfaceMap: Record<string, string> = {
         'hrdem-dsm-elevation': 'dsm',
@@ -580,6 +588,31 @@ export class BasemapManager {
       }
       // Slope % grade default
       if (def.id === 'raster-fn-slope-pct') base.hrdemSlopeUnit = 'percent';
+    }
+    // Apply configure-time parameter overrides for raster functions
+    if (params && def.group === 'Raster Functions') {
+      const n = (k: string) => typeof params[k] === 'number' ? params[k] as number : undefined;
+      const s = (k: string) => typeof params[k] === 'string' ? params[k] as string : undefined;
+      if (def.id === 'raster-fn-hillshade' || def.id === 'raster-fn-dsm-hillshade') {
+        if (n('azimuth')  !== undefined) base.hrdemHillshadeAzimuth  = n('azimuth');
+        if (n('altitude') !== undefined) base.hrdemHillshadeAltitude = n('altitude');
+        if (n('zFactor')  !== undefined) base.hrdemHillshadeZFactor  = n('zFactor');
+      }
+      if (def.id === 'raster-fn-slope-pct') {
+        if (s('unit')    !== undefined) base.hrdemSlopeUnit    = s('unit');
+        if (s('stretch') !== undefined) base.hrdemSlopeStretch = s('stretch');
+      }
+      if (def.id === 'raster-fn-tpi') {
+        if (s('stretch') !== undefined) base.hrdemTpiStretch = s('stretch');
+      }
+      if (def.id === 'raster-fn-chm-focal') {
+        if (s('neighborhood') !== undefined) base.hrdemChmFocalNeighborhood = s('neighborhood');
+        if (n('width')        !== undefined) base.hrdemChmFocalWidth        = n('width');
+        if (n('height')       !== undefined) base.hrdemChmFocalHeight       = n('height');
+        if (n('radius')       !== undefined) base.hrdemChmFocalRadius       = n('radius');
+        if (s('stat')         !== undefined) base.hrdemChmFocalStat         = s('stat');
+        if (n('percentile')   !== undefined) base.hrdemChmFocalPercentile   = n('percentile');
+      }
     }
     this.stack.unshift(base);
     this.rebuildMap();
@@ -1050,6 +1083,7 @@ export class BasemapManager {
           : l.defId === 'raster-fn-slope-pct'   ? 'slope'
           : l.defId === 'raster-fn-aspect'      ? 'aspect'
           : l.defId === 'raster-fn-tpi'         ? 'tpi'
+          : l.defId === 'raster-fn-chm-focal'   ? 'chm-focal'
           : 'elevation'
         );
         hrdemInst.setProduct(effectiveProduct as HRDEMProduct);
@@ -1059,6 +1093,16 @@ export class BasemapManager {
             l.hrdemHillshadeAltitude ?? 45,
             l.hrdemHillshadeZFactor  ?? 1,
           );
+        }
+        if (effectiveProduct === 'chm-focal') {
+          hrdemInst.setChmFocalParams({
+            neighborhood: (l.hrdemChmFocalNeighborhood ?? 'circle') as ChmFocalParams['neighborhood'],
+            width:      l.hrdemChmFocalWidth        ?? 3,
+            height:     l.hrdemChmFocalHeight       ?? 3,
+            radius:     l.hrdemChmFocalRadius       ?? 3,
+            stat:       (l.hrdemChmFocalStat ?? 'mean') as ChmFocalParams['stat'],
+            percentile: l.hrdemChmFocalPercentile   ?? 50,
+          });
         }
         hrdemInst.setProductStyle({
           slopeRampId:  l.hrdemSlopeRampId  ?? 'classic',

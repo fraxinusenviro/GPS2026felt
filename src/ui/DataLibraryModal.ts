@@ -1,5 +1,6 @@
 import { BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import type { BasemapDef } from '../types';
+import { EventBus } from '../utils/EventBus';
 
 // ── Thumbnail type icons (public/layer-thumbs/type-*.png) ────────────────────
 // esri-imagery, esri-hybrid, osm, topo use live tile fetches (not listed here).
@@ -19,6 +20,7 @@ const LAYER_THUMBS: Record<string, string> = {
   'hrdem-tpi':            R,
   'hrdem-dsm-elevation':  R,
   'hrdem-chm':            R,
+  'raster-fn-chm-focal':  R,
   'wi-dtw':               './layer-thumbs/wi-dtw.png',
   'wi-gei':               './layer-thumbs/wi-gei.png',
   'wi-pdep':              './layer-thumbs/wi-pdep.png',
@@ -64,6 +66,7 @@ const LABEL_OVERRIDES: Record<string, string> = {
   'raster-fn-slope-pct':       'Slope (% Grade)',
   'raster-fn-aspect':          'Aspect (Directional)',
   'raster-fn-tpi':             'Topographic Position Index (TPI)',
+  'raster-fn-chm-focal':       'CHM Focal Statistics',
 };
 
 // ── Layer descriptions ────────────────────────────────────────────────────────
@@ -120,6 +123,66 @@ const LAYER_DESCRIPTIONS: Record<string, string> = {
   'fed-ec-cnwi':                    'Canadian National Wetland Inventory (CNWI) from Environment and Climate Change Canada. Classifies wetland polygons across Canada including bogs, fens, marshes, swamps, and shallow water. Queried dynamically from the EC CWS MapServer.',
   'fed-ec-critical-habitat':        'Confirmed critical habitat areas for terrestrial species listed under the federal Species at Risk Act (SARA). Compiled by Environment and Climate Change Canada (ECCC) and Parks Canada. Polygon boundaries represent areas where critical habitat occurs — consult the corresponding recovery document for biophysical attribute requirements.',
   'fed-ec-critical-habitat-proposed':'Proposed critical habitat areas for terrestrial species at risk under SARA, prior to final posting. Compiled by ECCC and Parks Canada. Boundaries are subject to revision. Useful for early-stage screening of proposed project footprints against potential future critical habitat.',
+  'raster-fn-chm-focal': 'Focal statistics applied to the Canopy Height Model (DSM − DTM from NRCan HRDEM LiDAR). Computes a neighbourhood statistic (mean, min, max, median, sum, or percentile) across a moving window of configurable shape and size. Useful for smoothing canopy roughness, identifying local canopy maxima, or computing structural percentile heights.',
+};
+
+// ── Raster Function configurable parameter schemas ────────────────────────────
+
+interface RFParamConfig {
+  id: string;
+  label: string;
+  type: 'number' | 'select';
+  default: number | string;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  options?: Array<{ value: string; label: string }>;
+  showWhen?: { param: string; value: string };
+}
+
+const RF_PARAM_SCHEMAS: Record<string, RFParamConfig[]> = {
+  'raster-fn-hillshade': [
+    { id: 'azimuth',  label: 'Sun Azimuth',  type: 'number', default: 315, min: 0,   max: 360, step: 15, unit: '°' },
+    { id: 'altitude', label: 'Sun Altitude', type: 'number', default: 45,  min: 1,   max: 90,  step: 5,  unit: '°' },
+    { id: 'zFactor',  label: 'Z-Factor',     type: 'number', default: 1,   min: 0.1, max: 10,  step: 0.1 },
+  ],
+  'raster-fn-dsm-hillshade': [
+    { id: 'azimuth',  label: 'Sun Azimuth',  type: 'number', default: 315, min: 0,   max: 360, step: 15, unit: '°' },
+    { id: 'altitude', label: 'Sun Altitude', type: 'number', default: 45,  min: 1,   max: 90,  step: 5,  unit: '°' },
+    { id: 'zFactor',  label: 'Z-Factor',     type: 'number', default: 1,   min: 0.1, max: 10,  step: 0.1 },
+  ],
+  'raster-fn-slope-pct': [
+    { id: 'unit',    label: 'Display Unit', type: 'select', default: 'percent',
+      options: [{ value: 'percent', label: '% Grade' }, { value: 'degrees', label: 'Degrees' }] },
+    { id: 'stretch', label: 'Stretch',      type: 'select', default: 'auto',
+      options: [{ value: 'auto', label: 'Auto (data range)' }, { value: '0-45', label: '0–45°' }, { value: '0-90', label: '0–90°' }, { value: 'full', label: 'Full range' }] },
+  ],
+  'raster-fn-tpi': [
+    { id: 'stretch', label: 'Stretch', type: 'select', default: 'symmetric',
+      options: [{ value: 'symmetric', label: 'Symmetric (±max)' }, { value: 'auto', label: 'Auto (data range)' }] },
+  ],
+  'raster-fn-chm-focal': [
+    { id: 'neighborhood', label: 'Neighborhood Shape', type: 'select', default: 'circle',
+      options: [{ value: 'circle', label: 'Circle' }, { value: 'rectangle', label: 'Rectangle' }] },
+    { id: 'radius', label: 'Radius (cells)', type: 'number', default: 3, min: 1, max: 20, step: 1,
+      showWhen: { param: 'neighborhood', value: 'circle' } },
+    { id: 'width',  label: 'Width (cells)',  type: 'number', default: 3, min: 1, max: 20, step: 1,
+      showWhen: { param: 'neighborhood', value: 'rectangle' } },
+    { id: 'height', label: 'Height (cells)', type: 'number', default: 3, min: 1, max: 20, step: 1,
+      showWhen: { param: 'neighborhood', value: 'rectangle' } },
+    { id: 'stat', label: 'Statistic', type: 'select', default: 'mean',
+      options: [
+        { value: 'mean',       label: 'Mean' },
+        { value: 'min',        label: 'Min' },
+        { value: 'max',        label: 'Max' },
+        { value: 'median',     label: 'Median' },
+        { value: 'sum',        label: 'Sum' },
+        { value: 'percentile', label: 'Percentile' },
+      ] },
+    { id: 'percentile', label: 'Percentile (%)', type: 'number', default: 50, min: 0, max: 100, step: 5,
+      showWhen: { param: 'stat', value: 'percentile' } },
+  ],
 };
 
 // ── Thumbnail resolution ──────────────────────────────────────────────────────
@@ -151,6 +214,7 @@ function typeLabel(def: BasemapDef): string {
 
 export interface DataLibraryCallbacks {
   onAddToMap: (def: BasemapDef) => void;
+  onAddToMapWithParams: (def: BasemapDef, params: Record<string, unknown>) => void;
   onRenderImport: (container: HTMLElement) => void;
   onRenderExport: (container: HTMLElement) => void;
   isInStack: (defId: string) => boolean;
@@ -162,6 +226,7 @@ export class DataLibraryModal {
   private searchQuery = '';
   private activeGroup = 'all';
   private activeView: 'library' | 'import' | 'export' = 'library';
+  private configuringDefId: string | null = null;
 
   constructor() {
     this.overlay = document.getElementById('data-library-overlay')!;
@@ -172,6 +237,7 @@ export class DataLibraryModal {
     this.searchQuery = '';
     this.activeGroup = 'all';
     this.activeView = 'library';
+    this.configuringDefId = null;
     this.render();
     this.overlay.style.display = 'flex';
     requestAnimationFrame(() => this.overlay.classList.add('dl-open'));
@@ -219,10 +285,20 @@ export class DataLibraryModal {
     const groupText = def.group ?? 'Standard';
     const desc = LAYER_DESCRIPTIONS[def.id] ?? 'A geospatial data layer for use in field mapping projects.';
     const source = def.attribution;
+    const hasParams = def.group === 'Raster Functions' && def.id in RF_PARAM_SCHEMAS;
 
     const thumbImg = isTile
       ? `<img src="${src}" loading="lazy" alt="${displayLabel}" onerror="this.closest('.dl-card-thumb').classList.add('dl-thumb-err')" />`
       : `<img src="${src}" alt="${displayLabel}" />`;
+
+    let addBtnContent: string;
+    if (inStack && !hasParams) {
+      addBtnContent = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg> Added`;
+    } else if (hasParams) {
+      addBtnContent = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Configure &amp; Add`;
+    } else {
+      addBtnContent = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add to Map`;
+    }
 
     return `
       <div class="dl-card${inStack ? ' dl-card-active' : ''}" data-def-id="${def.id}">
@@ -251,11 +327,8 @@ export class DataLibraryModal {
             <span class="dl-card-type">${tl}</span>
           </div>
         </div>
-        <button class="dl-card-add${inStack ? ' dl-card-added' : ''}" data-def-id="${def.id}">
-          ${inStack
-            ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg> Added`
-            : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add to Map`
-          }
+        <button class="dl-card-add${inStack && !hasParams ? ' dl-card-added' : ''}${hasParams ? ' dl-card-configure' : ''}" data-def-id="${def.id}">
+          ${addBtnContent}
         </button>
       </div>`;
   }
@@ -310,23 +383,23 @@ export class DataLibraryModal {
 
         <div class="dl-main">
           <div class="dl-main-header">
-            ${this.activeView === 'library' ? `
+            ${this.activeView === 'library' && !this.configuringDefId ? `
             <div class="dl-search-wrap">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" class="dl-search-icon">
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
               <input type="text" id="dl-search" class="dl-search" placeholder="Search layers, descriptions…" value="${this.searchQuery}" autocomplete="off" />
               ${this.searchQuery ? '<button id="dl-search-clear" class="dl-search-clear" aria-label="Clear search">✕</button>' : ''}
-            </div>` : `
+            </div>` : this.activeView !== 'library' ? `
             <div class="dl-io-title">
               ${this.activeView === 'import' ? 'Import Data' : 'Export Data'}
-            </div>`}
+            </div>` : `<div class="dl-io-title">Configure Parameters</div>`}
             <button class="dl-close-btn" id="dl-close" aria-label="Close library">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
 
-          ${this.activeView === 'library' ? `
+          ${this.activeView === 'library' ? (this.configuringDefId ? this.renderConfigurePanel() : `
           <div class="dl-grid-wrap">
             <div class="dl-grid-label">
               ${this.activeGroup === 'all' ? 'All Sources' : this.activeGroup === 'basemaps' ? 'Standard Basemaps' : this.activeGroup}
@@ -337,13 +410,56 @@ export class DataLibraryModal {
               ? `<div class="dl-empty">No layers match "<strong>${this.searchQuery}</strong>"</div>`
               : `<div class="dl-grid">${defs.map(d => this.renderCard(d)).join('')}</div>`
             }
-          </div>` : `
+          </div>`) : `
           <div class="dl-io-wrap" id="dl-io-container"></div>`}
         </div>
       </div>
     `;
 
     this.wireEvents();
+  }
+
+  private renderConfigurePanel(): string {
+    const def = this.allDefs.find(d => d.id === this.configuringDefId);
+    if (!def) return '';
+    const schema = RF_PARAM_SCHEMAS[def.id];
+    if (!schema) return '';
+    const displayLabel = LABEL_OVERRIDES[def.id] ?? def.label;
+
+    const rowHtml = schema.map(p => {
+      const hiddenAttr = p.showWhen ? ' style="display:none"' : '';
+      const showWhenAttr = p.showWhen ? ` data-show-when="${p.showWhen.param}:${p.showWhen.value}"` : '';
+      const ctrl = p.type === 'select'
+        ? `<select id="dlp-${p.id}" class="dl-param-select dl-param-ctrl-el">
+            ${(p.options ?? []).map(o => `<option value="${o.value}"${o.value === String(p.default) ? ' selected' : ''}>${o.label}</option>`).join('')}
+          </select>`
+        : `<div style="display:flex;align-items:center;gap:4px">
+            <input type="number" id="dlp-${p.id}" class="dl-param-number dl-param-ctrl-el" value="${p.default}"
+              min="${p.min ?? ''}" max="${p.max ?? ''}" step="${p.step ?? 1}">
+            ${p.unit ? `<span class="dl-param-unit">${p.unit}</span>` : ''}
+          </div>`;
+      return `<div class="dl-param-row" id="dlpr-${p.id}"${showWhenAttr}${hiddenAttr}>
+        <label class="dl-param-label" for="dlp-${p.id}">${p.label}</label>
+        <div class="dl-param-ctrl">${ctrl}</div>
+      </div>`;
+    }).join('');
+
+    return `
+      <div class="dl-config-panel">
+        <div class="dl-config-header">
+          <button class="dl-config-back" id="dl-config-cancel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg>
+            Back to Library
+          </button>
+        </div>
+        <div class="dl-config-layer-name">${displayLabel}</div>
+        <p class="dl-config-subtitle">Adjust parameters before adding this layer to the map.</p>
+        <div class="dl-config-form">${rowHtml}</div>
+        <button class="dl-config-add-btn" id="dl-config-add">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add to Map
+        </button>
+      </div>`;
   }
 
   private wireEvents(): void {
@@ -368,6 +484,7 @@ export class DataLibraryModal {
     this.overlay.querySelectorAll<HTMLButtonElement>('.dl-nav-item[data-group]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.activeView = 'library';
+        this.configuringDefId = null;
         this.activeGroup = btn.dataset.group ?? 'all';
         this.render();
       });
@@ -377,6 +494,7 @@ export class DataLibraryModal {
     this.overlay.querySelectorAll<HTMLButtonElement>('.dl-nav-item[data-view]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.activeView = btn.dataset.view as 'import' | 'export';
+        this.configuringDefId = null;
         this.render();
       });
     });
@@ -403,12 +521,61 @@ export class DataLibraryModal {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const defId = btn.dataset.defId!;
-        if (this.callbacks.isInStack(defId)) return;
         const def = this.allDefs.find(d => d.id === defId);
         if (!def) return;
+        const hasParams = def.group === 'Raster Functions' && defId in RF_PARAM_SCHEMAS;
+        // For configurable raster functions, always open the configure panel (even if already in stack)
+        if (hasParams) {
+          this.configuringDefId = defId;
+          this.render();
+          return;
+        }
+        if (this.callbacks.isInStack(defId)) return;
         this.callbacks.onAddToMap(def);
         this.render();
       });
+    });
+
+    // Configure panel — back button
+    this.overlay.querySelector('#dl-config-cancel')?.addEventListener('click', () => {
+      this.configuringDefId = null;
+      this.render();
+    });
+
+    // Configure panel — conditional row visibility
+    const updateParamVisibility = () => {
+      this.overlay.querySelectorAll<HTMLElement>('.dl-param-row[data-show-when]').forEach(row => {
+        const raw = row.dataset.showWhen ?? '';
+        const colonIdx = raw.indexOf(':');
+        const paramId = raw.slice(0, colonIdx);
+        const paramValue = raw.slice(colonIdx + 1);
+        const ctrl = this.overlay.querySelector<HTMLSelectElement>(`#dlp-${paramId}`);
+        row.style.display = (ctrl?.value === paramValue) ? '' : 'none';
+      });
+    };
+    this.overlay.querySelectorAll<HTMLSelectElement>('.dl-param-select').forEach(sel => {
+      sel.addEventListener('change', updateParamVisibility);
+    });
+    updateParamVisibility();
+
+    // Configure panel — add button
+    this.overlay.querySelector('#dl-config-add')?.addEventListener('click', () => {
+      const def = this.allDefs.find(d => d.id === this.configuringDefId);
+      if (!def) return;
+      const schema = RF_PARAM_SCHEMAS[def.id];
+      if (!schema) return;
+
+      const params: Record<string, unknown> = {};
+      schema.forEach(p => {
+        const el = this.overlay.querySelector<HTMLInputElement | HTMLSelectElement>(`#dlp-${p.id}`);
+        if (!el) return;
+        params[p.id] = p.type === 'number' ? parseFloat((el as HTMLInputElement).value) : el.value;
+      });
+
+      this.callbacks.onAddToMapWithParams(def, params);
+      this.configuringDefId = null;
+      this.render();
+      EventBus.emit('toast', { message: `Added: ${LABEL_OVERRIDES[def.id] ?? def.label}`, type: 'success', duration: 2000 });
     });
   }
 
