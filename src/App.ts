@@ -2100,11 +2100,13 @@ export class App {
       });
     }
     } catch (err) {
+      const msg = (err as Error).message || String(err);
       console.error('importProjectBundle failed:', err);
-      EventBus.emit('toast', {
-        message: `Import failed: ${(err as Error).message ?? 'Unknown error'}`,
-        type: 'error',
-        duration: 6000,
+      EventBus.emit('show-modal', {
+        title: 'Import Failed',
+        html: `<p style="color:var(--color-danger);margin:0 0 8px">Bundle import encountered an error:</p><pre style="white-space:pre-wrap;word-break:break-all;font-size:11px;background:var(--bg-secondary);padding:8px;border-radius:4px;max-height:120px;overflow-y:auto">${msg}</pre>`,
+        confirmLabel: 'OK',
+        cancelLabel: 'OK',
       });
     }
   }
