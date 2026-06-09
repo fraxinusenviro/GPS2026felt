@@ -2005,18 +2005,23 @@ export class App {
 
   async importProjectBundle(bundle: ProjectBundle, mode: 'new' | 'merge'): Promise<void> {
     try {
+    console.log(`[import] starting mode=${mode} features=${bundle.features.length} layers=${bundle.layer_presets.length} typePresets=${bundle.type_presets.length}`);
     const now = new Date().toISOString();
 
     // Upsert type presets globally (shared across all projects)
     for (const tp of bundle.type_presets) {
       await this.storage.saveTypePreset(tp);
     }
+    console.log(`[import] saved ${bundle.type_presets.length} type presets`);
+
     // Refresh in-memory preset cache so newly imported types are immediately available
     await this.presetManager.init(this.settings);
     this.symbolRenderer.registerAll(this.presetManager.getPresets());
+    console.log('[import] preset cache refreshed');
 
     if (mode === 'new') {
       const newProjectId = crypto.randomUUID();
+      console.log(`[import] new project id: ${newProjectId}`);
 
       // Map old layer preset IDs → new IDs
       const lpIdMap = new Map<string, string>();
@@ -2026,20 +2031,26 @@ export class App {
 
       // Determine new default_layer_id (remap from old project default)
       const newDefaultLayerId = lpIdMap.get(bundle.project.default_layer_id) ?? '';
+      console.log(`[import] default_layer_id: ${bundle.project.default_layer_id} → ${newDefaultLayerId}`);
 
       // Save layer presets with new IDs scoped to new project
       for (const lp of bundle.layer_presets) {
-        await this.storage.saveLayerPreset({ ...lp, id: lpIdMap.get(lp.id)!, project_id: newProjectId });
+        const saved = { ...lp, id: lpIdMap.get(lp.id)!, project_id: newProjectId };
+        await this.storage.saveLayerPreset(saved);
+        console.log(`[import] saved layer preset: ${lp.name} → id=${saved.id}`);
       }
 
       // Save features remapped to new project and new layer IDs
       for (const f of bundle.features) {
-        await this.storage.saveFeature({
-          ...f,
-          project_id: newProjectId,
-          layer_id: lpIdMap.get(f.layer_id) ?? f.layer_id,
-        });
+        const saved = { ...f, project_id: newProjectId, layer_id: lpIdMap.get(f.layer_id) ?? f.layer_id };
+        await this.storage.saveFeature(saved);
+        console.log(`[import] saved feature: ${f.id} → project=${saved.project_id} layer=${saved.layer_id}`);
       }
+
+      // Verify counts from DB immediately after saving
+      const layersInDB = await this.storage.getLayersByProject(newProjectId);
+      const featuresInDB = await this.storage.getFeaturesByProject(newProjectId);
+      console.log(`[import] DB verify: ${layersInDB.length} layers, ${featuresInDB.length} features for project ${newProjectId}`);
 
       // Save the project record
       await this.storage.saveProject({
@@ -2050,8 +2061,10 @@ export class App {
         updated_at: now,
         default_layer_id: newDefaultLayerId,
       });
+      console.log('[import] project saved, calling loadProject');
 
       await this.loadProject(newProjectId);
+      console.log('[import] loadProject done');
       EventBus.emit('toast', {
         message: `Imported "${bundle.bundle_name}": ${bundle.features.length} feature${bundle.features.length !== 1 ? 's' : ''}`,
         type: 'success', duration: 4000,
@@ -2060,7 +2073,9 @@ export class App {
     } else {
       // Merge into current project
       const currentProjectId = this.settings.active_project_id || 'default';
+      console.log(`[import] merge into project: ${currentProjectId}`);
       const existingLayers = await this.storage.getLayersByProject(currentProjectId);
+      console.log(`[import] existing layers: ${existingLayers.length}`);
 
       // Match bundle layers to existing layers by name; create missing ones
       const lpIdMap = new Map<string, string>();
@@ -2068,10 +2083,12 @@ export class App {
         const match = existingLayers.find(el => el.name === bundleLp.name && el.geometry_type === bundleLp.geometry_type);
         if (match) {
           lpIdMap.set(bundleLp.id, match.id);
+          console.log(`[import] layer matched: ${bundleLp.name} → ${match.id}`);
         } else {
           const newId = crypto.randomUUID();
           lpIdMap.set(bundleLp.id, newId);
           await this.storage.saveLayerPreset({ ...bundleLp, id: newId, project_id: currentProjectId });
+          console.log(`[import] layer created: ${bundleLp.name} → ${newId}`);
         }
       }
 
@@ -2079,12 +2096,16 @@ export class App {
       let imported = 0;
       for (const f of bundle.features) {
         const existing = await this.storage.getFeature(f.id);
-        if (existing && existing.updated_at >= f.updated_at) continue;
+        if (existing && existing.updated_at >= f.updated_at) {
+          console.log(`[import] feature skipped (not newer): ${f.id}`);
+          continue;
+        }
         await this.storage.saveFeature({
           ...f,
           project_id: currentProjectId,
           layer_id: lpIdMap.get(f.layer_id) ?? f.layer_id,
         });
+        console.log(`[import] feature saved: ${f.id} → project=${currentProjectId}`);
         imported++;
       }
 
