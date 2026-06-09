@@ -294,3 +294,15 @@ export interface ToastMessage {
   type: 'info' | 'success' | 'warning' | 'error';
   duration?: number;
 }
+
+// ---- Project bundle (for P2P sync via file) ----
+export interface ProjectBundle {
+  format: 'fm2026-bundle';
+  version: number;
+  exported_at: string;
+  bundle_name: string;
+  project: Project;
+  features: FieldFeature[];
+  layer_presets: LayerPreset[];
+  type_presets: TypePreset[];
+}

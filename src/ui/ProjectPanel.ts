@@ -1,5 +1,6 @@
 import type { Project } from '../types';
 import { StorageManager } from '../storage/StorageManager';
+import { EventBus } from '../utils/EventBus';
 
 type OnLoadProject = (id: string) => Promise<void>;
 type OnCreateProject = (name: string, description: string) => Promise<void>;
@@ -137,6 +138,7 @@ export class ProjectPanel {
                       data-activate="${p.id}" ${isActive ? 'disabled' : ''}>
                 ${isActive ? 'Active' : 'Activate'}
               </button>
+              <button class="btn btn-sm btn-outline proj-bundle-btn" data-bundle="${p.id}" title="Export project bundle for sharing">Export Bundle</button>
               <button class="btn btn-sm btn-danger proj-delete-btn" data-delete="${p.id}">Delete</button>
             </div>
           </div>`;
@@ -172,6 +174,17 @@ export class ProjectPanel {
         btn.textContent = 'Loading…';
         await this.onLoad(id);
         void this.render();
+      });
+    });
+
+    // Export bundle
+    this.panel.querySelectorAll<HTMLButtonElement>('[data-bundle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.bundle!;
+        btn.disabled = true;
+        btn.textContent = 'Exporting…';
+        EventBus.emit('export-project-bundle', { projectId: id });
+        setTimeout(() => { btn.disabled = false; btn.textContent = 'Export Bundle'; }, 2000);
       });
     });
 

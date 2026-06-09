@@ -1,11 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { ImportedLayer, SavedConnection, OnlineLayer } from '../types';
+import type { ImportedLayer, SavedConnection, OnlineLayer, ProjectBundle } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import type { MapManager } from '../map/MapManager';
 import type { ImportManager } from '../io/ImportManager';
 
-type TabId = 'file' | 'service' | 'cog' | 'xyz';
+type TabId = 'file' | 'service' | 'cog' | 'xyz' | 'bundle';
 
 export class ImportDataPanel {
   private panel = document.getElementById('import-panel')!;
@@ -76,6 +76,7 @@ export class ImportDataPanel {
       { id: 'service', label: 'Service' },
       { id: 'cog', label: 'COG' },
       { id: 'xyz', label: 'XYZ Tiles' },
+      { id: 'bundle', label: 'Bundle' },
     ];
     container.innerHTML = `
       <div class="dl-io-view">
@@ -105,6 +106,7 @@ export class ImportDataPanel {
       { id: 'service', label: 'Service' },
       { id: 'cog', label: 'COG' },
       { id: 'xyz', label: 'XYZ Tiles' },
+      { id: 'bundle', label: 'Bundle' },
     ];
 
     this.panel.innerHTML = `
@@ -151,7 +153,22 @@ export class ImportDataPanel {
     if (tab === 'file') return this.renderFileTab();
     if (tab === 'service') return this.renderServiceTab();
     if (tab === 'cog') return this.renderCOGTab();
+    if (tab === 'bundle') return this.renderBundleTab();
     return this.renderXYZTab();
+  }
+
+  private renderBundleTab(): string {
+    return `
+      <div class="settings-section">
+        <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M253.66,133.66l-24,24a8,8,0,0,1-11.32-11.32L228.69,136H176a8,8,0,0,1,0-16h52.69l-10.35-10.34a8,8,0,0,1,11.32-11.32l24,24A8,8,0,0,1,253.66,133.66ZM176,192H48V64H176a8,8,0,0,0,0-16H48A16,16,0,0,0,32,64V192a16,16,0,0,0,16,16H176a8,8,0,0,0,0-16Z"/></svg>Import Project Bundle</h4>
+        <p class="settings-hint">Open a <code>.fm2026</code> file shared by another user to receive their collected features, layer styles, and presets.</p>
+        <button class="btn-primary" id="import-bundle-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" style="width:16px;height:16px;margin-right:6px"><path d="M74.34,77.66a8,8,0,0,1,0-11.32l48-48a8,8,0,0,1,11.32,0l48,48a8,8,0,0,1-11.32,11.32L136,43.31V128a8,8,0,0,1-16,0V43.31L85.66,77.66A8,8,0,0,1,74.34,77.66ZM240,136v64a16,16,0,0,1-16,16H32a16,16,0,0,1-16-16V136a16,16,0,0,1,16-16h68a4,4,0,0,1,4,4v3.46c0,13.45,11,24.79,24.46,24.54A24,24,0,0,0,152,128v-4a4,4,0,0,1,4-4h68A16,16,0,0,1,240,136Zm-40,32a12,12,0,1,0-12,12A12,12,0,0,0,200,168Z"/></svg>
+          Choose Bundle File (.fm2026)
+        </button>
+        <div id="bundle-status" class="bundle-status" style="display:none"></div>
+      </div>
+    `;
   }
 
   private renderFileTab(): string {
@@ -340,6 +357,64 @@ export class ImportDataPanel {
       for (const file of Array.from(files)) {
         await this.importManager.importFile(file);
       }
+    });
+
+    // ---- Bundle tab ----
+    container.querySelector('#import-bundle-btn')?.addEventListener('click', () => {
+      const bundleInput = document.createElement('input');
+      bundleInput.type = 'file';
+      bundleInput.accept = '.fm2026,.json';
+      bundleInput.style.display = 'none';
+      document.body.appendChild(bundleInput);
+      bundleInput.addEventListener('change', async () => {
+        const file = bundleInput.files?.[0];
+        document.body.removeChild(bundleInput);
+        if (!file) return;
+        const statusEl = container.querySelector<HTMLElement>('#bundle-status');
+        if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = 'Reading file…'; }
+        try {
+          const text = await file.text();
+          const bundle = JSON.parse(text) as ProjectBundle;
+          if (bundle.format !== 'fm2026-bundle') throw new Error('Not a valid .fm2026 bundle file.');
+          const exportedDate = new Date(bundle.exported_at).toLocaleString();
+          if (statusEl) statusEl.style.display = 'none';
+          EventBus.emit('show-modal', {
+            title: 'Import Project Bundle',
+            html: `
+              <div class="bundle-import-summary">
+                <strong>${bundle.bundle_name}</strong>
+                <div class="bundle-import-meta">
+                  ${bundle.features.length} feature${bundle.features.length !== 1 ? 's' : ''}
+                  &nbsp;·&nbsp; ${bundle.layer_presets.length} layer${bundle.layer_presets.length !== 1 ? 's' : ''}
+                  &nbsp;·&nbsp; ${bundle.type_presets.length} type${bundle.type_presets.length !== 1 ? 's' : ''}
+                </div>
+                <div class="bundle-import-date">Exported ${exportedDate}</div>
+              </div>
+              <div class="bundle-import-actions">
+                <button id="bundle-import-new" class="btn btn-primary" style="width:100%;margin-bottom:8px">
+                  Create as new project
+                </button>
+                <button id="bundle-import-merge" class="btn btn-outline" style="width:100%">
+                  Merge into current project
+                </button>
+              </div>`,
+          });
+          requestAnimationFrame(() => {
+            const closeModal = () => document.getElementById('modal-cancel')?.click();
+            document.getElementById('bundle-import-new')?.addEventListener('click', () => {
+              EventBus.emit('import-project-bundle', { bundle, mode: 'new' });
+              closeModal();
+            });
+            document.getElementById('bundle-import-merge')?.addEventListener('click', () => {
+              EventBus.emit('import-project-bundle', { bundle, mode: 'merge' });
+              closeModal();
+            });
+          });
+        } catch (err) {
+          if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = `Error: ${(err as Error).message}`; }
+        }
+      });
+      bundleInput.click();
     });
 
     // ---- Service tab ----

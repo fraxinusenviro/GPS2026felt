@@ -1,4 +1,4 @@
-import type { FieldFeature, GeoJSONFeatureCollection, GeoJSONFeature } from '../types';
+import type { FieldFeature, GeoJSONFeatureCollection, GeoJSONFeature, ProjectBundle } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 
@@ -447,6 +447,32 @@ export class ExportManager {
 
     view[totalSize - 1] = 0x1A; // EOF marker
     return buf;
+  }
+
+  // ============================================================
+  // Project bundle export (for P2P sync)
+  // ============================================================
+  async exportProjectBundle(projectId: string): Promise<void> {
+    const project = await this.storage.getProject(projectId);
+    if (!project) return;
+    const [features, layerPresets, typePresets] = await Promise.all([
+      this.storage.getFeaturesByProject(projectId),
+      this.storage.getLayersByProject(projectId),
+      this.storage.getAllTypePresets(),
+    ]);
+    const bundle: ProjectBundle = {
+      format: 'fm2026-bundle',
+      version: 1,
+      exported_at: new Date().toISOString(),
+      bundle_name: project.name,
+      project,
+      features,
+      layer_presets: layerPresets,
+      type_presets: typePresets,
+    };
+    const safeName = project.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+    this.download(JSON.stringify(bundle), `${safeName}_${this.timestamp()}.fm2026`, 'application/json');
+    EventBus.emit('toast', { message: `Bundle exported: ${features.length} feature${features.length !== 1 ? 's' : ''}`, type: 'success', duration: 3000 });
   }
 
   // ============================================================
