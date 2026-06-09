@@ -7567,3 +7567,30 @@ input[type=color] {
 .pf-leg-dtm { color: #60a5fa; }
 .pf-leg-cf  { color: #fb923c; }
 
+
+/* Share modal */
+.modal-hint {
+  margin: 0 0 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.share-url-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.share-url-input {
+  flex: 1;
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--input-bg, var(--bg-secondary));
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.share-copy-btn {
+  white-space: nowrap;
+}

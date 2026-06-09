@@ -1069,6 +1069,10 @@ export class App {
       this.layoutMode.startExtentSelection();
     });
 
+    document.getElementById('btn-share')?.addEventListener('click', () => {
+      this.shareCurrentView();
+    });
+
     document.getElementById('btn-feature-list')?.addEventListener('click', () => {
       this.closeAllPanels();
       void this.featureListPanel.toggle();
@@ -1633,6 +1637,36 @@ export class App {
     if (parts[3]) {
       this.basemapManager.restoreFromUrlStack(parts[3]);
     }
+  }
+
+  private shareCurrentView(): void {
+    const center = this.mapManager.getCenter();
+    const zoom   = this.mapManager.getZoom();
+    const stackParam = this.basemapManager.getUrlStackParam();
+    const hash = `#${zoom.toFixed(2)}/${center.lng.toFixed(5)}/${center.lat.toFixed(5)}${stackParam ? '/' + stackParam : ''}`;
+    const shareUrl = `${window.location.origin}${window.location.pathname}${hash}`;
+    history.replaceState(null, '', hash);
+
+    EventBus.emit('show-modal', {
+      title: 'Share Map View',
+      html: `
+        <p class="modal-hint">This link encodes the current map position and layer stack.
+           Anyone with app access will see the same view.</p>
+        <div class="share-url-row">
+          <input id="share-url-input" type="text" readonly value="${shareUrl}" class="share-url-input" />
+          <button id="share-copy-btn" class="btn-primary share-copy-btn">Copy Link</button>
+        </div>`,
+    });
+
+    requestAnimationFrame(() => {
+      const input = document.getElementById('share-url-input') as HTMLInputElement | null;
+      input?.select();
+      document.getElementById('share-copy-btn')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(shareUrl)
+          .then(() => EventBus.emit('toast', { message: 'Link copied to clipboard', type: 'success', duration: 2000 }))
+          .catch(() => input?.select());
+      });
+    });
   }
 
   private showGoToModal(): void {
