@@ -49,7 +49,16 @@ const BLANK_PNG =
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
-export type HRDEMProduct = 'elevation' | 'slope' | 'aspect' | 'tpi' | 'chm' | 'hillshade' | 'roughness';
+export type HRDEMProduct = 'elevation' | 'slope' | 'aspect' | 'tpi' | 'chm' | 'hillshade' | 'roughness' | 'chm-focal';
+
+export interface ChmFocalParams {
+  neighborhood: 'rectangle' | 'circle';
+  width: number;
+  height: number;
+  radius: number;
+  stat: 'mean' | 'min' | 'max' | 'median' | 'sum' | 'percentile';
+  percentile: number;
+}
 
 export interface ProductStyle {
   // Slope
@@ -102,6 +111,14 @@ export class HRDEMLayer {
   private chmRampId:    string  = 'canopy_green';
   private chmInvert:    boolean = false;
   private chmClassPaletteId: string = 'structural';
+
+  // CHM Focal Statistics parameters
+  private chmFocalNeighborhood: 'rectangle' | 'circle' = 'circle';
+  private chmFocalWidth: number = 3;
+  private chmFocalHeight: number = 3;
+  private chmFocalRadius: number = 3;
+  private chmFocalStat: 'mean' | 'min' | 'max' | 'median' | 'sum' | 'percentile' = 'mean';
+  private chmFocalPercentile: number = 50;
 
   // Hillshade parameters
   private hillshadeAzimuth:  number = 315;
@@ -409,6 +426,21 @@ export class HRDEMLayer {
     }
   }
 
+  setChmFocalParams(params: Partial<ChmFocalParams>): void {
+    if (params.neighborhood !== undefined) this.chmFocalNeighborhood = params.neighborhood;
+    if (params.width       !== undefined) this.chmFocalWidth       = params.width;
+    if (params.height      !== undefined) this.chmFocalHeight      = params.height;
+    if (params.radius      !== undefined) this.chmFocalRadius      = params.radius;
+    if (params.stat        !== undefined) this.chmFocalStat        = params.stat;
+    if (params.percentile  !== undefined) this.chmFocalPercentile  = params.percentile;
+
+    if (this.hrdemProduct === 'chm-focal' && this.lastResult) {
+      this.renderProduct(this.canvas, this.lastResult);
+      const src = this.mapManager.getMap().getSource(this.srcId) as maplibregl.ImageSource | undefined;
+      if (src) src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
+    }
+  }
+
   /** Returns the inner HTML for this layer's legend block (used by BasemapManager unified legend). */
   public getLegendHTML(): string {
     return this.buildLegendHTML(this.lastResult);
@@ -526,6 +558,19 @@ export class HRDEMLayer {
           { t: 1,   r: 180, g: 30,  b: 20  },
         ]};
         renderGrid(canvas, roughGrid, result.width, result.height, roughMin, roughMax, result.nodata, roughnessRamp);
+        break;
+      }
+      case 'chm-focal': {
+        const chmBase = (this.lastDTMResult && this.lastDSMResult)
+          ? HRDEMLayer.computeCHMGrid(this.lastDTMResult, this.lastDSMResult)
+          : result;
+        const focal = HRDEMLayer.computeFocalStats(
+          chmBase.grid, chmBase.width, chmBase.height, chmBase.nodata,
+          this.chmFocalNeighborhood,
+          this.chmFocalWidth, this.chmFocalHeight, this.chmFocalRadius,
+          this.chmFocalStat, this.chmFocalPercentile,
+        );
+        renderGrid(canvas, focal.grid, chmBase.width, chmBase.height, focal.min, focal.max, chmBase.nodata, this.resolveChmRamp());
         break;
       }
       default:
@@ -742,7 +787,7 @@ export class HRDEMLayer {
 
     let result;
     try {
-      if (this.hrdemProduct === 'chm') {
+      if (this.hrdemProduct === 'chm' || this.hrdemProduct === 'chm-focal') {
         const [dtmResult, dsmResult] = await Promise.all([
           fetchHRDEM(west, south, east, north, targetW, targetH, 'dtm'),
           fetchHRDEM(west, south, east, north, targetW, targetH, 'dsm'),
@@ -849,6 +894,74 @@ export class HRDEMLayer {
     const stretchMin = n > 0 ? valid[Math.floor(n * 0.02)] : 0;
     const stretchMax = n > 0 ? valid[Math.min(n - 1, Math.ceil(n * 0.98) - 1)] : 1;
     return { grid, width, height, bbox, nodata, elevMin, elevMax, stretchMin, stretchMax, validCount: n };
+  }
+
+  /** Apply a focal (moving-window) statistic to a grid. */
+  private static computeFocalStats(
+    grid: Float32Array, width: number, height: number, nodata: number | null,
+    neighborhood: 'rectangle' | 'circle',
+    nWidth: number, nHeight: number, nRadius: number,
+    stat: string, percentile: number,
+  ): { grid: Float32Array; min: number; max: number } {
+    const out = new Float32Array(grid.length).fill(NaN);
+    let globalMin = Infinity, globalMax = -Infinity;
+    const isND = (v: number) => !isFinite(v) || (nodata !== null && Math.abs(v - nodata) < 0.001);
+
+    for (let row = 0; row < height; row++) {
+      for (let col = 0; col < width; col++) {
+        if (isND(grid[row * width + col])) continue;
+        const values: number[] = [];
+
+        if (neighborhood === 'circle') {
+          const r = Math.max(1, nRadius);
+          for (let dr = -r; dr <= r; dr++) {
+            for (let dc = -r; dc <= r; dc++) {
+              if (dr * dr + dc * dc > r * r) continue;
+              const nr = row + dr, nc = col + dc;
+              if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+              const v = grid[nr * width + nc];
+              if (!isND(v)) values.push(v);
+            }
+          }
+        } else {
+          const rr = Math.floor(Math.max(1, nHeight) / 2);
+          const rc = Math.floor(Math.max(1, nWidth) / 2);
+          for (let dr = -rr; dr <= rr; dr++) {
+            for (let dc = -rc; dc <= rc; dc++) {
+              const nr = row + dr, nc = col + dc;
+              if (nr < 0 || nr >= height || nc < 0 || nc >= width) continue;
+              const v = grid[nr * width + nc];
+              if (!isND(v)) values.push(v);
+            }
+          }
+        }
+
+        if (values.length === 0) continue;
+        let result: number;
+        switch (stat) {
+          case 'min': result = Math.min(...values); break;
+          case 'max': result = Math.max(...values); break;
+          case 'sum': result = values.reduce((a, b) => a + b, 0); break;
+          case 'median': {
+            values.sort((a, b) => a - b);
+            const m = Math.floor(values.length / 2);
+            result = values.length % 2 === 0 ? (values[m - 1] + values[m]) / 2 : values[m];
+            break;
+          }
+          case 'percentile': {
+            values.sort((a, b) => a - b);
+            const idx = Math.min(values.length - 1, Math.floor((percentile / 100) * values.length));
+            result = values[idx];
+            break;
+          }
+          default: result = values.reduce((a, b) => a + b, 0) / values.length; // mean
+        }
+        out[row * width + col] = result;
+        if (result < globalMin) globalMin = result;
+        if (result > globalMax) globalMax = result;
+      }
+    }
+    return { grid: out, min: isFinite(globalMin) ? globalMin : 0, max: isFinite(globalMax) ? globalMax : 1 };
   }
 
   // --------------------------------------------------------------------------
