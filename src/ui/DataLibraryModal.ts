@@ -117,11 +117,9 @@ const LAYER_DESCRIPTIONS: Record<string, string> = {
   'google-street':          'Google road map layer with streets, transit, and points of interest. Standard Google Maps street view.',
   'google-terrain':         'Google terrain basemap emphasising topographic relief and natural features. Useful for landscape-scale field orientation.',
   'mapzen-terrain':         'Terrarium-encoded elevation tiles from the Mapzen/AWS open terrain dataset. Each pixel encodes absolute elevation — intended for programmatic elevation lookups rather than visual display.',
-  'fed-ec-wetlands':        'National Canadian Wetland Inventory from Environment and Climate Change Canada. Classifies wetland types across Canada including bogs, fens, marshes, swamps, and shallow water. Served as a cached MapServer raster tile overlay.',
-  'ns-atvans-trails':       'ATV Association of Nova Scotia (ATVANS) trail network. Dynamic vector layer queried from ArcGIS FeatureServer by map bounds. Useful for access route planning and field navigation in rural NS.',
-  'ns-sans-trails':         'Snowmobile Association of Nova Scotia (SANS) trail network. Dynamic vector layer queried from ArcGIS FeatureServer by map bounds. Useful for winter access route planning and remote area navigation.',
-  'ns-nspi-power':          'Nova Scotia Power Inc. (NSPI) infrastructure features including transmission lines and related assets. Dynamic vector layer from ArcGIS FeatureServer. Useful for identifying power infrastructure corridors during field surveys.',
-  'ns-campsite-leases':     'Crown land campsite lease and license polygons from Nova Scotia Crown Lands. Dynamic vector polygon layer queried from ArcGIS FeatureServer. Shows licensed campsite locations on Crown land across Nova Scotia.',
+  'fed-ec-cnwi':                    'Canadian National Wetland Inventory (CNWI) from Environment and Climate Change Canada. Classifies wetland polygons across Canada including bogs, fens, marshes, swamps, and shallow water. Queried dynamically from the EC CWS MapServer.',
+  'fed-ec-critical-habitat':        'Confirmed critical habitat areas for terrestrial species listed under the federal Species at Risk Act (SARA). Compiled by Environment and Climate Change Canada (ECCC) and Parks Canada. Polygon boundaries represent areas where critical habitat occurs — consult the corresponding recovery document for biophysical attribute requirements.',
+  'fed-ec-critical-habitat-proposed':'Proposed critical habitat areas for terrestrial species at risk under SARA, prior to final posting. Compiled by ECCC and Parks Canada. Boundaries are subject to revision. Useful for early-stage screening of proposed project footprints against potential future critical habitat.',
 };
 
 // ── Thumbnail resolution ──────────────────────────────────────────────────────
