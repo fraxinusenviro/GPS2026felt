@@ -151,8 +151,8 @@ function typeLabel(def: BasemapDef): string {
 
 export interface DataLibraryCallbacks {
   onAddToMap: (def: BasemapDef) => void;
-  onImport: () => void;
-  onExport: () => void;
+  onRenderImport: (container: HTMLElement) => void;
+  onRenderExport: (container: HTMLElement) => void;
   isInStack: (defId: string) => boolean;
 }
 
@@ -161,6 +161,7 @@ export class DataLibraryModal {
   private callbacks!: DataLibraryCallbacks;
   private searchQuery = '';
   private activeGroup = 'all';
+  private activeView: 'library' | 'import' | 'export' = 'library';
 
   constructor() {
     this.overlay = document.getElementById('data-library-overlay')!;
@@ -170,6 +171,7 @@ export class DataLibraryModal {
     this.callbacks = callbacks;
     this.searchQuery = '';
     this.activeGroup = 'all';
+    this.activeView = 'library';
     this.render();
     this.overlay.style.display = 'flex';
     requestAnimationFrame(() => this.overlay.classList.add('dl-open'));
@@ -274,11 +276,11 @@ export class DataLibraryModal {
           </div>
 
           <nav class="dl-nav">
-            <button class="dl-nav-item${this.activeGroup === 'all' ? ' active' : ''}" data-group="all">
+            <button class="dl-nav-item${this.activeView === 'library' && this.activeGroup === 'all' ? ' active' : ''}" data-group="all">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
               All Sources
             </button>
-            <button class="dl-nav-item${this.activeGroup === 'basemaps' ? ' active' : ''}" data-group="basemaps">
+            <button class="dl-nav-item${this.activeView === 'library' && this.activeGroup === 'basemaps' ? ' active' : ''}" data-group="basemaps">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/></svg>
               Standard Basemaps
             </button>
@@ -289,39 +291,42 @@ export class DataLibraryModal {
                 ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="3 17 9 11 13 15 21 7"/></svg>`
                 : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
               return `
-              <button class="dl-nav-item${this.activeGroup === g ? ' active' : ''}" data-group="${g}">
+              <button class="dl-nav-item${this.activeView === 'library' && this.activeGroup === g ? ' active' : ''}" data-group="${g}">
                 ${icon}
                 ${g}
               </button>`;
             }).join('')}
-          </nav>
-
-          <div class="dl-sidebar-actions">
-            <button class="dl-action-btn" id="dl-import-btn">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M74.34,77.66a8,8,0,0,1,0-11.32l48-48a8,8,0,0,1,11.32,0l48,48a8,8,0,0,1-11.32,11.32L136,43.31V128a8,8,0,0,1-16,0V43.31L85.66,77.66A8,8,0,0,1,74.34,77.66ZM240,136v64a16,16,0,0,1-16,16H32a16,16,0,0,1-16-16V136a16,16,0,0,1,16-16h68a4,4,0,0,1,4,4v3.46c0,13.45,11,24.79,24.46,24.54A24,24,0,0,0,152,128v-4a4,4,0,0,1,4-4h68A16,16,0,0,1,240,136Zm-40,32a12,12,0,1,0-12,12A12,12,0,0,0,200,168Z"/></svg>
+            <div class="dl-nav-sep"></div>
+            <button class="dl-nav-item dl-nav-io${this.activeView === 'import' ? ' active' : ''}" data-view="import">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M74.34,77.66a8,8,0,0,1,0-11.32l48-48a8,8,0,0,1,11.32,0l48,48a8,8,0,0,1-11.32,11.32L136,43.31V128a8,8,0,0,1-16,0V43.31L85.66,77.66A8,8,0,0,1,74.34,77.66ZM240,136v64a16,16,0,0,1-16,16H32a16,16,0,0,1-16-16V136a16,16,0,0,1,16-16h68a4,4,0,0,1,4,4v3.46c0,13.45,11,24.79,24.46,24.54A24,24,0,0,0,152,128v-4a4,4,0,0,1,4-4h68A16,16,0,0,1,240,136Zm-40,32a12,12,0,1,0-12,12A12,12,0,0,0,200,168Z"/></svg>
               Import Data
             </button>
-            <button class="dl-action-btn" id="dl-export-btn">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M74.34,85.66A8,8,0,0,1,85.66,74.34L120,108.69V24a8,8,0,0,1,16,0v84.69l34.34-34.35a8,8,0,0,1,11.32,11.32l-48,48a8,8,0,0,1-11.32,0ZM240,136v64a16,16,0,0,1-16,16H32a16,16,0,0,1-16-16V136a16,16,0,0,1,16-16H84.4a4,4,0,0,1,2.83,1.17L111,145A24,24,0,0,0,145,145l23.8-23.8A4,4,0,0,1,171.6,120H224A16,16,0,0,1,240,136Zm-40,32a12,12,0,1,0-12,12A12,12,0,0,0,200,168Z"/></svg>
+            <button class="dl-nav-item dl-nav-io${this.activeView === 'export' ? ' active' : ''}" data-view="export">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M74.34,85.66A8,8,0,0,1,85.66,74.34L120,108.69V24a8,8,0,0,1,16,0v84.69l34.34-34.35a8,8,0,0,1,11.32,11.32l-48,48a8,8,0,0,1-11.32,0ZM240,136v64a16,16,0,0,1-16,16H32a16,16,0,0,1-16-16V136a16,16,0,0,1,16-16H84.4a4,4,0,0,1,2.83,1.17L111,145A24,24,0,0,0,145,145l23.8-23.8A4,4,0,0,1,171.6,120H224A16,16,0,0,1,240,136Zm-40,32a12,12,0,1,0-12,12A12,12,0,0,0,200,168Z"/></svg>
               Export Data
             </button>
-          </div>
+          </nav>
         </div>
 
         <div class="dl-main">
           <div class="dl-main-header">
+            ${this.activeView === 'library' ? `
             <div class="dl-search-wrap">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" class="dl-search-icon">
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
               <input type="text" id="dl-search" class="dl-search" placeholder="Search layers, descriptions…" value="${this.searchQuery}" autocomplete="off" />
               ${this.searchQuery ? '<button id="dl-search-clear" class="dl-search-clear" aria-label="Clear search">✕</button>' : ''}
-            </div>
+            </div>` : `
+            <div class="dl-io-title">
+              ${this.activeView === 'import' ? 'Import Data' : 'Export Data'}
+            </div>`}
             <button class="dl-close-btn" id="dl-close" aria-label="Close library">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
           </div>
 
+          ${this.activeView === 'library' ? `
           <div class="dl-grid-wrap">
             <div class="dl-grid-label">
               ${this.activeGroup === 'all' ? 'All Sources' : this.activeGroup === 'basemaps' ? 'Standard Basemaps' : this.activeGroup}
@@ -332,7 +337,8 @@ export class DataLibraryModal {
               ? `<div class="dl-empty">No layers match "<strong>${this.searchQuery}</strong>"</div>`
               : `<div class="dl-grid">${defs.map(d => this.renderCard(d)).join('')}</div>`
             }
-          </div>
+          </div>` : `
+          <div class="dl-io-wrap" id="dl-io-container"></div>`}
         </div>
       </div>
     `;
@@ -358,13 +364,31 @@ export class DataLibraryModal {
       this.render();
     });
 
-    // Group nav
-    this.overlay.querySelectorAll<HTMLButtonElement>('.dl-nav-item').forEach(btn => {
+    // Group nav (library layers)
+    this.overlay.querySelectorAll<HTMLButtonElement>('.dl-nav-item[data-group]').forEach(btn => {
       btn.addEventListener('click', () => {
+        this.activeView = 'library';
         this.activeGroup = btn.dataset.group ?? 'all';
         this.render();
       });
     });
+
+    // View nav (import / export)
+    this.overlay.querySelectorAll<HTMLButtonElement>('.dl-nav-item[data-view]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.activeView = btn.dataset.view as 'import' | 'export';
+        this.render();
+      });
+    });
+
+    // If already on import/export view (e.g. re-render), inject content
+    if (this.activeView !== 'library') {
+      const container = this.overlay.querySelector<HTMLElement>('#dl-io-container');
+      if (container) {
+        if (this.activeView === 'import') this.callbacks.onRenderImport(container);
+        else this.callbacks.onRenderExport(container);
+      }
+    }
 
     // Flip card thumbnails
     this.overlay.querySelectorAll<HTMLElement>('.dl-card-thumb').forEach(thumb => {
@@ -385,16 +409,6 @@ export class DataLibraryModal {
         this.callbacks.onAddToMap(def);
         this.render();
       });
-    });
-
-    // Import / Export
-    this.overlay.querySelector('#dl-import-btn')?.addEventListener('click', () => {
-      this.close();
-      this.callbacks.onImport();
-    });
-    this.overlay.querySelector('#dl-export-btn')?.addEventListener('click', () => {
-      this.close();
-      this.callbacks.onExport();
     });
   }
 

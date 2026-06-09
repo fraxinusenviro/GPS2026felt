@@ -394,7 +394,7 @@ export class App {
     });
 
     // Buffer feature: create a Turf buffer polygon and save directly to the project polygon layer
-    EventBus.on<{ geometry: GeoJSONGeometry; distanceM: number }>('buffer-feature', async ({ geometry, distanceM }) => {
+    EventBus.on<{ geometry: GeoJSONGeometry; distanceM: number; typeLabel?: string }>('buffer-feature', async ({ geometry, distanceM, typeLabel }) => {
       let buffGeom: GeoJSONGeometry | null = null;
       try {
         const result = turf.buffer(geometry as unknown as Parameters<typeof turf.buffer>[0], distanceM / 1000, { units: 'kilometers' });
@@ -415,7 +415,7 @@ export class App {
       const feature: FieldFeature = {
         id: crypto.randomUUID(),
         point_id: generatePointId(this.settings),
-        type: 'Buffer',
+        type: typeLabel || 'Buffer',
         desc: `${distanceM}m buffer`,
         geometry_type: 'Polygon',
         geometry: buffGeom,
@@ -444,9 +444,9 @@ export class App {
     });
 
     // Add identified feature directly to the project's geometry-type layer
-    EventBus.on<{ geometry: GeoJSONGeometry | null; label: string; props: Record<string, unknown> }>(
+    EventBus.on<{ geometry: GeoJSONGeometry | null; label: string; props: Record<string, unknown>; typeLabel?: string }>(
       'add-identify-feature',
-      async ({ geometry }) => {
+      async ({ geometry, typeLabel }) => {
         if (!geometry) {
           EventBus.emit('toast', { message: 'No geometry available for this feature', type: 'warning' });
           return;
@@ -459,7 +459,7 @@ export class App {
         const feature: FieldFeature = {
           id: crypto.randomUUID(),
           point_id: generatePointId(this.settings),
-          type: '', desc: '',
+          type: typeLabel ?? '', desc: '',
           geometry_type: geomType,
           geometry: normalizeGeometry(geometry),
           capture_method: 'sketch',
@@ -592,10 +592,6 @@ export class App {
         break;
       case 'cache':
         this.cachePanel.close();
-        break;
-      case 'i/o':
-        this.importDataPanel.close();
-        this.exportPanel.close();
         break;
       case 'map opt':
         break;
@@ -904,8 +900,8 @@ export class App {
             })();
           }
         },
-        onImport: () => { this.closeAllPanels(); this.importDataPanel.toggle(); },
-        onExport: () => { this.closeAllPanels(); this.exportPanel.toggle(); },
+        onRenderImport: (container: HTMLElement) => { this.importDataPanel.renderToContainer(container); },
+        onRenderExport: (container: HTMLElement) => { this.exportPanel.renderToContainer(container); },
         isInStack: (defId) => this.basemapManager.isDefInStack(defId),
       });
     });
@@ -920,16 +916,6 @@ export class App {
       this.exportPanel.toggle();
     });
 
-    // I/O group (left toolbar)
-    document.getElementById('btn-toolbar-import')?.addEventListener('click', () => {
-      this.closeAllPanels();
-      this.importDataPanel.toggle();
-    });
-
-    document.getElementById('btn-toolbar-export')?.addEventListener('click', () => {
-      this.closeAllPanels();
-      this.exportPanel.toggle();
-    });
 
     // HUD close buttons
     document.getElementById('btn-point-hud-close')?.addEventListener('click', () => {

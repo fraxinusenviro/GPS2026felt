@@ -986,11 +986,14 @@ export class MapManager {
       maxzoom: Math.max(basemap.max_zoom ?? 19, 23),
       attribution: basemap.attribution
     });
-    // Insert basemap layer below all other layers
-    const firstLayerId = this.map.getStyle().layers[0]?.id;
+    // Insert basemap above the background layer but below everything else.
+    // layers[0] is the 'map-background' (type:'background'); inserting before it
+    // would place the raster tile layer underneath it, hiding the basemap entirely.
+    const layers = this.map.getStyle().layers;
+    const firstNonBgId = layers.find(l => l.type !== 'background')?.id;
     this.map.addLayer(
       { id: 'basemap', type: 'raster', source: 'basemap', paint: { 'raster-opacity': 1 } },
-      firstLayerId
+      firstNonBgId
     );
 
     // If hybrid, add labels overlay

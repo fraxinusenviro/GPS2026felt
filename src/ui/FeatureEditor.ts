@@ -212,6 +212,16 @@ export class FeatureEditor {
   }
 
   private promptBuffer(feature: FieldFeature): void {
+    const polyPresets = this.presetManager.getPresetsForGeomType('Polygon');
+    const typeSelectHtml = polyPresets.length > 0 ? `
+      <div class="form-group" style="margin-top:10px">
+        <label>Assign Type
+          <select id="buffer-type">
+            <option value="">None</option>
+            ${polyPresets.map(p => `<option value="${p.label}">${p.label}</option>`).join('')}
+          </select>
+        </label>
+      </div>` : '';
     EventBus.emit('show-modal', {
       title: 'Create Buffer',
       html: `
@@ -222,12 +232,14 @@ export class FeatureEditor {
           <div style="font-size:11px;color:var(--color-text-muted);margin-top:4px">
             Creates a polygon buffer around the selected ${feature.geometry_type.toLowerCase()}.
           </div>
-        </div>`,
+        </div>
+        ${typeSelectHtml}`,
       confirmLabel: 'Create Buffer',
       onConfirm: () => {
         const dist = parseFloat((document.getElementById('buffer-dist') as HTMLInputElement)?.value ?? '50');
         if (isNaN(dist) || dist <= 0) return;
-        EventBus.emit('buffer-feature', { geometry: feature.geometry, distanceM: dist });
+        const typeLabel = (document.getElementById('buffer-type') as HTMLSelectElement | null)?.value ?? '';
+        EventBus.emit('buffer-feature', { geometry: feature.geometry, distanceM: dist, typeLabel });
       },
       onCancel: () => {},
     });

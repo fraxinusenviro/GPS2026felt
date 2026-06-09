@@ -436,10 +436,13 @@ export class BasemapManager {
         const group = groups[tabIdx];
         const feat = group?.features[featIdx];
         if (!feat) return;
+        const block = btn.closest<HTMLElement>('.fm-popup-feat-block');
+        const typeLabel = block?.querySelector<HTMLSelectElement>('.fm-type-select')?.value ?? '';
         EventBus.emit('add-identify-feature', {
           geometry: feat.geometry,
           label: group.label,
           props: feat.props,
+          typeLabel,
         });
       });
     });
@@ -452,6 +455,17 @@ export class BasemapManager {
       features: Array<{ props: Record<string, unknown>; geometry: GeoJSONGeometry | null }>;
     }>,
   ): string {
+    const typeSelectHtml = (geomType: string | null | undefined): string => {
+      if (!geomType) return '';
+      const appType = geomType === 'Point' ? 'Point' : geomType === 'LineString' ? 'LineString' : 'Polygon';
+      const presets = this.typePresets.filter(p => p.geometry_type === appType || p.geometry_type === 'all');
+      if (presets.length === 0) return '';
+      return `<select class="fm-type-select">
+        <option value="">Type: None</option>
+        ${presets.map(p => `<option value="${p.label}">${p.label}</option>`).join('')}
+      </select>`;
+    };
+
     const renderFeatureRows = (feat: { props: Record<string, unknown> }, fieldLabels?: Record<string, string>) => {
       const entries = Object.entries(feat.props).filter(([k]) => k !== 'Shape' && !k.startsWith('SHAPE'));
       const rows = entries.map(([k, v]) => {
@@ -468,7 +482,10 @@ export class BasemapManager {
       const featureBlocks = g.features.map((feat, fi) => `
         <div class="fm-popup-feat-block">
           ${renderFeatureRows(feat, g.fieldLabels)}
-          <button class="fm-add-sketch" data-tab="0" data-feat="${fi}" title="Add to sketch layer">＋ Add to sketch</button>
+          <div class="fm-add-sketch-row">
+            ${typeSelectHtml(feat.geometry?.type)}
+            <button class="fm-add-sketch" data-tab="0" data-feat="${fi}" title="Add to sketch layer">＋ Add to sketch</button>
+          </div>
         </div>`).join('<div class="fm-popup-feature-sep"></div>');
       return `<div class="fm-popup-body">
         <button class="fm-popup-close" title="Close">✕</button>
@@ -486,7 +503,10 @@ export class BasemapManager {
       const featureBlocks = g.features.map((feat, fi) => `
         <div class="fm-popup-feat-block">
           ${renderFeatureRows(feat, g.fieldLabels)}
-          <button class="fm-add-sketch" data-tab="${i}" data-feat="${fi}" title="Add to sketch layer">＋ Add to sketch</button>
+          <div class="fm-add-sketch-row">
+            ${typeSelectHtml(feat.geometry?.type)}
+            <button class="fm-add-sketch" data-tab="${i}" data-feat="${fi}" title="Add to sketch layer">＋ Add to sketch</button>
+          </div>
         </div>`).join('<div class="fm-popup-feature-sep"></div>');
       return `<div class="fm-tab-panel${i === 0 ? ' active' : ''}" data-tab="${i}">
         <div class="fm-popup-title">${g.label}</div>
