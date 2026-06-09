@@ -865,6 +865,7 @@ export class App {
     });
 
     document.getElementById('btn-data-library')?.addEventListener('click', () => {
+      this.closeAllPanels();
       this.dataLibraryModal.open({
         onAddToMap: (def) => {
           this.basemapManager.addDefToStack(def);
@@ -2003,12 +2004,16 @@ export class App {
   }
 
   async importProjectBundle(bundle: ProjectBundle, mode: 'new' | 'merge'): Promise<void> {
+    try {
     const now = new Date().toISOString();
 
     // Upsert type presets globally (shared across all projects)
     for (const tp of bundle.type_presets) {
       await this.storage.saveTypePreset(tp);
     }
+    // Refresh in-memory preset cache so newly imported types are immediately available
+    await this.presetManager.init(this.settings);
+    this.symbolRenderer.registerAll(this.presetManager.getPresets());
 
     if (mode === 'new') {
       const newProjectId = crypto.randomUUID();
@@ -2092,6 +2097,14 @@ export class App {
       EventBus.emit('toast', {
         message: `Merged: ${imported} new/updated feature${imported !== 1 ? 's' : ''} added`,
         type: 'success', duration: 4000,
+      });
+    }
+    } catch (err) {
+      console.error('importProjectBundle failed:', err);
+      EventBus.emit('toast', {
+        message: `Import failed: ${(err as Error).message ?? 'Unknown error'}`,
+        type: 'error',
+        duration: 6000,
       });
     }
   }
