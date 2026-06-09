@@ -69,6 +69,36 @@ export class ImportDataPanel {
     setTimeout(() => { if (!this.isOpen) this.panel.style.display = 'none'; }, 300);
   }
 
+  /** Renders the import UI into an arbitrary container (for embedding in the Data Library). */
+  renderToContainer(container: HTMLElement): void {
+    const tabs: { id: TabId; label: string }[] = [
+      { id: 'file', label: 'File' },
+      { id: 'service', label: 'Service' },
+      { id: 'cog', label: 'COG' },
+      { id: 'xyz', label: 'XYZ Tiles' },
+    ];
+    container.innerHTML = `
+      <div class="dl-io-view">
+        <div class="tab-bar">
+          ${tabs.map(t => `<button class="tab-btn ${t.id === this.activeTab ? 'active' : ''}" data-tab="${t.id}">${t.label}</button>`).join('')}
+        </div>
+        <div class="dl-io-tab-content">
+          ${this.renderTab(this.activeTab)}
+        </div>
+      </div>`;
+    container.querySelectorAll<HTMLButtonElement>('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.activeTab = btn.dataset.tab as TabId;
+        container.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const content = container.querySelector<HTMLElement>('.dl-io-tab-content')!;
+        content.innerHTML = this.renderTab(this.activeTab);
+        this.wireTab(content);
+      });
+    });
+    this.wireTab(container.querySelector<HTMLElement>('.dl-io-tab-content')!);
+  }
+
   private render(): void {
     const tabs: { id: TabId; label: string }[] = [
       { id: 'file', label: 'File' },

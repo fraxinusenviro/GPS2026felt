@@ -181,6 +181,20 @@ export class ExportPanel {
       </div>`;
   }
 
+  /** Renders the export UI into an arbitrary container (for embedding in the Data Library). */
+  renderToContainer(container: HTMLElement): void {
+    container.innerHTML = `<div class="dl-io-view"><div id="export-tab-body">${this.renderBody()}</div></div>`;
+    this.wireButtons(container);
+    void this.storage.getAllFeatures().then(features => {
+      this.exportFeatures = features;
+      const body = container.querySelector<HTMLElement>('#export-tab-body');
+      if (body) {
+        body.innerHTML = this.renderBody();
+        this.wireButtons(container);
+      }
+    });
+  }
+
   private render(): void {
     this.panel.innerHTML = `
       <div class="side-panel-inner">
@@ -201,8 +215,8 @@ export class ExportPanel {
     this.wireButtons();
   }
 
-  private wireButtons(): void {
-    const countEl = this.panel.querySelector<HTMLElement>('#export-count');
+  private wireButtons(scope: HTMLElement = this.panel): void {
+    const countEl = scope.querySelector<HTMLElement>('#export-count');
     const updateCount = () => {
       if (countEl) {
         const n = this.getFilteredFeatures().length;
@@ -210,17 +224,17 @@ export class ExportPanel {
       }
     };
 
-    this.panel.querySelectorAll<HTMLInputElement>('.export-date-cb').forEach(cb => {
+    scope.querySelectorAll<HTMLInputElement>('.export-date-cb').forEach(cb => {
       cb.addEventListener('change', () => {
         if (cb.value === 'all') {
           if (cb.checked) {
             this.exportSelectedDates = new Set(['all']);
-            this.panel.querySelectorAll<HTMLInputElement>('.export-date-cb:not([value="all"])').forEach(o => { o.checked = false; });
+            scope.querySelectorAll<HTMLInputElement>('.export-date-cb:not([value="all"])').forEach(o => { o.checked = false; });
           } else {
             this.exportSelectedDates.delete('all');
           }
         } else {
-          const allCb = this.panel.querySelector<HTMLInputElement>('.export-date-cb[value="all"]');
+          const allCb = scope.querySelector<HTMLInputElement>('.export-date-cb[value="all"]');
           if (allCb) allCb.checked = false;
           this.exportSelectedDates.delete('all');
           if (cb.checked) this.exportSelectedDates.add(cb.value);
@@ -230,14 +244,14 @@ export class ExportPanel {
       });
     });
 
-    this.panel.querySelectorAll<HTMLInputElement>('input[name="export-spatial"]').forEach(r => {
+    scope.querySelectorAll<HTMLInputElement>('input[name="export-spatial"]').forEach(r => {
       r.addEventListener('change', () => {
         this.exportSpatialFilter = r.value as 'all' | 'extent';
         updateCount();
       });
     });
 
-    this.panel.querySelectorAll<HTMLButtonElement>('.export-btn').forEach(btn => {
+    scope.querySelectorAll<HTMLButtonElement>('.export-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const fmt = btn.dataset.format;
         const features = this.getFilteredFeatures();
