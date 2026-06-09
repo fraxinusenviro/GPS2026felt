@@ -61,7 +61,124 @@ export const BASEMAPS: BasemapDef[] = [
     attribution: '© OpenTopoMap, © OpenStreetMap contributors',
     tile_size: 256,
     max_zoom: 17
-  }
+  },
+  {
+    id: 'esri-light-grey',
+    label: 'ESRI Light Grey Base',
+    type: 'raster',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
+    tile_size: 256,
+    max_zoom: 18
+  },
+  {
+    id: 'esri-natgeo',
+    label: 'ESRI NatGeo',
+    type: 'raster',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: '© Esri, National Geographic Society, Garmin',
+    tile_size: 256,
+    max_zoom: 18
+  },
+  {
+    id: 'esri-ocean',
+    label: 'ESRI Ocean Basemap',
+    type: 'raster',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}',
+    attribution: '© Esri, GEBCO, NOAA, National Geographic, Garmin',
+    tile_size: 256,
+    max_zoom: 18
+  },
+  {
+    id: 'esri-street',
+    label: 'ESRI Street Map',
+    type: 'raster',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
+    tile_size: 256,
+    max_zoom: 23
+  },
+  {
+    id: 'esri-topo',
+    label: 'ESRI Topographic',
+    type: 'raster',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: '© Esri, HERE, Garmin, FAO, NOAA, USGS',
+    tile_size: 256,
+    max_zoom: 18
+  },
+  {
+    id: 'esri-physical',
+    label: 'ESRI World Physical',
+    type: 'raster',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Physical_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: '© Esri, US National Park Service',
+    tile_size: 256,
+    max_zoom: 8
+  },
+  {
+    id: 'esri-shaded-relief',
+    label: 'ESRI World Shaded Relief',
+    type: 'raster',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}',
+    attribution: '© Esri, USGS, NGA, NASA',
+    tile_size: 256,
+    max_zoom: 18
+  },
+  {
+    id: 'esri-terrain',
+    label: 'ESRI World Terrain',
+    type: 'raster',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer/tile/{z}/{y}/{x}',
+    attribution: '© Esri, USGS, NGA, NASA',
+    tile_size: 256,
+    max_zoom: 18
+  },
+  {
+    id: 'google-hybrid',
+    label: 'Google Hybrid',
+    type: 'raster',
+    url: 'http://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}',
+    attribution: '© Google',
+    tile_size: 256,
+    max_zoom: 18
+  },
+  {
+    id: 'google-satellite',
+    label: 'Google Satellite',
+    type: 'raster',
+    url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+    attribution: '© Google',
+    tile_size: 256,
+    max_zoom: 18
+  },
+  {
+    id: 'google-street',
+    label: 'Google Street',
+    type: 'raster',
+    url: 'https://mt1.google.com/vt/lyrs=r&x={x}&y={y}&z={z}',
+    attribution: '© Google',
+    tile_size: 256,
+    max_zoom: 18
+  },
+  {
+    id: 'google-terrain',
+    label: 'Google Terrain',
+    type: 'raster',
+    url: 'http://mt0.google.com/vt/lyrs=t&hl=en&x={x}&y={y}&z={z}',
+    attribution: '© Google',
+    tile_size: 256,
+    max_zoom: 18
+  },
+  {
+    id: 'mapzen-terrain',
+    label: 'Mapzen Global Terrain',
+    type: 'raster',
+    url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+    attribution: '© Mapzen, © OpenStreetMap contributors',
+    tile_size: 256,
+    max_zoom: 15
+  },
 ];
 
 // ---- Default Type Presets ----
