@@ -634,14 +634,69 @@ export class BasemapManager {
         .filter(l => knownIds.has(l.defId))
         .map(l => {
           const e: Record<string, unknown> = { d: l.defId };
+          // Core
           if (Math.round(l.opacity * 100) !== 100) e.o = Math.round(l.opacity * 100);
           if (!l.visible) e.v = 0;
+          // Raster colour adjustments
+          if (l.hueRotate) e.hr = l.hueRotate;
+          if (l.saturation) e.sa = l.saturation;
+          if (l.contrast) e.co = l.contrast;
+          if (l.brightness !== undefined && l.brightness !== 1) e.br = l.brightness;
+          // Vector colour/stroke overrides
+          if (l.vecLineColor) e.vlc = l.vecLineColor;
+          if (l.vecLineWidth !== undefined) e.vlw = l.vecLineWidth;
+          if (l.vecFillColor) e.vfc = l.vecFillColor;
+          if (l.vecFillOpacityOverride !== undefined) e.vfo = Math.round(l.vecFillOpacityOverride * 100);
+          // COG
+          if (l.cogRampId) e.cr = l.cogRampId;
+          if (l.cogRampInvert) e.cri = 1;
+          if (l.cogSmooth) e.cs = 1;
+          if (l.cogContourThreshold !== undefined && l.cogContourThreshold !== 0.5) e.cct = l.cogContourThreshold;
+          if (l.cogContourLineColor && l.cogContourLineColor !== '#1565c0') e.ccl = l.cogContourLineColor;
+          if (l.cogContourLineWidth !== undefined && l.cogContourLineWidth !== 2.0) e.cclw = l.cogContourLineWidth;
+          if (l.cogContourFillEnabled) e.ccf = 1;
+          if (l.cogContourFillColor && l.cogContourFillColor !== '#1565c0') e.ccfc = l.cogContourFillColor;
+          if (l.cogContourFillOpacity !== undefined && l.cogContourFillOpacity !== 0.30) e.ccfo = Math.round(l.cogContourFillOpacity * 100);
+          // HRDEM core
           if (l.hrdemProduct && l.hrdemProduct !== 'elevation') e.p = l.hrdemProduct;
+          if (l.hrdemSurface && l.hrdemSurface !== 'dtm') e.hs = l.hrdemSurface;
           if (l.hrdemRampId) e.r = l.hrdemRampId;
           if (l.hrdemRampInvert) e.ri = 1;
+          if (l.hrdemRasterVisible === false) e.hrv = 0;
+          // HRDEM contours
           if (l.hrdemContourEnabled) e.ce = 1;
           if (l.hrdemContourInterval) e.ci = l.hrdemContourInterval;
-          if (l.cogRampId) e.cr = l.cogRampId;
+          if (l.hrdemContourColor && l.hrdemContourColor !== '#ffffff') e.hcc = l.hrdemContourColor;
+          if (l.hrdemContourWidth !== undefined && l.hrdemContourWidth !== 1.2) e.hcw = l.hrdemContourWidth;
+          if (l.hrdemContourMinZoom !== undefined && l.hrdemContourMinZoom !== 14) e.hcmz = l.hrdemContourMinZoom;
+          // HRDEM hillshade
+          if (l.hrdemHillshadeAzimuth !== undefined && l.hrdemHillshadeAzimuth !== 315) e.hha = l.hrdemHillshadeAzimuth;
+          if (l.hrdemHillshadeAltitude !== undefined && l.hrdemHillshadeAltitude !== 45) e.hhalt = l.hrdemHillshadeAltitude;
+          if (l.hrdemHillshadeZFactor !== undefined && l.hrdemHillshadeZFactor !== 1) e.hhz = l.hrdemHillshadeZFactor;
+          // HRDEM slope
+          if (l.hrdemSlopeRampId && l.hrdemSlopeRampId !== 'classic') e.hsr = l.hrdemSlopeRampId;
+          if (l.hrdemSlopeUnit && l.hrdemSlopeUnit !== 'degrees') e.hsu = l.hrdemSlopeUnit;
+          if (l.hrdemSlopeStretch && l.hrdemSlopeStretch !== 'auto') e.hss = l.hrdemSlopeStretch;
+          if (l.hrdemSlopeInvert) e.hsi = 1;
+          // HRDEM aspect
+          if (l.hrdemAspectSat !== undefined && l.hrdemAspectSat !== 80) e.hasat = l.hrdemAspectSat;
+          if (l.hrdemAspectLight !== undefined && l.hrdemAspectLight !== 50) e.halit = l.hrdemAspectLight;
+          // HRDEM TPI
+          if (l.hrdemTpiRampId && l.hrdemTpiRampId !== 'rdylbu') e.htr = l.hrdemTpiRampId;
+          if (l.hrdemTpiStretch && l.hrdemTpiStretch !== 'symmetric') e.hts = l.hrdemTpiStretch;
+          if (l.hrdemTpiInvert) e.hti = 1;
+          // HRDEM CHM
+          if (l.hrdemChmMode && l.hrdemChmMode !== 'classified') e.hcm = l.hrdemChmMode;
+          if (l.hrdemChmRampId && l.hrdemChmRampId !== 'canopy_green') e.hcr = l.hrdemChmRampId;
+          if (l.hrdemChmInvert) e.hci = 1;
+          if (l.hrdemChmClassPaletteId && l.hrdemChmClassPaletteId !== 'structural') e.hcp = l.hrdemChmClassPaletteId;
+          // HRDEM CHM focal stats
+          if (l.hrdemChmFocalNeighborhood && l.hrdemChmFocalNeighborhood !== 'circle') e.hcfn = l.hrdemChmFocalNeighborhood;
+          if (l.hrdemChmFocalWidth !== undefined && l.hrdemChmFocalWidth !== 3) e.hcfw = l.hrdemChmFocalWidth;
+          if (l.hrdemChmFocalHeight !== undefined && l.hrdemChmFocalHeight !== 3) e.hcfh = l.hrdemChmFocalHeight;
+          if (l.hrdemChmFocalRadius !== undefined && l.hrdemChmFocalRadius !== 3) e.hcfr = l.hrdemChmFocalRadius;
+          if (l.hrdemChmFocalStat && l.hrdemChmFocalStat !== 'mean') e.hcfs = l.hrdemChmFocalStat;
+          if (l.hrdemChmFocalPercentile !== undefined && l.hrdemChmFocalPercentile !== 50) e.hcfp = l.hrdemChmFocalPercentile;
           return e;
         });
       return btoa(JSON.stringify(compact));
@@ -660,20 +715,73 @@ export class BasemapManager {
         const defId = e['d'] as string;
         const def = allDefs.find(d => d.id === defId);
         if (!def) continue;
-        const opacity = typeof e['o'] === 'number' ? (e['o'] as number) / 100 : 1;
-        const visible = e['v'] !== 0;
+        const opacity  = typeof e['o'] === 'number' ? (e['o'] as number) / 100 : 1;
+        const visible  = e['v'] !== 0;
         const layer: StackLayer = {
           instanceId: `${defId}-${Date.now()}-${Math.random().toString(36).slice(2,5)}`,
           defId, label: def.label, url: def.url,
           type: def.type, tileSize: def.tile_size ?? 256, maxZoom: def.max_zoom ?? 22,
-          opacity, visible, hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
+          opacity, visible,
+          hueRotate:  typeof e['hr']  === 'number' ? e['hr']  as number : 0,
+          saturation: typeof e['sa']  === 'number' ? e['sa']  as number : 0,
+          contrast:   typeof e['co']  === 'number' ? e['co']  as number : 0,
+          brightness: typeof e['br']  === 'number' ? e['br']  as number : 1,
         };
-        if (e['p']) layer.hrdemProduct = e['p'] as string;
-        if (e['r']) layer.hrdemRampId = e['r'] as string;
-        if (e['ri']) layer.hrdemRampInvert = true;
-        if (e['ce']) layer.hrdemContourEnabled = true;
-        if (e['ci']) layer.hrdemContourInterval = e['ci'] as number;
-        if (e['cr']) layer.cogRampId = e['cr'] as string;
+        // Vector colours
+        if (e['vlc']) layer.vecLineColor = e['vlc'] as string;
+        if (typeof e['vlw'] === 'number') layer.vecLineWidth = e['vlw'] as number;
+        if (e['vfc']) layer.vecFillColor = e['vfc'] as string;
+        if (typeof e['vfo'] === 'number') layer.vecFillOpacityOverride = (e['vfo'] as number) / 100;
+        // COG
+        if (e['cr'])  layer.cogRampId = e['cr'] as string;
+        if (e['cri']) layer.cogRampInvert = true;
+        if (e['cs'])  layer.cogSmooth = true;
+        if (typeof e['cct']  === 'number') layer.cogContourThreshold   = e['cct']  as number;
+        if (e['ccl'])                      layer.cogContourLineColor    = e['ccl']  as string;
+        if (typeof e['cclw'] === 'number') layer.cogContourLineWidth    = e['cclw'] as number;
+        if (e['ccf'])                      layer.cogContourFillEnabled  = true;
+        if (e['ccfc'])                     layer.cogContourFillColor    = e['ccfc'] as string;
+        if (typeof e['ccfo'] === 'number') layer.cogContourFillOpacity  = (e['ccfo'] as number) / 100;
+        // HRDEM core
+        if (e['p'])   layer.hrdemProduct       = e['p']  as string;
+        if (e['hs'])  layer.hrdemSurface        = e['hs'] as string;
+        if (e['r'])   layer.hrdemRampId         = e['r']  as string;
+        if (e['ri'])  layer.hrdemRampInvert      = true;
+        if (e['hrv'] === 0) layer.hrdemRasterVisible = false;
+        // HRDEM contours
+        if (e['ce'])                       layer.hrdemContourEnabled  = true;
+        if (e['ci'])                       layer.hrdemContourInterval = e['ci']  as number;
+        if (e['hcc'])                      layer.hrdemContourColor    = e['hcc'] as string;
+        if (typeof e['hcw']  === 'number') layer.hrdemContourWidth    = e['hcw']  as number;
+        if (typeof e['hcmz'] === 'number') layer.hrdemContourMinZoom  = e['hcmz'] as number;
+        // HRDEM hillshade
+        if (typeof e['hha']  === 'number') layer.hrdemHillshadeAzimuth  = e['hha']  as number;
+        if (typeof e['hhalt'] === 'number') layer.hrdemHillshadeAltitude = e['hhalt'] as number;
+        if (typeof e['hhz']  === 'number') layer.hrdemHillshadeZFactor   = e['hhz']  as number;
+        // HRDEM slope
+        if (e['hsr']) layer.hrdemSlopeRampId  = e['hsr'] as string;
+        if (e['hsu']) layer.hrdemSlopeUnit     = e['hsu'] as string;
+        if (e['hss']) layer.hrdemSlopeStretch  = e['hss'] as string;
+        if (e['hsi']) layer.hrdemSlopeInvert   = true;
+        // HRDEM aspect
+        if (typeof e['hasat'] === 'number') layer.hrdemAspectSat   = e['hasat'] as number;
+        if (typeof e['halit'] === 'number') layer.hrdemAspectLight  = e['halit'] as number;
+        // HRDEM TPI
+        if (e['htr']) layer.hrdemTpiRampId  = e['htr'] as string;
+        if (e['hts']) layer.hrdemTpiStretch  = e['hts'] as string;
+        if (e['hti']) layer.hrdemTpiInvert   = true;
+        // HRDEM CHM
+        if (e['hcm'])  layer.hrdemChmMode           = e['hcm']  as string;
+        if (e['hcr'])  layer.hrdemChmRampId          = e['hcr']  as string;
+        if (e['hci'])  layer.hrdemChmInvert           = true;
+        if (e['hcp'])  layer.hrdemChmClassPaletteId   = e['hcp']  as string;
+        // HRDEM CHM focal stats
+        if (e['hcfn'])                      layer.hrdemChmFocalNeighborhood = e['hcfn'] as string;
+        if (typeof e['hcfw'] === 'number')  layer.hrdemChmFocalWidth        = e['hcfw'] as number;
+        if (typeof e['hcfh'] === 'number')  layer.hrdemChmFocalHeight       = e['hcfh'] as number;
+        if (typeof e['hcfr'] === 'number')  layer.hrdemChmFocalRadius       = e['hcfr'] as number;
+        if (e['hcfs'])                      layer.hrdemChmFocalStat         = e['hcfs'] as string;
+        if (typeof e['hcfp'] === 'number')  layer.hrdemChmFocalPercentile   = e['hcfp'] as number;
         stack.push(layer);
       }
       if (stack.length === 0) return;
