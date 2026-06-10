@@ -7927,6 +7927,20 @@ input[type=color] {
    Applied when [data-font="oswald"] is set on <html>
    ============================================================ */
 
+/* +1px base — Oswald reads slightly smaller than system-ui at the same size */
+[data-font="oswald"] body {
+  font-size: 15px;
+}
+/* Bump the text-size tokens so any var(--text-*) consumers also scale */
+[data-font="oswald"] {
+  --text-2xs: 9px;
+  --text-xs:  11px;
+  --text-sm:  13px;
+  --text-base: 15px;
+  --text-lg:  17px;
+  --text-xl:  21px;
+}
+
 /* Hint / secondary / count text — use Light (300) for softness */
 [data-font="oswald"] .settings-hint,
 [data-font="oswald"] .bm-section-hint,
@@ -8010,4 +8024,86 @@ input[type=color] {
 [data-font="oswald"] .map-ctrl-btn .tool-btn-label {
   font-weight: 400;
   letter-spacing: 0.04em;
+}
+
+/* ============================================================
+   GPS Status Modal
+   ============================================================ */
+.gsm-unavail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0;
+  color: var(--color-text-muted);
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.gsm-unavail svg { opacity: 0.5; }
+
+.gsm-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.gsm-header.gps-good    { background: rgba(74,222,128,0.12); color: #4ade80; }
+.gsm-header.gps-fair    { background: rgba(251,191,36,0.12); color: #fbbf24; }
+.gsm-header.gps-poor    { background: rgba(248,113,113,0.12); color: #f87171; }
+.gsm-header.gps-unknown { background: rgba(148,163,184,0.1); color: var(--color-text-muted); }
+
+.gsm-bars { flex-shrink: 0; }
+.gsm-acc-big {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+.gsm-acc-sub {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-left: auto;
+}
+
+.gsm-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.gsm-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+}
+.gsm-lbl { color: var(--color-text-muted); }
+.gsm-val { font-weight: 500; color: var(--color-text); font-variant-numeric: tabular-nums; }
+
+.gsm-compass-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+.gsm-hdg-val {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f97316;
+}
+
+.gsm-note {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
 }

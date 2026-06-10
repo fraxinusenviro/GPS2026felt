@@ -38,6 +38,7 @@ export class ProfilePanel {
   private vertices:    [number, number][] = [];
   private samples:     ProfileSample[] | null = null;
   private hoverIdx:    number | null = null;
+  private clickedIdx:  number | null = null;
   private loading      = false;
   private showDtm = true;
   private showCf  = true;
@@ -158,8 +159,9 @@ export class ProfilePanel {
     });
 
     el.querySelector('#pf-clear-btn')?.addEventListener('click', () => {
-      this.vertices = [];
-      this.samples  = null;
+      this.vertices   = [];
+      this.samples    = null;
+      this.clickedIdx = null;
       this.setDrawMode('idle');
       this.updatePreview();
       this.drawChart(null, null);
@@ -186,6 +188,33 @@ export class ProfilePanel {
         this.drawChart(this.samples, null);
       }
     });
+
+    const resolveChartIdx = (clientX: number, rect: DOMRect): number | null => {
+      if (!this.samples) return null;
+      const chartW = canvas!.width - ML - MR;
+      const px = (clientX - rect.left) * (canvas!.width / rect.width) - ML;
+      if (px < 0 || px > chartW) return null;
+      return Math.max(0, Math.min(this.samples.length - 1, Math.round((px / chartW) * (this.samples.length - 1))));
+    };
+
+    canvas?.addEventListener('click', (e) => {
+      const idx = resolveChartIdx(e.clientX, canvas.getBoundingClientRect());
+      if (idx === null) return;
+      this.clickedIdx = idx;
+      this.updatePreview();
+      this.drawChart(this.samples, this.hoverIdx);
+    });
+
+    canvas?.addEventListener('touchend', (e) => {
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const idx = resolveChartIdx(touch.clientX, canvas.getBoundingClientRect());
+      if (idx === null) return;
+      this.clickedIdx = idx;
+      this.updatePreview();
+      this.drawChart(this.samples, this.hoverIdx);
+      e.preventDefault();
+    }, { passive: false });
 
     el.querySelector('#pf-leg-dtm-btn')?.addEventListener('click', () => {
       this.showDtm = !this.showDtm;
@@ -227,6 +256,7 @@ export class ProfilePanel {
 
   private stopDrawing(): void {
     this.setDrawMode('idle');
+    this.clickedIdx = null;
     this.mapManager.clearProfilePreview();
     this.mapManager.getMap().getCanvas().style.cursor = '';
   }
@@ -287,6 +317,17 @@ export class ProfilePanel {
       geometry: { type: 'Point', coordinates: v },
       properties: {}
     }));
+
+    // Sample-pin: the position clicked on the elevation chart
+    if (this.clickedIdx !== null && this.samples) {
+      const pts = this.sampleLinePoints(verts, this.samples.length);
+      const p   = pts[this.clickedIdx];
+      if (p) features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+        properties: { seg_type: 'sample-pin' },
+      });
+    }
 
     this.mapManager.updateProfilePreview(features);
 
@@ -558,6 +599,31 @@ export class ProfilePanel {
     }
 
     ctx.restore();
+
+    // Clicked sample-pin indicator (persistent orange line + dot)
+    if (this.clickedIdx !== null && this.clickedIdx < samples.length) {
+      const s  = samples[this.clickedIdx];
+      const cx = xPx(s.distM);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(ML, MT, cw, ch);
+      ctx.clip();
+      ctx.strokeStyle = 'rgba(249,115,22,0.65)';
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([3, 2]);
+      ctx.beginPath();
+      ctx.moveTo(cx, MT);
+      ctx.lineTo(cx, MT + ch);
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle   = '#f97316';
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth   = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, MT + ch - 1, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
 
     // Hover indicator
     if (hoverIdx !== null && hoverIdx < samples.length) {

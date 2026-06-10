@@ -24,6 +24,9 @@ export class Modal {
   }
 
   show(opts: ModalOptions): void {
+    const cancelBtn = (opts.cancelLabel !== undefined || opts.onCancel !== undefined)
+      ? `<button class="btn-outline" id="modal-cancel">${opts.cancelLabel ?? 'Cancel'}</button>`
+      : '';
     this.content.innerHTML = `
       <div class="modal-header">
         <h3>${opts.title}</h3>
@@ -34,7 +37,7 @@ export class Modal {
       </div>
       <div class="modal-footer">
         <button class="btn-primary" id="modal-confirm">${opts.confirmLabel ?? 'Confirm'}</button>
-        <button class="btn-outline" id="modal-cancel">${opts.cancelLabel ?? 'Cancel'}</button>
+        ${cancelBtn}
       </div>
     `;
 
