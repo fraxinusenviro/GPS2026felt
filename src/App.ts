@@ -578,7 +578,7 @@ export class App {
       case 'sketch': {
         const hudEl2 = document.getElementById('point-entry-hud');
         if (hudEl2 && sketchTools.includes(currentTool)) hudEl2.style.display = 'none';
-        if (sketchTools.includes(currentTool)) this.activateTool('gps-point');
+        if (sketchTools.includes(currentTool)) this.activateTool('none');
         break;
       }
       case 'edit':
@@ -602,8 +602,6 @@ export class App {
         break;
       case 'cache':
         this.cachePanel.close();
-        break;
-      case 'map opt':
         break;
     }
   }

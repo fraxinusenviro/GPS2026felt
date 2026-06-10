@@ -143,6 +143,7 @@ function showLoginOverlay(): void {
 
   const attempt = () => {
     if (pin === '191919') {
+      localStorage.setItem(PIN_KEY, __APP_VERSION__);
       overlay.style.transition = 'opacity 0.4s';
       overlay.style.opacity = '0';
       setTimeout(() => { overlay.remove(); }, 400);
@@ -183,7 +184,11 @@ function showLoginOverlay(): void {
   });
 }
 
-showLoginOverlay();
+// Only show PIN when the version has never been verified, or changed (after an update)
+const PIN_KEY = 'fm-pin-ok';
+if (localStorage.getItem(PIN_KEY) !== __APP_VERSION__) {
+  showLoginOverlay();
+}
 
 // Boot app
 const app = new App();

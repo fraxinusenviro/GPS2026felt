@@ -124,7 +124,7 @@ export class BasemapManager {
   private onLayerStateChange: ((id: string, updates: { visible?: boolean; opacity?: number }) => void) | null = null;
   // All sections collapsed by default; user expands what they need
   private collapsedSections = new Set<string>([
-    'active-layers', 'collected-data', 'feature-layers',
+    'active-layers', 'field-data',
     'basemaps', 'pdfs', 'lidar', 'userlayers', 'cutfill-runs',
     ...[...new Set(
       BASEMAP_OVERLAYS.filter(o => o.group)
@@ -1338,7 +1338,7 @@ export class BasemapManager {
               <input type="range" class="bm-opacity-slider bm-ul-opacity" data-ulid="${l.mapLayerId}"
                 min="0" max="100" value="${Math.round(l.opacity * 100)}" title="Opacity" />
               <span class="bm-opacity-val">${Math.round(l.opacity * 100)}%</span>
-              <button class="bm-vis-btn ${l.visible ? 'active' : ''} bm-ul-vis" data-ulid="${l.mapLayerId}" title="${l.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
+              <button class="vis-tog bm-vis-btn ${l.visible ? 'active' : ''} bm-ul-vis" data-ulid="${l.mapLayerId}" title="${l.visible ? 'Hide' : 'Show'}"></button>
               ${l.bounds ? `<button class="bm-adj-toggle bm-ul-zoom" data-ulid="${l.id}" title="Zoom to layer">${zoomSvg}</button>` : ''}
               ${canStack ? `<button class="bm-add-btn bm-ul-stack" data-ulid="${l.id}" title="Add to active stack" style="width:22px;height:22px;font-size:14px">+</button>` : ''}
               <button class="bm-del-btn bm-ul-del" data-ulid="${l.id}" title="Remove layer">✕</button>
@@ -1369,7 +1369,7 @@ export class BasemapManager {
             <input type="range" class="bm-opacity-slider bm-pdf-opacity" data-pdfid="${l.id}"
               min="0" max="100" value="${Math.round(l.opacity * 100)}" title="Opacity" />
             <span class="bm-opacity-val">${Math.round(l.opacity * 100)}%</span>
-            <button class="bm-vis-btn bm-pdf-vis ${l.visible ? 'active' : ''}" data-pdfid="${l.id}" title="${l.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
+            <button class="vis-tog bm-vis-btn bm-pdf-vis ${l.visible ? 'active' : ''}" data-pdfid="${l.id}" title="${l.visible ? 'Hide' : 'Show'}"></button>
             ${l.bounds ? `<button class="bm-adj-toggle bm-pdf-zoom" data-pdfid="${l.id}" title="Zoom to map">${zoomSvg}</button>` : ''}
             <button class="bm-del-btn bm-pdf-del" data-pdfid="${l.id}" title="Delete PDF">✕</button>
           </div>
@@ -1408,69 +1408,97 @@ export class BasemapManager {
     });
   }
 
-  private renderCollectedDataSection(): string {
-    if (this.typePresets.length === 0 && this.collectedFeatures.length === 0) return '';
+  // ---- Combined Field Data section (Points / Lines / Polygons groups) ----
 
-    // Count features by type label
+  private renderFieldDataSection(): string {
+    const hasLayers = this.featureLayerPresets.length > 0;
+    const hasTypes  = this.typePresets.length > 0;
+    const hasFeats  = this.collectedFeatures.length > 0;
+    if (!hasLayers && !hasTypes && !hasFeats) return '';
+
     const countByType = new Map<string, number>();
     for (const f of this.collectedFeatures) {
       const key = f.type || '(untyped)';
       countByType.set(key, (countByType.get(key) ?? 0) + 1);
     }
 
-    const totalCount = this.collectedFeatures.length;
+    const labelOnSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="11" height="11"><path d="M216,48H40A16,16,0,0,0,24,64V224a15.84,15.84,0,0,0,9.25,14.5A16.05,16.05,0,0,0,40,240a15.89,15.89,0,0,0,10.25-3.78l.09-.07L83,208H216a16,16,0,0,0,16-16V64A16,16,0,0,0,216,48ZM84,140a12,12,0,1,1,12-12A12,12,0,0,1,84,140Zm44,0a12,12,0,1,1,12-12A12,12,0,0,1,128,140Zm44,0a12,12,0,1,1,12-12A12,12,0,0,1,172,140Z"/></svg>`;
 
-    const eyeOnSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="12" height="12"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
-    const eyeOffSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="12" height="12"><path d="M96.68,57.87a4,4,0,0,1,2.08-6.6A130.13,130.13,0,0,1,128,48c34.88,0,66.57,13.26,91.66,38.35,18.83,18.83,27.3,37.62,27.65,38.41a8,8,0,0,1,0,6.5c-.35.79-8.82,19.57-27.65,38.4q-4.28,4.26-8.79,8.07a4,4,0,0,1-5.55-.36ZM213.92,210.62a8,8,0,1,1-11.84,10.76L180,197.13A127.21,127.21,0,0,1,128,208c-34.88,0-66.57-13.26-91.66-38.34C17.51,150.83,9,132.05,8.69,131.26a8,8,0,0,1,0-6.5C9,124,17.51,105.18,36.34,86.35a135,135,0,0,1,25-19.78L42.08,45.38A8,8,0,1,1,53.92,34.62Zm-65.49-48.25-52.69-58a40,40,0,0,0,52.69,58Z"/></svg>`;
-    const labelOnSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="12" height="12"><path d="M216,48H40A16,16,0,0,0,24,64V224a15.84,15.84,0,0,0,9.25,14.5A16.05,16.05,0,0,0,40,240a15.89,15.89,0,0,0,10.25-3.78l.09-.07L83,208H216a16,16,0,0,0,16-16V64A16,16,0,0,0,216,48ZM84,140a12,12,0,1,1,12-12A12,12,0,0,1,84,140Zm44,0a12,12,0,1,1,12-12A12,12,0,0,1,128,140Zm44,0a12,12,0,1,1,12-12A12,12,0,0,1,172,140Z"/></svg>`;
+    const geomGroups: Array<{ id: string; label: string; icon: string; geomType: 'Point' | 'LineString' | 'Polygon' }> = [
+      { id: 'Point',      label: 'Points',   icon: '●', geomType: 'Point' },
+      { id: 'LineString', label: 'Lines',    icon: '╌', geomType: 'LineString' },
+      { id: 'Polygon',    label: 'Polygons', icon: '▭', geomType: 'Polygon' },
+    ];
 
-    // Build one row per TypePreset (only those that have matching geometry)
-    const rows = this.typePresets.map(p => {
-      const count = countByType.get(p.label) ?? 0;
-      const swatchUrl = renderSwatchDataUrl(p, 22);
-      const geomIcon =
-        p.geometry_type === 'Point'      ? '●' :
-        p.geometry_type === 'LineString' ? '╌' :
-        p.geometry_type === 'Polygon'    ? '▭' : '◈';
-      const isVisible = p.visible !== false;
-      const showLabels = p.show_labels !== false;
+    const body = geomGroups.map(({ id, label, icon, geomType }) => {
+      const layerPreset = this.featureLayerPresets.find(lp => lp.geometry_type === geomType);
+      const types = this.typePresets.filter(p => p.geometry_type === geomType || p.geometry_type === 'all');
+
+      // Count features in this geometry group
+      const groupCount = this.collectedFeatures.filter(f => f.geometry_type === geomType).length;
+
+      if (!layerPreset && types.length === 0) return '';
+
+      const layerVis = layerPreset ? layerPreset.visible !== false : true;
+
+      const layerRow = layerPreset ? `
+        <div class="fd-layer-row">
+          <span class="fd-layer-dot" style="background:${layerPreset.color}"></span>
+          <span class="fd-layer-name">${layerPreset.name}</span>
+          <button class="vis-tog fd-layer-vis${layerVis ? ' active' : ''}" data-fd-layer="${layerPreset.id}" title="Toggle layer"></button>
+        </div>` : '';
+
+      const typeRows = types.map(p => {
+        const count = countByType.get(p.label) ?? 0;
+        const swatchUrl = renderSwatchDataUrl(p, 20);
+        const isVisible = p.visible !== false;
+        const showLabels = p.show_labels !== false;
+        return `
+          <div class="fd-type-row${!isVisible ? ' fd-hidden' : ''}">
+            <button class="fd-swatch-btn" data-fd-preset-id="${p.id}" title="${p.label} — click to edit style">
+              <img src="${swatchUrl}" width="20" height="20" alt="${p.label}" />
+            </button>
+            <span class="fd-type-label">${p.label}</span>
+            <span class="fd-type-count">${count > 0 ? count : '—'}</span>
+            <button class="fd-label-btn${showLabels ? ' active' : ''}" data-fd-label="${p.id}" title="${showLabels ? 'Hide labels' : 'Show labels'}">${labelOnSvg}</button>
+            <button class="vis-tog fd-type-vis${isVisible ? ' active' : ''}" data-fd-type="${p.id}" title="Toggle type"></button>
+          </div>`;
+      }).join('');
 
       return `
-        <div class="cd-type-row${!isVisible ? ' cd-type-hidden' : ''}">
-          <button class="cd-swatch-btn" data-cd-preset-id="${p.id}" title="${p.label} — click to edit style">
-            <img src="${swatchUrl}" width="22" height="22" alt="${p.label}" />
-          </button>
-          <span class="cd-type-geom" title="${p.geometry_type}">${geomIcon}</span>
-          <span class="cd-type-label">${p.label}</span>
-          <span class="cd-type-count">${count > 0 ? count : '—'}</span>
-          <button class="cd-toggle-btn cd-vis-btn${isVisible ? ' active' : ''}" data-cd-vis="${p.id}" title="${isVisible ? 'Hide on map' : 'Show on map'}">${isVisible ? eyeOnSvg : eyeOffSvg}</button>
-          <button class="cd-toggle-btn cd-label-btn${showLabels ? ' active' : ''}" data-cd-label="${p.id}" title="${showLabels ? 'Hide labels' : 'Show labels'}">${labelOnSvg}</button>
+        <div class="fd-geom-group" data-fd-geom="${geomType}">
+          <div class="fd-geom-header">
+            <span class="fd-geom-icon">${icon}</span>
+            <span class="fd-geom-label">${label}</span>
+            ${groupCount > 0 ? `<span class="fd-geom-count">${groupCount}</span>` : ''}
+            <button class="vis-tog fd-group-vis${layerVis ? ' active' : ''}" data-fd-group="${layerPreset?.id ?? ''}" title="Toggle group"></button>
+          </div>
+          ${layerRow}
+          ${typeRows}
         </div>`;
     }).join('');
 
-    // Show untyped features if any exist
+    // Untyped features row
     const untypedCount = countByType.get('(untyped)') ?? 0;
     const untypedRow = untypedCount > 0 ? `
-      <div class="cd-type-row cd-untyped-row">
+      <div class="cd-type-row cd-untyped-row" style="padding-left:8px">
         <span class="cd-type-geom">◈</span>
         <span class="cd-type-label" style="color:var(--color-text-muted)">(untyped)</span>
         <span class="cd-type-count">${untypedCount}</span>
       </div>` : '';
 
-    const hint = totalCount > 0 ? `${totalCount} features` : 'click swatch to style';
+    const totalCount = this.collectedFeatures.length;
+    const hint = totalCount > 0 ? `${totalCount} features` : `${this.featureLayerPresets.length} layers`;
 
-    return this.sectionToggle('collected-data', 'Collected Features', hint) +
-      this.sectionBody('collected-data', `<div class="cd-type-list">${rows}${untypedRow}</div>`);
+    return this.sectionToggle('field-data', 'Field Data', hint) +
+      this.sectionBody('field-data', `<div class="fd-body">${body}${untypedRow}</div>`);
   }
 
-  private wireCollectedData(container: HTMLElement): void {
-    const eyeOnSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="12" height="12"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
-    const eyeOffSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="12" height="12"><path d="M96.68,57.87a4,4,0,0,1,2.08-6.6A130.13,130.13,0,0,1,128,48c34.88,0,66.57,13.26,91.66,38.35,18.83,18.83,27.3,37.62,27.65,38.41a8,8,0,0,1,0,6.5c-.35.79-8.82,19.57-27.65,38.4q-4.28,4.26-8.79,8.07a4,4,0,0,1-5.55-.36ZM213.92,210.62a8,8,0,1,1-11.84,10.76L180,197.13A127.21,127.21,0,0,1,128,208c-34.88,0-66.57-13.26-91.66-38.34C17.51,150.83,9,132.05,8.69,131.26a8,8,0,0,1,0-6.5C9,124,17.51,105.18,36.34,86.35a135,135,0,0,1,25-19.78L42.08,45.38A8,8,0,1,1,53.92,34.62Zm-65.49-48.25-52.69-58a40,40,0,0,0,52.69,58Z"/></svg>`;
-
-    container.querySelectorAll<HTMLButtonElement>('[data-cd-preset-id]').forEach(btn => {
+  private wireFieldData(container: HTMLElement): void {
+    // Swatch → open style picker
+    container.querySelectorAll<HTMLButtonElement>('[data-fd-preset-id]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const presetId = btn.dataset.cdPresetId!;
-        const preset = this.typePresets.find(p => p.id === presetId);
+        const preset = this.typePresets.find(p => p.id === btn.dataset.fdPresetId);
         if (!preset) return;
         this.stylePicker.open(preset, (updated: TypePreset) => {
           Object.assign(preset, updated);
@@ -1479,86 +1507,58 @@ export class BasemapManager {
       });
     });
 
-    // Visibility toggles
-    container.querySelectorAll<HTMLButtonElement>('[data-cd-vis]').forEach(btn => {
+    // Type preset visibility toggle
+    container.querySelectorAll<HTMLButtonElement>('[data-fd-type]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const id = btn.dataset.cdVis!;
-        const preset = this.typePresets.find(p => p.id === id);
+        const preset = this.typePresets.find(p => p.id === btn.dataset.fdType);
         if (!preset) return;
-        preset.visible = preset.visible === false ? true : false;
-        const isVisible = preset.visible !== false;
-        btn.classList.toggle('active', isVisible);
-        btn.innerHTML = isVisible ? eyeOnSvg : eyeOffSvg;
-        btn.title = isVisible ? 'Hide on map' : 'Show on map';
-        btn.closest('.cd-type-row')?.classList.toggle('cd-type-hidden', !isVisible);
+        preset.visible = preset.visible === false;
+        const on = preset.visible !== false;
+        btn.classList.toggle('active', on);
+        btn.closest('.fd-type-row')?.classList.toggle('fd-hidden', !on);
         this.onTypePresetChange?.(preset);
       });
     });
 
-    // Label toggles
-    container.querySelectorAll<HTMLButtonElement>('[data-cd-label]').forEach(btn => {
+    // Layer preset visibility toggle
+    container.querySelectorAll<HTMLButtonElement>('[data-fd-layer]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const id = btn.dataset.cdLabel!;
-        const preset = this.typePresets.find(p => p.id === id);
-        if (!preset) return;
-        preset.show_labels = preset.show_labels === false ? true : false;
-        const showLabels = preset.show_labels !== false;
-        btn.classList.toggle('active', showLabels);
-        btn.title = showLabels ? 'Hide labels' : 'Show labels';
-        this.onTypePresetChange?.(preset);
-      });
-    });
-  }
-
-  // ---- Feature Layers section (collected GPS/sketch data) ----
-
-  private renderFeatureLayersSection(): string {
-    const presets = this.featureLayerPresets;
-    if (presets.length === 0) return '';
-
-    const geomIcon = (g: string) =>
-      g === 'Point'      ? '<svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><circle cx="8" cy="8" r="5"/></svg>' :
-      g === 'LineString' ? '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 14 L8 4 L14 10"/></svg>' :
-                           '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12 L8 2 L14 12 Z"/></svg>';
-
-    const rows = presets.map(lp => {
-      const vis = lp.visible !== false;
-      const geomType = lp.geometry_type;
-      return `
-        <div class="fl-row" data-fl-id="${lp.id}">
-          <button class="fl-vis-btn${vis ? '' : ' fl-hidden'}" data-fl-vis="${lp.id}" title="Toggle visibility">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-              ${vis
-                ? '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'
-                : '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>'}
-            </svg>
-          </button>
-          <span class="fl-geom-icon">${geomIcon(geomType)}</span>
-          <span class="fl-name">${lp.name}</span>
-        </div>`;
-    }).join('');
-
-    return this.sectionToggle('feature-layers', 'Field Data', `${presets.length} layers`) +
-      this.sectionBody('feature-layers', `<div class="fl-list">${rows}</div>`);
-  }
-
-  private wireFeatureLayers(container: HTMLElement): void {
-    const findPreset = (id: string) => this.featureLayerPresets.find(lp => lp.id === id);
-    const emit = (lp: LayerPreset) => this.onFeatureLayerChange?.(lp);
-
-    container.querySelectorAll<HTMLButtonElement>('[data-fl-vis]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const lp = findPreset(btn.dataset.flVis!);
+        const lp = this.featureLayerPresets.find(l => l.id === btn.dataset.fdLayer);
         if (!lp) return;
         lp.visible = !(lp.visible !== false);
-        btn.classList.toggle('fl-hidden', !lp.visible);
-        btn.innerHTML = lp.visible
-          ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>'
-          : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M96.68,57.87a4,4,0,0,1,2.08-6.6A130.13,130.13,0,0,1,128,48c34.88,0,66.57,13.26,91.66,38.35,18.83,18.83,27.3,37.62,27.65,38.41a8,8,0,0,1,0,6.5c-.35.79-8.82,19.57-27.65,38.4q-4.28,4.26-8.79,8.07a4,4,0,0,1-5.55-.36ZM213.92,210.62a8,8,0,1,1-11.84,10.76L180,197.13A127.21,127.21,0,0,1,128,208c-34.88,0-66.57-13.26-91.66-38.34C17.51,150.83,9,132.05,8.69,131.26a8,8,0,0,1,0-6.5C9,124,17.51,105.18,36.34,86.35a135,135,0,0,1,25-19.78L42.08,45.38A8,8,0,1,1,53.92,34.62Zm-65.49-48.25-52.69-58a40,40,0,0,0,52.69,58Z"/></svg>';
-        emit(lp);
+        btn.classList.toggle('active', lp.visible !== false);
+        this.onFeatureLayerChange?.(lp);
       });
     });
 
+    // Group visibility toggle (mirrors the layer toggle)
+    container.querySelectorAll<HTMLButtonElement>('[data-fd-group]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const lpId = btn.dataset.fdGroup;
+        if (!lpId) return;
+        const lp = this.featureLayerPresets.find(l => l.id === lpId);
+        if (!lp) return;
+        lp.visible = !(lp.visible !== false);
+        const on = lp.visible !== false;
+        btn.classList.toggle('active', on);
+        // Mirror state onto the layer row toggle inside this group
+        const geomType = lp.geometry_type;
+        const group = btn.closest(`.fd-geom-group[data-fd-geom="${geomType}"]`);
+        group?.querySelector<HTMLButtonElement>('[data-fd-layer]')?.classList.toggle('active', on);
+        this.onFeatureLayerChange?.(lp);
+      });
+    });
+
+    // Label toggle
+    container.querySelectorAll<HTMLButtonElement>('[data-fd-label]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const preset = this.typePresets.find(p => p.id === btn.dataset.fdLabel);
+        if (!preset) return;
+        preset.show_labels = preset.show_labels === false ? true : false;
+        btn.classList.toggle('active', preset.show_labels !== false);
+        this.onTypePresetChange?.(preset);
+      });
+    });
   }
 
   // ---- Stack item rendering ----
@@ -1938,7 +1938,7 @@ export class BasemapManager {
           <input type="number" class="bm-opacity-num" data-iid="${layer.instanceId}"
             min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity %"
             inputmode="decimal" />
-          <button class="bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}">${eyeSvg}</button>
+          <button class="vis-tog bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}"></button>
           ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
           <button class="bm-refresh-btn" data-iid="${layer.instanceId}" title="Reload layer" style="background:none;border:1px solid var(--color-border);border-radius:4px;color:var(--color-text-dim);cursor:pointer;padding:2px 4px;display:flex;align-items:center;flex-shrink:0">${refreshSvg}</button>
           <button class="bm-dup-btn" data-iid="${layer.instanceId}" title="Duplicate layer" style="background:none;border:1px solid var(--color-border);border-radius:4px;color:var(--color-text-dim);cursor:pointer;padding:2px 5px;font-size:12px;flex-shrink:0">⧉</button>
@@ -2379,8 +2379,7 @@ export class BasemapManager {
             ${this.stack.map((layer, idx) => this.renderStackItem(layer, idx)).join('')}
           </div>`)}
 
-        ${this.renderFeatureLayersSection()}
-        ${this.renderCollectedDataSection()}
+        ${this.renderFieldDataSection()}
         ${this.renderCutFillSection()}
         ${this.renderUserLayersSection()}
         ${this.renderPDFSection()}
@@ -2390,8 +2389,7 @@ export class BasemapManager {
     `;
 
     container.querySelector('#bm-close')?.addEventListener('click', onClose);
-    this.wireCollectedData(container);
-    this.wireFeatureLayers(container);
+    this.wireFieldData(container);
     this.wireMapDisplay(container);
     this.wireCutFillSection(container);
     this.wireContent(container, onClose);

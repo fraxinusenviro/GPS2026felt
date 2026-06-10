@@ -1495,10 +1495,12 @@ html, body {
 }
 
 #basemap-panel {
-  top: 8px;
-  right: 56px;
+  top: calc(var(--header-height) + 8px);
+  right: 64px;
   padding: 0;
   overflow: hidden;
+  max-height: calc(100dvh - var(--header-height) - 16px);
+  overflow-y: auto;
 }
 
 #feature-editor-panel {
@@ -5281,6 +5283,114 @@ input[type=color] {
 .cd-untyped-row { opacity: 0.7; }
 
 /* ============================================================
+   Combined Field Data section (Points / Lines / Polygons groups)
+   ============================================================ */
+.fd-geom-group {
+  margin-bottom: 2px;
+}
+.fd-geom-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 4px;
+  cursor: pointer;
+  background: var(--color-surface-2, rgba(255,255,255,0.04));
+  border-radius: var(--radius-sm);
+  margin-bottom: 1px;
+}
+.fd-geom-header:hover { background: var(--color-accent-dim); }
+.fd-geom-icon {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.fd-geom-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  flex: 1;
+}
+.fd-geom-count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-right: 4px;
+}
+.fd-layer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 26px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.fd-layer-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.fd-layer-name {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  flex: 1;
+  font-style: italic;
+}
+.fd-type-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 26px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.fd-type-row:last-child { border-bottom: none; }
+.fd-type-row.fd-hidden .fd-type-label,
+.fd-type-row.fd-hidden .fd-type-count { opacity: 0.35; }
+.fd-type-swatch { flex-shrink: 0; }
+.fd-type-label {
+  font-size: 12px;
+  color: var(--color-text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fd-type-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  min-width: 18px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.fd-label-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 1px 2px;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+.fd-label-btn.active { opacity: 1; color: var(--color-accent); }
+.fd-label-btn:hover { opacity: 1; }
+.fd-swatch-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* ============================================================
    ProjectPanel: rename controls
    ============================================================ */
 .proj-rename-input {
@@ -5420,6 +5530,43 @@ input[type=color] {
 .cd-type-hidden .cd-type-geom,
 .cd-type-hidden .cd-type-count {
   opacity: 0.35;
+}
+
+/* ============================================================
+   Visibility Toggle Switch (replaces eye buttons)
+   ============================================================ */
+.vis-tog {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+  border: none;
+  background: var(--color-border);
+  cursor: pointer;
+  transition: background 0.18s;
+  padding: 0;
+}
+.vis-tog::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-text-dim);
+  transition: transform 0.18s, background 0.18s;
+}
+.vis-tog.active,
+.vis-tog[data-active="true"] {
+  background: var(--color-accent);
+}
+.vis-tog.active::after,
+.vis-tog[data-active="true"]::after {
+  transform: translateX(12px);
+  background: #fff;
 }
 
 /* ============================================================
