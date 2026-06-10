@@ -2858,6 +2858,9 @@ input[type=color] {
   margin-top: 6px;
   border-radius: var(--radius-sm);
   background: #475569;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .preset-group-header[data-geom="Point"]      { background: #16a34a; }
 .preset-group-header[data-geom="LineString"] { background: #b45309; }
@@ -4753,10 +4756,12 @@ input[type=color] {
 }
 
 .style-picker-panel {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
+  background: rgba(15, 28, 18, 0.88);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(74, 222, 128, 0.18);
+  border-radius: 14px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(74,222,128,0.08);
   width: 100%;
   max-width: 380px;
   max-height: 90vh;
@@ -4864,21 +4869,11 @@ input[type=color] {
   text-align: center;
 }
 
-.sp-section {
-  margin-bottom: 14px;
-}
-.sp-section-title {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
-  margin-bottom: 6px;
-}
 .sp-optional {
   font-weight: 400;
   text-transform: none;
   letter-spacing: 0;
+  opacity: 0.65;
 }
 
 /* Shape grid */
@@ -5080,6 +5075,121 @@ input[type=color] {
 .sp-palette-swatch:hover {
   transform: scale(1.15);
   z-index: 1;
+}
+
+/* Compact color row — shows color swatches side-by-side */
+.sp-compact-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* Two-column layout for side-by-side slider groups */
+.sp-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  margin-bottom: 0;
+}
+.sp-2col-item {}
+.sp-2col .sp-slider-row {
+  flex-wrap: wrap;
+}
+
+/* Glassmorphic section backgrounds in style picker */
+.sp-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 10px 12px 8px;
+  margin-bottom: 8px;
+}
+.sp-section .sp-section {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-bottom: 0;
+}
+.sp-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-accent, #4ade80);
+  margin-bottom: 8px;
+  opacity: 0.8;
+}
+
+/* ============================================================
+   Basemap panel section header row (toggle + reload button)
+   ============================================================ */
+.bm-section-header-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.bm-section-header-row .bm-section-toggle {
+  flex: 1;
+  min-width: 0;
+}
+.bm-refresh-all-btn {
+  background: none;
+  border: 1px solid rgba(91,175,130,0.25);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0 8px;
+  color: var(--color-accent, #4ade80);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s;
+}
+.bm-refresh-all-btn:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+}
+
+/* ============================================================
+   Feature layer — larger vis-tog toggle
+   ============================================================ */
+.vis-tog.fd-vis-lg {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+}
+.vis-tog.fd-vis-lg::after {
+  width: 16px;
+  height: 16px;
+  top: 2px;
+  left: 2px;
+}
+.vis-tog.fd-vis-lg.active::after {
+  transform: translateX(16px);
+}
+
+/* ============================================================
+   fd-geom-group collapsible
+   ============================================================ */
+.fd-geom-collapsible {
+  cursor: pointer;
+  user-select: none;
+}
+.fd-geom-chevron {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  transition: transform 0.18s;
+  display: inline-block;
+}
+.fd-geom-chevron.fd-collapsed {
+  transform: rotate(-90deg);
+}
+.fd-geom-body {
+  overflow: hidden;
+}
+.fd-geom-body-collapsed {
+  display: none;
 }
 
 /* ============================================================

@@ -3,7 +3,7 @@ import type { TypePreset, AppSettings, GeometryType } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import { StylePicker } from './StylePicker';
-import { renderSwatchDataUrl } from './SymbolRenderer';
+import { renderSwatchDataUrl, renderLineSwatchDataUrl, renderPolygonSwatchDataUrl } from './SymbolRenderer';
 
 export class PresetManager {
   private presets: TypePreset[] = [];
@@ -204,6 +204,13 @@ export class PresetManager {
   }
 
   private renderPresetList(container: HTMLElement): void {
+    const geomIcons: Record<string, string> = {
+      Point:      '<circle cx="12" cy="12" r="5" fill="currentColor"/>',
+      LineString: '<polyline points="3,18 9,7 15,13 21,6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>',
+      Polygon:    '<polygon points="12,3 21,9 18,20 6,20 3,9" fill="currentColor" fill-opacity="0.45" stroke="currentColor" stroke-width="1.5"/>',
+      all:        '<circle cx="8" cy="12" r="3" fill="currentColor"/><line x1="12" y1="12" x2="20" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    };
+
     const groups: Array<{ geomType: GeometryType | 'all'; label: string }> = [
       { geomType: 'Point', label: 'Points' },
       { geomType: 'LineString', label: 'Lines' },
@@ -215,18 +222,25 @@ export class PresetManager {
     for (const { geomType, label } of groups) {
       const group = this.presets.filter(p => p.geometry_type === geomType);
       if (group.length === 0) continue;
-      html += `<div class="preset-group-header" data-geom="${geomType}">${label}</div>`;
+      const iconSvg = geomIcons[geomType] ?? '';
+      html += `<div class="preset-group-header" data-geom="${geomType}">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="none" style="flex-shrink:0;vertical-align:middle">${iconSvg}</svg>
+        ${label}
+      </div>`;
       html += group.map(p => {
-        const swatchUrl = renderSwatchDataUrl(p, 26);
+        const swatchUrl =
+          geomType === 'LineString' ? renderLineSwatchDataUrl(p, 26)
+          : geomType === 'Polygon'  ? renderPolygonSwatchDataUrl(p, 26)
+          : renderSwatchDataUrl(p, 26);
         return `
         <div class="preset-row" data-id="${p.id}">
           <img class="preset-swatch-img" src="${swatchUrl}" width="26" height="26" alt="" />
           <span class="preset-label">${p.label}</span>
           ${geomType === 'Point' ? `<span class="preset-qe-badge ${p.is_quick_entry ? 'active' : ''}" title="Quick Entry">QE</span>` : ''}
           <button class="preset-style-btn" data-id="${p.id}" title="Edit style">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="14.5" r="2.5"/><circle cx="8.5" cy="14.5" r="2.5"/>
-              <path d="M13.5 9v1.5M17.5 17v3M8.5 17v3M15.5 7.5L18 11M11.5 7.5L9 11"/>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" stroke-linecap="round">
+              <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>
+              <circle cx="8" cy="6" r="2" fill="var(--color-surface)"/><circle cx="16" cy="12" r="2" fill="var(--color-surface)"/><circle cx="10" cy="18" r="2" fill="var(--color-surface)"/>
             </svg>
           </button>
           <button class="preset-edit-btn" data-id="${p.id}" title="Edit label/geometry">

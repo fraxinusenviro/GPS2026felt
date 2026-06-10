@@ -11,7 +11,7 @@ import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, CHM_RAMPS, CHM_CLASSES, CHM_CLASS_
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
 import { StylePicker } from '../ui/StylePicker';
-import { renderSwatchDataUrl } from '../ui/SymbolRenderer';
+import { renderSwatchDataUrl, renderLineSwatchDataUrl, renderPolygonSwatchDataUrl } from '../ui/SymbolRenderer';
 import { CutFillLayer } from './CutFillLayer';
 import { CutFillRunStore, type CutFillRun } from './CutFillRunStore';
 import { computeCutFill, computeDaylightFeatures } from '../lib/cutFillEngine';
@@ -138,6 +138,7 @@ export class BasemapManager {
   private cogContourLayers = new Map<string, CogContourLayer>();
   private cutFillResultProvider: (() => import('../lib/cutFillEngine').CutFillResult | null) | null = null;
   private cutFillLayers = new Map<string, CutFillLayer>();
+  private collapsedFdGroups = new Set<string>();
   private collapsedRuns = new Set<string>();
   private collapsedRunSettings = new Set<string>();
   private panelState: { container: HTMLElement; onClose: () => void } | null = null;
@@ -1437,20 +1438,17 @@ export class BasemapManager {
       // Count features in this geometry group
       const groupCount = this.collectedFeatures.filter(f => f.geometry_type === geomType).length;
 
-      if (!layerPreset && types.length === 0) return '';
+      if (types.length === 0 && groupCount === 0) return '';
 
+      const isGroupCollapsed = this.collapsedFdGroups.has(geomType);
       const layerVis = layerPreset ? layerPreset.visible !== false : true;
-
-      const layerRow = layerPreset ? `
-        <div class="fd-layer-row">
-          <span class="fd-layer-dot" style="background:${layerPreset.color}"></span>
-          <span class="fd-layer-name">${layerPreset.name}</span>
-          <button class="vis-tog fd-layer-vis${layerVis ? ' active' : ''}" data-fd-layer="${layerPreset.id}" title="Toggle layer"></button>
-        </div>` : '';
 
       const typeRows = types.map(p => {
         const count = countByType.get(p.label) ?? 0;
-        const swatchUrl = renderSwatchDataUrl(p, 20);
+        const swatchUrl =
+          geomType === 'LineString' ? renderLineSwatchDataUrl(p, 20)
+          : geomType === 'Polygon'  ? renderPolygonSwatchDataUrl(p, 20)
+          : renderSwatchDataUrl(p, 20);
         const isVisible = p.visible !== false;
         const showLabels = p.show_labels !== false;
         return `
@@ -1461,20 +1459,22 @@ export class BasemapManager {
             <span class="fd-type-label">${p.label}</span>
             <span class="fd-type-count">${count > 0 ? count : '—'}</span>
             <button class="fd-label-btn${showLabels ? ' active' : ''}" data-fd-label="${p.id}" title="${showLabels ? 'Hide labels' : 'Show labels'}">${labelOnSvg}</button>
-            <button class="vis-tog fd-type-vis${isVisible ? ' active' : ''}" data-fd-type="${p.id}" title="Toggle type"></button>
+            <button class="vis-tog fd-type-vis fd-vis-lg${isVisible ? ' active' : ''}" data-fd-type="${p.id}" title="Toggle type"></button>
           </div>`;
       }).join('');
 
       return `
         <div class="fd-geom-group" data-fd-geom="${geomType}">
-          <div class="fd-geom-header">
+          <div class="fd-geom-header fd-geom-collapsible" data-fd-collapse="${geomType}">
+            <span class="fd-geom-chevron${isGroupCollapsed ? ' fd-collapsed' : ''}">▾</span>
             <span class="fd-geom-icon">${icon}</span>
             <span class="fd-geom-label">${label}</span>
             ${groupCount > 0 ? `<span class="fd-geom-count">${groupCount}</span>` : ''}
-            <button class="vis-tog fd-group-vis${layerVis ? ' active' : ''}" data-fd-group="${layerPreset?.id ?? ''}" title="Toggle group"></button>
+            <button class="vis-tog fd-group-vis fd-vis-lg${layerVis ? ' active' : ''}" data-fd-group="${layerPreset?.id ?? ''}" title="Toggle group" onclick="event.stopPropagation()"></button>
           </div>
-          ${layerRow}
-          ${typeRows}
+          <div class="fd-geom-body${isGroupCollapsed ? ' fd-geom-body-collapsed' : ''}">
+            ${typeRows}
+          </div>
         </div>`;
     }).join('');
 
@@ -1488,13 +1488,28 @@ export class BasemapManager {
       </div>` : '';
 
     const totalCount = this.collectedFeatures.length;
-    const hint = totalCount > 0 ? `${totalCount} features` : `${this.featureLayerPresets.length} layers`;
+    const hint = totalCount > 0 ? `${totalCount} features` : '';
 
     return this.sectionToggle('field-data', 'Field Data', hint) +
       this.sectionBody('field-data', `<div class="fd-body">${body}${untypedRow}</div>`);
   }
 
   private wireFieldData(container: HTMLElement): void {
+    // fd-geom-group collapse/expand
+    container.querySelectorAll<HTMLElement>('.fd-geom-collapsible').forEach(header => {
+      header.addEventListener('click', () => {
+        const geomType = header.dataset.fdCollapse!;
+        if (this.collapsedFdGroups.has(geomType)) this.collapsedFdGroups.delete(geomType);
+        else this.collapsedFdGroups.add(geomType);
+        const group = header.closest('.fd-geom-group')!;
+        const body = group.querySelector<HTMLElement>('.fd-geom-body');
+        const chevron = header.querySelector<HTMLElement>('.fd-geom-chevron');
+        const collapsed = this.collapsedFdGroups.has(geomType);
+        body?.classList.toggle('fd-geom-body-collapsed', collapsed);
+        chevron?.classList.toggle('fd-collapsed', collapsed);
+      });
+    });
+
     // Swatch → open style picker
     container.querySelectorAll<HTMLButtonElement>('[data-fd-preset-id]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1586,6 +1601,11 @@ export class BasemapManager {
     const vecStylePanel = isVectorLayer ? `
       <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
         <div class="bm-adj-row">
+          <label class="bm-adj-label">Opac</label>
+          <input type="range" class="bm-adj-slider bm-opacity-slider" data-iid="${layer.instanceId}" min="0" max="100" step="1" value="${Math.round(layer.opacity * 100)}" />
+          <span class="bm-adj-val">${Math.round(layer.opacity * 100)}%</span>
+        </div>
+        <div class="bm-adj-row">
           <label class="bm-adj-label">Stroke</label>
           <input type="color" class="bm-vec-color bm-vec-lc" data-iid="${layer.instanceId}" value="${currentLineHex}" title="Stroke colour" />
           ${cfg ? `
@@ -1614,6 +1634,11 @@ export class BasemapManager {
     const inSt = `background:var(--input-bg,#1a2a1e);color:var(--fg,#e8f5e9);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px;font-size:11px`;
     const cogContourAdjPanel = isCogContour ? `
       <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
+        <div class="bm-adj-row">
+          <label class="bm-adj-label">Opac</label>
+          <input type="range" class="bm-adj-slider bm-opacity-slider" data-iid="${layer.instanceId}" min="0" max="100" step="1" value="${Math.round(layer.opacity * 100)}" />
+          <span class="bm-adj-val">${Math.round(layer.opacity * 100)}%</span>
+        </div>
         <div class="bm-adj-row">
           <label class="bm-adj-label">Threshold</label>
           <input type="number" class="bm-cc-threshold" data-iid="${layer.instanceId}"
@@ -1872,6 +1897,11 @@ export class BasemapManager {
 
     const hrdemAdjPanel = isHrdem ? `
       <div class="bm-adj-panel" data-iid="${iid}" style="display:none">
+        <div class="bm-adj-row">
+          <label class="bm-adj-label">Opac</label>
+          <input type="range" class="bm-adj-slider bm-opacity-slider" data-iid="${iid}" min="0" max="100" step="1" value="${Math.round(layer.opacity * 100)}" />
+          <span class="bm-adj-val">${Math.round(layer.opacity * 100)}%</span>
+        </div>
         ${hrdemInnerContent}
       </div>` : '';
 
@@ -1935,16 +1965,17 @@ export class BasemapManager {
           <div class="bm-drag-handle" title="Drag to reorder">${dragSvg}</div>
           <span class="bm-layer-label" title="${layer.label}">${layer.label}</span>
           ${isBase ? '<span class="bm-base-badge">B</span>' : ''}
-          <input type="number" class="bm-opacity-num" data-iid="${layer.instanceId}"
-            min="0" max="100" value="${Math.round(layer.opacity * 100)}" title="Opacity %"
-            inputmode="decimal" />
           <button class="vis-tog bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}"></button>
           ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
-          <button class="bm-refresh-btn" data-iid="${layer.instanceId}" title="Reload layer" style="background:none;border:1px solid var(--color-border);border-radius:4px;color:var(--color-text-dim);cursor:pointer;padding:2px 4px;display:flex;align-items:center;flex-shrink:0">${refreshSvg}</button>
           <button class="bm-dup-btn" data-iid="${layer.instanceId}" title="Duplicate layer" style="background:none;border:1px solid var(--color-border);border-radius:4px;color:var(--color-text-dim);cursor:pointer;padding:2px 5px;font-size:12px;flex-shrink:0">⧉</button>
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
         ${isVectorLayer ? vecStylePanel : isHrdem ? hrdemAdjPanel : isCogContour ? cogContourAdjPanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
+          <div class="bm-adj-row">
+            <label class="bm-adj-label">Opac</label>
+            <input type="range" class="bm-adj-slider bm-opacity-slider" data-iid="${layer.instanceId}" min="0" max="100" step="1" value="${Math.round(layer.opacity * 100)}" />
+            <span class="bm-adj-val">${Math.round(layer.opacity * 100)}%</span>
+          </div>
           ${cogRampRow}
           <div class="bm-adj-row">
             <label class="bm-adj-label">Hue</label>
@@ -2370,11 +2401,11 @@ export class BasemapManager {
       </div>
       <div class="panel-body bm-panel-body">
 
-        ${this.sectionToggle('active-layers', 'Basemap Stack', 'drag to reorder · top = drawn on top', false)}
+        <div class="bm-section-header-row">
+          ${this.sectionToggle('active-layers', 'Basemap Stack', '', false)}
+          <button id="bm-refresh-all" class="bm-refresh-all-btn" title="Reload all basemap layers"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M240,56v48a8,8,0,0,1-8,8H184a8,8,0,0,1,0-16h28.69L197.31,80.69A96.09,96.09,0,0,0,43.81,116.8a8,8,0,1,1-15.62-3.6A112.11,112.11,0,0,1,208,70.69l15.33,15.32V56a8,8,0,0,1,16,0Zm-16.19,82.8a8,8,0,0,0-10,5.39A96.09,96.09,0,0,1,58.69,175.31L71.31,162.69A8,8,0,0,0,65.82,149H16a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V176.69l15.32,15.32a112.11,112.11,0,0,0,179.81-45.21A8,8,0,0,0,223.81,138.8Z"/></svg></button>
+        </div>
         ${this.sectionBody('active-layers', `
-          <div style="display:flex;justify-content:flex-end;padding:2px 0 4px">
-            <button id="bm-refresh-all" title="Reload all basemap layers" style="background:none;border:1px solid rgba(91,175,130,0.25);border-radius:4px;cursor:pointer;padding:2px 8px;color:var(--color-accent,#4ade80);font-size:11px;display:flex;align-items:center;gap:4px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M240,56v48a8,8,0,0,1-8,8H184a8,8,0,0,1,0-16h28.69L197.31,80.69A96.09,96.09,0,0,0,43.81,116.8a8,8,0,1,1-15.62-3.6A112.11,112.11,0,0,1,208,70.69l15.33,15.32V56a8,8,0,0,1,16,0Zm-16.19,82.8a8,8,0,0,0-10,5.39A96.09,96.09,0,0,1,58.69,175.31L71.31,162.69A8,8,0,0,0,65.82,149H16a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V176.69l15.32,15.32a112.11,112.11,0,0,0,179.81-45.21A8,8,0,0,0,223.81,138.8Z"/></svg> Reload All</button>
-          </div>
           <div class="bm-stack" id="bm-stack">
             ${this.stack.map((layer, idx) => this.renderStackItem(layer, idx)).join('')}
           </div>`)}
@@ -2400,17 +2431,9 @@ export class BasemapManager {
   private wireContent(container: HTMLElement, onClose: () => void): void {
     const allDefs = ALL_DEFS();
 
-    // Per-layer refresh buttons
-    container.querySelectorAll<HTMLButtonElement>('.bm-refresh-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.rebuildMap();
-        this.saveStack();
-      });
-    });
-
     // Master refresh
-    container.querySelector<HTMLButtonElement>('#bm-refresh-all')?.addEventListener('click', () => {
+    container.querySelector<HTMLButtonElement>('#bm-refresh-all')?.addEventListener('click', (e) => {
+      e.stopPropagation();
       this.rebuildMap();
       this.saveStack();
     });
@@ -2443,14 +2466,14 @@ export class BasemapManager {
       });
     });
 
-    // Opacity number inputs (stack items)
-    container.querySelectorAll<HTMLInputElement>('.bm-opacity-num').forEach(input => {
-      input.addEventListener('change', () => {
-        const iid = input.dataset.iid!;
-        const rawVal = parseInt(input.value);
-        const clamped = isNaN(rawVal) ? 100 : Math.min(100, Math.max(0, rawVal));
-        input.value = String(clamped);
-        const opacity = clamped / 100;
+    // Opacity sliders (in expanded settings panel)
+    container.querySelectorAll<HTMLInputElement>('.bm-opacity-slider').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const iid = slider.dataset.iid!;
+        const val = parseInt(slider.value);
+        const opacity = val / 100;
+        const valEl = slider.parentElement?.querySelector<HTMLElement>('.bm-adj-val');
+        if (valEl) valEl.textContent = `${val}%`;
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
         layer.opacity = opacity;

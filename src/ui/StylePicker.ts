@@ -80,19 +80,20 @@ export class StylePicker {
     const isLine    = preset.geometry_type === 'LineString';
     const isPoly    = preset.geometry_type === 'Polygon';
 
-    const shape       = preset.shape       ?? 'circle';
-    const fillOpacity = preset.fill_opacity ?? (isPoly ? 0.35 : 1.0);
-    const strokeColor = preset.stroke_color ?? (isPoint ? '#ffffff' : preset.color);
-    const strokeWidth = preset.stroke_width ?? 2;
-    const iconColor   = preset.icon_color   ?? '#ffffff';
-    const iconScale   = preset.icon_size    ?? 1.0;
-    const size        = preset.size         ?? 7;
-    const dashPattern = preset.dash_pattern ?? 'solid';
-    const strokeDash  = (preset as TypePreset & { stroke_dash?: string }).stroke_dash ?? 'solid';
-    const rotation    = preset.rotation     ?? 0;
-    const iconRot     = preset.icon_rotation ?? 0;
+    const shape        = preset.shape        ?? 'circle';
+    const fillOpacity  = preset.fill_opacity  ?? (isPoly ? 0.35 : 1.0);
+    const strokeColor  = preset.stroke_color  ?? (isPoint ? '#ffffff' : preset.color);
+    const strokeWidth  = preset.stroke_width  ?? (isLine ? 3 : 2);
+    const iconColor    = preset.icon_color    ?? '#ffffff';
+    const iconScale    = preset.icon_size     ?? 1.0;
+    const size         = preset.size          ?? 7;
+    const dashPattern  = preset.dash_pattern  ?? 'solid';
+    const strokeDash   = (preset as TypePreset & { stroke_dash?: string }).stroke_dash ?? 'solid';
+    const rotation     = preset.rotation      ?? 0;
+    const iconRot      = preset.icon_rotation ?? 0;
+    const casingColor  = preset.casing_color  ?? '#000000';
+    const casingWidth  = preset.casing_width  ?? 0;
 
-    // Quick color palette — earth/field tones
     const palette = [
       '#4ade80','#22c55e','#15803d','#052e16',
       '#facc15','#f97316','#ef4444','#dc2626',
@@ -136,7 +137,7 @@ export class StylePicker {
               <div class="sp-actual-size-box">
                 <canvas id="sp-actual-canvas" width="32" height="32"></canvas>
               </div>
-              <div class="sp-preview-label">Actual Size</div>
+              <div class="sp-preview-label">Actual</div>
             </div>
           </div>
         </div>
@@ -145,8 +146,8 @@ export class StylePicker {
 
           ${paletteHtml}
 
-          ${isPoint || preset.geometry_type === 'all' ? `
-          <!-- Shape -->
+          ${isPoint ? `
+          <!-- Shape + Size + Rotation combined -->
           <div class="sp-section">
             <div class="sp-section-title">Shape</div>
             <div class="sp-shape-grid">
@@ -160,83 +161,166 @@ export class StylePicker {
               `).join('')}
             </div>
           </div>
-
-          <!-- Size -->
-          <div class="sp-section">
-            <div class="sp-section-title">Size</div>
-            ${sliderRow('sp-size', 'sp-size-val', 4, 20, 0.5, size, 'px', v => v.toString())}
+          <div class="sp-section sp-2col">
+            <div class="sp-2col-item">
+              <div class="sp-section-title">Size</div>
+              ${sliderRow('sp-size', 'sp-size-val', 4, 20, 0.5, size, 'px', v => v.toString())}
+            </div>
+            <div class="sp-2col-item">
+              <div class="sp-section-title">Rotation</div>
+              ${sliderRow('sp-rotation', 'sp-rotation-val', 0, 360, 1, rotation, '°', v => `${v}`)}
+            </div>
           </div>
 
-          <!-- Shape Rotation -->
+          <!-- Fill + Stroke combined -->
           <div class="sp-section">
-            <div class="sp-section-title">Rotation</div>
-            ${sliderRow('sp-rotation', 'sp-rotation-val', 0, 360, 1, rotation, '°', v => `${v}`)}
-          </div>
-          ` : ''}
-
-          <!-- Fill color + opacity -->
-          ${isPoint || isPoly || preset.geometry_type === 'all' ? `
-          <div class="sp-section">
-            <div class="sp-section-title">Fill</div>
-            <div class="sp-row">
+            <div class="sp-section-title">Fill &amp; Stroke</div>
+            <div class="sp-compact-row">
               <label class="sp-color-label">
                 <input type="color" id="sp-fill-color" value="${preset.color}" />
-                <span>Color</span>
+                <span>Fill</span>
               </label>
-              ${isPoly || preset.geometry_type === 'all' ? `
-              <div class="sp-slider-group">
-                <span class="sp-slider-label-txt">Opacity</span>
-                ${sliderRow('sp-fill-opacity', 'sp-fill-opacity-val', 0, 1, 0.05, fillOpacity, '%', v => `${Math.round(v * 100)}%`)}
-              </div>` : ''}
+              <label class="sp-color-label">
+                <input type="color" id="sp-stroke-color" value="${strokeColor}" />
+                <span>Stroke</span>
+              </label>
+            </div>
+            <div class="sp-slider-group" style="margin-top:6px">
+              <span class="sp-slider-label-txt">Stroke Width</span>
+              ${sliderRow('sp-stroke-width', 'sp-stroke-width-val', 0, 8, 0.5, strokeWidth, 'px', v => `${v}`)}
             </div>
           </div>
           ` : ''}
 
-          <!-- Stroke -->
+          ${isPoly ? `
+          <!-- Fill + opacity for polygons -->
           <div class="sp-section">
-            <div class="sp-section-title">Stroke</div>
-            <div class="sp-row">
+            <div class="sp-section-title">Fill</div>
+            <div class="sp-compact-row">
+              <label class="sp-color-label">
+                <input type="color" id="sp-fill-color" value="${preset.color}" />
+                <span>Color</span>
+              </label>
+            </div>
+            <div class="sp-slider-group" style="margin-top:6px">
+              <span class="sp-slider-label-txt">Opacity</span>
+              ${sliderRow('sp-fill-opacity', 'sp-fill-opacity-val', 0, 1, 0.05, fillOpacity, '%', v => `${Math.round(v * 100)}%`)}
+            </div>
+          </div>
+          <div class="sp-section">
+            <div class="sp-section-title">Border</div>
+            <div class="sp-compact-row">
               <label class="sp-color-label">
                 <input type="color" id="sp-stroke-color" value="${strokeColor}" />
                 <span>Color</span>
               </label>
             </div>
-            <div class="sp-slider-group">
+            <div class="sp-slider-group" style="margin-top:6px">
               <span class="sp-slider-label-txt">Width</span>
               ${sliderRow('sp-stroke-width', 'sp-stroke-width-val', 0, 8, 0.5, strokeWidth, 'px', v => `${v}`)}
             </div>
-            ${isPoly ? `
             <div style="margin-top:8px">
-              <span class="sp-slider-label-txt">Border Style</span>
+              <span class="sp-slider-label-txt">Style</span>
               <div class="sp-dash-group" style="margin-top:4px">
                 ${DASH_OPTIONS.map(d => `
                   <button class="sp-dash-btn sp-stroke-dash-btn ${d.value === strokeDash ? 'active' : ''}"
                     data-dash="${d.value}">${d.label}</button>
                 `).join('')}
               </div>
-            </div>` : ''}
+            </div>
           </div>
+          ` : ''}
 
           ${isLine ? `
-          <!-- Line color (primary) -->
+          <!-- Line color + width -->
           <div class="sp-section">
-            <div class="sp-section-title">Line Color</div>
-            <div class="sp-row">
+            <div class="sp-section-title">Line</div>
+            <div class="sp-compact-row">
               <label class="sp-color-label">
                 <input type="color" id="sp-fill-color" value="${preset.color}" />
                 <span>Color</span>
               </label>
             </div>
+            <div class="sp-slider-group" style="margin-top:6px">
+              <span class="sp-slider-label-txt">Width</span>
+              ${sliderRow('sp-stroke-width', 'sp-stroke-width-val', 0.5, 16, 0.5, strokeWidth, 'px', v => `${v}`)}
+            </div>
+            <div style="margin-top:8px">
+              <span class="sp-slider-label-txt">Style</span>
+              <div class="sp-dash-group" style="margin-top:4px">
+                ${DASH_OPTIONS.map(d => `
+                  <button class="sp-dash-btn ${d.value === dashPattern ? 'active' : ''}"
+                    data-dash="${d.value}">${d.label}</button>
+                `).join('')}
+              </div>
+            </div>
           </div>
 
-          <!-- Dash pattern -->
+          <!-- Casing -->
           <div class="sp-section">
-            <div class="sp-section-title">Dash Pattern</div>
-            <div class="sp-dash-group">
-              ${DASH_OPTIONS.map(d => `
-                <button class="sp-dash-btn ${d.value === dashPattern ? 'active' : ''}"
-                  data-dash="${d.value}">${d.label}</button>
+            <div class="sp-section-title">Casing <span class="sp-optional">(border around line)</span></div>
+            <div class="sp-compact-row">
+              <label class="sp-color-label">
+                <input type="color" id="sp-casing-color" value="${casingColor}" />
+                <span>Color</span>
+              </label>
+            </div>
+            <div class="sp-slider-group" style="margin-top:6px">
+              <span class="sp-slider-label-txt">Width</span>
+              ${sliderRow('sp-casing-width', 'sp-casing-width-val', 0, 8, 0.5, casingWidth, 'px', v => `${v}`)}
+            </div>
+          </div>
+          ` : ''}
+
+          ${preset.geometry_type === 'all' ? `
+          <!-- Fill + Stroke for 'all' type -->
+          <div class="sp-section">
+            <div class="sp-section-title">Fill</div>
+            <div class="sp-compact-row">
+              <label class="sp-color-label">
+                <input type="color" id="sp-fill-color" value="${preset.color}" />
+                <span>Color</span>
+              </label>
+            </div>
+            <div class="sp-slider-group" style="margin-top:6px">
+              <span class="sp-slider-label-txt">Opacity</span>
+              ${sliderRow('sp-fill-opacity', 'sp-fill-opacity-val', 0, 1, 0.05, fillOpacity, '%', v => `${Math.round(v * 100)}%`)}
+            </div>
+          </div>
+          <div class="sp-section">
+            <div class="sp-section-title">Stroke</div>
+            <div class="sp-compact-row">
+              <label class="sp-color-label">
+                <input type="color" id="sp-stroke-color" value="${strokeColor}" />
+                <span>Color</span>
+              </label>
+            </div>
+            <div class="sp-slider-group" style="margin-top:6px">
+              <span class="sp-slider-label-txt">Width</span>
+              ${sliderRow('sp-stroke-width', 'sp-stroke-width-val', 0, 8, 0.5, strokeWidth, 'px', v => `${v}`)}
+            </div>
+          </div>
+          <div class="sp-section">
+            <div class="sp-section-title">Shape</div>
+            <div class="sp-shape-grid">
+              ${SHAPE_OPTIONS.map(s => `
+                <button class="sp-shape-btn ${s.value === shape ? 'active' : ''}"
+                  data-shape="${s.value}" title="${s.label}">
+                  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="none">
+                    ${s.svg}
+                  </svg>
+                </button>
               `).join('')}
+            </div>
+          </div>
+          <div class="sp-section sp-2col">
+            <div class="sp-2col-item">
+              <div class="sp-section-title">Size</div>
+              ${sliderRow('sp-size', 'sp-size-val', 4, 20, 0.5, size, 'px', v => v.toString())}
+            </div>
+            <div class="sp-2col-item">
+              <div class="sp-section-title">Rotation</div>
+              ${sliderRow('sp-rotation', 'sp-rotation-val', 0, 360, 1, rotation, '°', v => `${v}`)}
             </div>
           </div>
           ` : ''}
@@ -260,19 +344,21 @@ export class StylePicker {
                 `).join('')}
               `).join('')}
             </div>
-            <div class="sp-row" style="margin-top:8px">
+            <div class="sp-compact-row" style="margin-top:8px">
               <label class="sp-color-label">
                 <input type="color" id="sp-icon-color" value="${iconColor}" />
                 <span>Icon Color</span>
               </label>
             </div>
-            <div class="sp-slider-group" style="margin-top:6px">
-              <span class="sp-slider-label-txt">Icon Size</span>
-              ${sliderRow('sp-icon-size', 'sp-icon-size-val', 0.5, 2.0, 0.05, iconScale, '%', v => `${Math.round(v * 100)}%`)}
-            </div>
-            <div class="sp-slider-group" style="margin-top:6px">
-              <span class="sp-slider-label-txt">Icon Rotation</span>
-              ${sliderRow('sp-icon-rotation', 'sp-icon-rotation-val', 0, 360, 1, iconRot, '°', v => `${v}`)}
+            <div class="sp-section sp-2col" style="margin-top:6px;margin-bottom:0">
+              <div class="sp-2col-item">
+                <div class="sp-section-title">Icon Size</div>
+                ${sliderRow('sp-icon-size', 'sp-icon-size-val', 0.5, 2.0, 0.05, iconScale, '%', v => `${Math.round(v * 100)}%`)}
+              </div>
+              <div class="sp-2col-item">
+                <div class="sp-section-title">Icon Rotation</div>
+                ${sliderRow('sp-icon-rotation', 'sp-icon-rotation-val', 0, 360, 1, iconRot, '°', v => `${v}`)}
+              </div>
             </div>
           </div>
           ` : ''}
@@ -382,6 +468,7 @@ export class StylePicker {
       { range: 'sp-stroke-width', num: 'sp-stroke-width-num', valId: 'sp-stroke-width-val', fmt: (v: number) => `${v}px` },
       { range: 'sp-icon-size',    num: 'sp-icon-size-num',    valId: 'sp-icon-size-val',    fmt: (v: number) => `${Math.round(v * 100)}%` },
       { range: 'sp-icon-rotation',num: 'sp-icon-rotation-num',valId: 'sp-icon-rotation-val',fmt: (v: number) => `${v}°` },
+      { range: 'sp-casing-width', num: 'sp-casing-width-num', valId: 'sp-casing-width-val', fmt: (v: number) => `${v}px` },
     ];
 
     for (const { range, num, valId, fmt } of sliderIds) {
@@ -409,7 +496,7 @@ export class StylePicker {
     }
 
     // Color inputs → live preview
-    ['sp-fill-color', 'sp-stroke-color', 'sp-icon-color'].forEach(id => {
+    ['sp-fill-color', 'sp-stroke-color', 'sp-icon-color', 'sp-casing-color'].forEach(id => {
       overlay.querySelector(`#${id}`)?.addEventListener('input', updatePreview);
     });
 
@@ -426,17 +513,20 @@ export class StylePicker {
 
   private collectState(overlay: HTMLElement, original: TypePreset): TypePreset {
     const isPoly = original.geometry_type === 'Polygon';
+    const isLine = original.geometry_type === 'LineString';
 
     const label        = (overlay.querySelector<HTMLInputElement>('#sp-label-input'))?.value.trim() || original.label;
     const fillColor    = (overlay.querySelector<HTMLInputElement>('#sp-fill-color'))?.value    ?? original.color;
     const strokeColor  = (overlay.querySelector<HTMLInputElement>('#sp-stroke-color'))?.value  ?? original.stroke_color ?? '#ffffff';
     const iconColor    = (overlay.querySelector<HTMLInputElement>('#sp-icon-color'))?.value    ?? original.icon_color   ?? '#ffffff';
+    const casingColor  = (overlay.querySelector<HTMLInputElement>('#sp-casing-color'))?.value  ?? original.casing_color ?? '#000000';
     const strokeWidth  = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-stroke-width-num') ?? overlay.querySelector<HTMLInputElement>('#sp-stroke-width'))?.value ?? '2');
     const size         = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-size-num') ?? overlay.querySelector<HTMLInputElement>('#sp-size'))?.value ?? '7');
     const fillOpacity  = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-fill-opacity-num') ?? overlay.querySelector<HTMLInputElement>('#sp-fill-opacity'))?.value ?? (isPoly ? '0.35' : '1'));
     const rotation     = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-rotation-num') ?? overlay.querySelector<HTMLInputElement>('#sp-rotation'))?.value ?? '0');
     const iconRotation = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-icon-rotation-num') ?? overlay.querySelector<HTMLInputElement>('#sp-icon-rotation'))?.value ?? '0');
     const iconSize     = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-icon-size-num') ?? overlay.querySelector<HTMLInputElement>('#sp-icon-size'))?.value ?? '1');
+    const casingWidth  = parseFloat((overlay.querySelector<HTMLInputElement>('#sp-casing-width-num') ?? overlay.querySelector<HTMLInputElement>('#sp-casing-width'))?.value ?? '0');
 
     const activeShape     = overlay.querySelector<HTMLButtonElement>('.sp-shape-btn.active')?.dataset.shape as PointShape | undefined;
     const activeIcon      = overlay.querySelector<HTMLButtonElement>('.sp-icon-btn.active')?.dataset.icon ?? '';
@@ -448,7 +538,7 @@ export class StylePicker {
       label,
       color:         fillColor,
       fill_opacity:  isNaN(fillOpacity) ? original.fill_opacity : fillOpacity,
-      stroke_color:  strokeColor,
+      stroke_color:  isLine ? original.stroke_color : strokeColor,
       stroke_width:  isNaN(strokeWidth) ? original.stroke_width : strokeWidth,
       shape:         activeShape ?? original.shape,
       icon:          activeIcon || undefined,
@@ -458,6 +548,8 @@ export class StylePicker {
       dash_pattern:  activeDash ?? original.dash_pattern,
       rotation:      isNaN(rotation) ? original.rotation : rotation,
       icon_rotation: isNaN(iconRotation) ? original.icon_rotation : iconRotation,
+      casing_color:  isLine ? casingColor : original.casing_color,
+      casing_width:  isLine ? (isNaN(casingWidth) ? original.casing_width : casingWidth) : original.casing_width,
       ...(isPoly && activeStrokeDash ? { stroke_dash: activeStrokeDash } : {}),
     };
   }
