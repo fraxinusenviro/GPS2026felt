@@ -120,6 +120,16 @@ export class SettingsPanel {
               <input type="checkbox" id="s-theme-light" ${this.settings.theme === 'light' ? 'checked' : ''} />
               <span class="toggle-slider"></span>
             </label>
+            <label>Font Appearance
+              <select id="s-font-family">
+                <option value="default" ${(this.settings.font_family ?? 'default') === 'default' ? 'selected' : ''}>Default (System)</option>
+                <option value="oswald" ${this.settings.font_family === 'oswald' ? 'selected' : ''}>Oswald</option>
+              </select>
+            </label>
+            <label>Accent Colour
+              <input type="color" id="s-theme-color" value="${this.settings.theme_color ?? '#4ade80'}" style="width:100%;height:32px;border-radius:4px;border:1px solid var(--color-border);background:none;cursor:pointer;padding:2px;" />
+              <span class="settings-hint">Changes the highlight colour throughout the app. Default: #4ade80</span>
+            </label>
           </div>
 
           <!-- Presets (rendered by PresetManager) -->
@@ -234,6 +244,8 @@ export class SettingsPanel {
     else document.documentElement.removeAttribute('data-outdoor');
 
     this.settings.theme = get<HTMLInputElement>('s-theme-light')?.checked ? 'light' : 'dark';
+    this.settings.font_family = (get<HTMLSelectElement>('s-font-family')?.value ?? 'default') as 'default' | 'oswald';
+    this.settings.theme_color = get<HTMLInputElement>('s-theme-color')?.value ?? '#4ade80';
     document.documentElement.setAttribute('data-theme', this.settings.theme);
     const darkIcon = document.getElementById('theme-icon-dark');
     const lightIcon = document.getElementById('theme-icon-light');

@@ -22,6 +22,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   map_bg_color: '#000000',
   outdoor_mode: false,
   theme: 'dark',
+  font_family: 'default',
+  theme_color: '#4ade80',
 };
 
 // ---- Basemap Definitions ----
