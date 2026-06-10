@@ -62,6 +62,33 @@ export interface GeoJSONFeatureCollection {
   features: GeoJSONFeature[];
 }
 
+// ---- Symbology Studio ----
+export type SymbologyMethod = 'single' | 'categorical' | 'graduated' | 'proportional';
+export type ClassifierName = 'Natural breaks' | 'Quantile' | 'Equal interval';
+
+export interface SymbologyState {
+  method: SymbologyMethod;
+  field?: string;
+  palette?: string;         // qualitative palette key for categorical
+  ramp?: string;            // sequential ramp key for graduated
+  classes?: number;         // 3–7 classes for graduated
+  classifier?: ClassifierName;
+  color?: string;           // single fill color
+  opacity?: number;         // 0–1 overall opacity
+  size?: number;            // circle-radius / line-width / outline-width
+  // Point-specific
+  outlineColor?: string;
+  outlineWidth?: number;
+  // Line-specific
+  cap?: 'round' | 'butt' | 'square';
+  casing?: boolean;
+  casingColor?: string;
+  casingWidth?: number;
+  // Polygon-specific
+  strokeColor?: string;
+  strokeOpacity?: number;
+}
+
 // ---- Preset / Type configuration ----
 export type PointShape = 'circle' | 'square' | 'diamond' | 'triangle';
 export type DashPattern = 'solid' | 'dashed' | 'dotted';
@@ -100,6 +127,7 @@ export interface LayerPreset {
   types: TypePreset[];
   project_id?: string;          // owning project ID (undefined = legacy global)
   visible?: boolean;            // TOC visibility toggle (default true)
+  symbologyState?: SymbologyState; // data-driven symbology override
 }
 
 // ---- Settings ----
@@ -237,6 +265,7 @@ export interface ImportedLayer {
   bounds?: [number, number, number, number]; // [west,south,east,north] for mbtiles/geopdf zoom
   image_data_url?: string;       // JPEG data URL for georeferenced geopdf overlay
   project_id?: string;           // owning project ID (undefined = legacy)
+  symbologyState?: SymbologyState; // data-driven symbology override
 }
 
 // ---- Events ----

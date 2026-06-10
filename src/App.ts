@@ -822,6 +822,9 @@ export class App {
               bounds: l.bounds,
               fileType: l.file_type,
               tileUrl: l.file_type === 'mbtiles' ? `mbtiles://${l.id}/{z}/{x}/{y}` : undefined,
+              features: l.data?.features.map(f => ({ geometry: f.geometry, properties: (f.properties ?? {}) as Record<string, unknown> })),
+              symbologyState: l.symbologyState,
+              originalColor: l.color,
             })),
           ...online.map(l => ({
             id: l.id,
@@ -859,12 +862,13 @@ export class App {
           }
         };
 
-        // Persist visibility/opacity changes for user layers and PDF layers
-        const onLayerStateChange = (id: string, updates: { visible?: boolean; opacity?: number }) => {
+        // Persist visibility/opacity/symbology changes for user layers and PDF layers
+        const onLayerStateChange = (id: string, updates: { visible?: boolean; opacity?: number; symbologyState?: import('./types').SymbologyState | null }) => {
           const il = imported.find(l => l.id === id);
           if (il) {
             if (updates.visible !== undefined) il.visible = updates.visible;
             if (updates.opacity !== undefined) il.opacity = updates.opacity;
+            if ('symbologyState' in updates) il.symbologyState = updates.symbologyState ?? undefined;
             void this.storage.saveImportedLayer(il);
             return;
           }
@@ -930,6 +934,9 @@ export class App {
                   mapLayerId: l.file_type === 'mbtiles' ? l.id : `${l.id}-fill`,
                   bounds: l.bounds, fileType: l.file_type,
                   tileUrl: l.file_type === 'mbtiles' ? `mbtiles://${l.id}/{z}/{x}/{y}` : undefined,
+                  features: l.data?.features.map(f => ({ geometry: f.geometry, properties: (f.properties ?? {}) as Record<string, unknown> })),
+                  symbologyState: l.symbologyState,
+                  originalColor: l.color,
                 }));
               const onlineUserLayers = online.map(l => ({
                 id: l.id, name: l.name, kind: 'raster' as 'vector' | 'raster',
@@ -973,6 +980,9 @@ export class App {
                   mapLayerId: l.file_type === 'mbtiles' ? l.id : `${l.id}-fill`,
                   bounds: l.bounds, fileType: l.file_type,
                   tileUrl: l.file_type === 'mbtiles' ? `mbtiles://${l.id}/{z}/{x}/{y}` : undefined,
+                  features: l.data?.features.map(f => ({ geometry: f.geometry, properties: (f.properties ?? {}) as Record<string, unknown> })),
+                  symbologyState: l.symbologyState,
+                  originalColor: l.color,
                 }));
               const onlineUserLayers = online.map(l => ({
                 id: l.id, name: l.name, kind: 'raster' as 'vector' | 'raster',

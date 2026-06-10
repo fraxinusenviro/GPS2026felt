@@ -1,10 +1,11 @@
-import type { ImportedLayer, FieldFeature, GeoJSONGeometry, GeometryType, TypePreset, AppSettings } from '../types';
+import type { ImportedLayer, FieldFeature, GeoJSONGeometry, GeometryType, TypePreset, AppSettings, SymbologyState } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import type { ImportManager } from '../io/ImportManager';
 import type { ExportManager } from '../io/ExportManager';
 import { FeltExportDialog } from './FeltExportDialog';
 import { StylePicker } from './StylePicker';
+import { SymbologyStudio } from './SymbologyStudio';
 import { renderSwatchDataUrl, renderLineSwatchDataUrl, renderPolygonSwatchDataUrl } from './SymbolRenderer';
 import type { PresetManager } from './PresetManager';
 
@@ -18,6 +19,7 @@ export class LayersPanel {
   private fileInput!: HTMLInputElement;
   private feltDialog = new FeltExportDialog();
   private stylePicker = new StylePicker();
+  private symbologyStudio = new SymbologyStudio();
 
   private mapBgColor = '#000000';
 
@@ -39,6 +41,12 @@ export class LayersPanel {
     private getMapBounds: () => MapBounds | null = () => null,
     private presetManager?: PresetManager,
     private onGeomVisibilityChange?: (geom: GeometryType, visible: boolean) => void,
+    private onImportedLayerSymbology?: (
+      layerId: string,
+      state: SymbologyState,
+      features: { properties: Record<string, unknown> }[],
+      originalColor: string,
+    ) => void,
   ) {
     this.fileInput = document.createElement('input');
     this.fileInput.type = 'file';
@@ -477,6 +485,7 @@ export class LayersPanel {
                 ${l.data ? `<span class="layer-count">${l.data.features.length} ft</span>` : ''}
               </div>
               <div class="layer-color-dot" style="background:${l.color}"></div>
+              ${l.data && l.data.features.length > 0 ? `<button class="layer-symbology-btn" data-id="${l.id}" title="Edit symbology">⊛</button>` : ''}
               <button class="layer-zoom-btn" data-id="${l.id}" title="Zoom to layer">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                   <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -598,6 +607,32 @@ export class LayersPanel {
         btn.addEventListener('click', () => {
           const layer = this.importedLayers.find(l => l.id === btn.dataset.id);
           if (layer) this.importManager.zoomToLayer(layer);
+        });
+      });
+
+      // Symbology Studio for imported vector layers
+      this.panel.querySelectorAll<HTMLButtonElement>('.layer-symbology-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const layer = this.importedLayers.find(l => l.id === btn.dataset.id);
+          if (!layer?.data || layer.data.features.length === 0) return;
+          const geomRaw: string = layer.data.features[0]?.geometry?.type ?? 'Polygon';
+          const geomStr = geomRaw === 'Point' || geomRaw === 'MultiPoint' ? 'point'
+            : geomRaw === 'LineString' || geomRaw === 'MultiLineString' ? 'line'
+            : 'polygon';
+          const features = layer.data.features.map(f => ({
+            properties: (f.properties ?? {}) as Record<string, unknown>,
+          }));
+          this.symbologyStudio.open({
+            title: layer.name,
+            geomType: geomStr as 'point' | 'line' | 'polygon',
+            features,
+            initialState: layer.symbologyState,
+            onApply: async (state: SymbologyState) => {
+              layer.symbologyState = state;
+              await this.storage.saveImportedLayer(layer);
+              this.onImportedLayerSymbology?.(layer.id, state, features, layer.color);
+            },
+          });
         });
       });
 

@@ -1,6 +1,7 @@
 import maplibregl from 'maplibre-gl';
 import { BASEMAPS, BASEMAP_OVERLAYS, COG_RAMPS } from '../constants';
-import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature } from '../types';
+import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature, SymbologyState } from '../types';
+import { SymbologyStudio } from '../ui/SymbologyStudio';
 import type { HrdemContourLayerInfo } from '../io/VectorTileRenderer';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
@@ -86,6 +87,7 @@ interface StackLayer {
   cogContourFillEnabled?: boolean; // default false
   cogContourFillColor?:   string;  // default '#1565c0'
   cogContourFillOpacity?: number;  // default 0.30
+  symbologyState?: SymbologyState; // data-driven symbology override
 }
 
 interface UserLayerInfo {
@@ -98,6 +100,9 @@ interface UserLayerInfo {
   bounds?: [number, number, number, number];
   fileType?: string;
   tileUrl?: string; // used when promoting raster layer to the active stack
+  features?: { properties: Record<string, unknown> }[];
+  symbologyState?: SymbologyState;
+  originalColor?: string;
 }
 
 interface PDFLayerInfo {
@@ -121,7 +126,7 @@ export class BasemapManager {
   private pdfLayers: PDFLayerInfo[] = [];
   private onDeletePDF: ((id: string) => void) | null = null;
   private onDeleteUserLayer: ((id: string) => void) | null = null;
-  private onLayerStateChange: ((id: string, updates: { visible?: boolean; opacity?: number }) => void) | null = null;
+  private onLayerStateChange: ((id: string, updates: { visible?: boolean; opacity?: number; symbologyState?: SymbologyState | null }) => void) | null = null;
   // All sections collapsed by default; user expands what they need
   private collapsedSections = new Set<string>([
     'active-layers', 'field-data',
@@ -142,6 +147,7 @@ export class BasemapManager {
   private collapsedRuns = new Set<string>();
   private collapsedRunSettings = new Set<string>();
   private panelState: { container: HTMLElement; onClose: () => void } | null = null;
+  private symbologyStudio = new SymbologyStudio();
   private unifiedLegendEl: HTMLElement | null = null;
   private unifiedLegendCollapsed = true;
 
@@ -1256,7 +1262,7 @@ export class BasemapManager {
     pdfLayers: PDFLayerInfo[] = [],
     onDeletePDF?: (id: string) => void,
     onDeleteUserLayer?: (id: string) => void,
-    onLayerStateChange?: (id: string, updates: { visible?: boolean; opacity?: number }) => void,
+    onLayerStateChange?: (id: string, updates: { visible?: boolean; opacity?: number; symbologyState?: SymbologyState | null }) => void,
     layerPresets?: LayerPreset[],
     onFeatureLayerChange?: (preset: LayerPreset) => void,
     typePresets?: TypePreset[],
@@ -1276,6 +1282,16 @@ export class BasemapManager {
     if (this.stack.length === 0) this.init('esri-imagery');
     this.panelState = { container, onClose };
     this.renderContent(container, onClose);
+    // Re-apply any saved symbology for user layers
+    for (const ul of this.userLayers) {
+      if (ul.symbologyState && ul.kind === 'vector' && ul.features?.length) {
+        this.mapManager.setImportedLayerSymbology(
+          ul.id, ul.symbologyState,
+          ul.features as { properties: Record<string, unknown> }[],
+          ul.originalColor ?? '#888888',
+        );
+      }
+    }
   }
 
   // ---- Palette helpers ----
@@ -1334,6 +1350,7 @@ export class BasemapManager {
       ${this.userLayers.map(l => {
         const badge = (l.fileType ?? l.kind).toUpperCase();
         const canStack = l.kind === 'raster' && !!l.tileUrl;
+        const canStyle = l.kind === 'vector' && (l.features?.length ?? 0) > 0;
         return `
         <div class="bm-stack-item" data-ulid="${l.id}">
           <div class="bm-item-main">
@@ -1346,6 +1363,7 @@ export class BasemapManager {
               <button class="vis-tog bm-vis-btn ${l.visible ? 'active' : ''} bm-ul-vis" data-ulid="${l.mapLayerId}" title="${l.visible ? 'Hide' : 'Show'}"></button>
               ${l.bounds ? `<button class="bm-adj-toggle bm-ul-zoom" data-ulid="${l.id}" title="Zoom to layer">${zoomSvg}</button>` : ''}
               ${canStack ? `<button class="bm-add-btn bm-ul-stack" data-ulid="${l.id}" title="Add to active stack" style="width:22px;height:22px;font-size:14px">+</button>` : ''}
+              ${canStyle ? `<button class="bm-adj-toggle bm-ul-symbology" data-ulid="${l.id}" title="Edit symbology">⊛</button>` : ''}
               <button class="bm-del-btn bm-ul-del" data-ulid="${l.id}" title="Remove layer">✕</button>
             </div>
           </div>
@@ -1474,6 +1492,7 @@ export class BasemapManager {
             <span class="fd-geom-icon">${icon}</span>
             <span class="fd-geom-label">${label}</span>
             ${groupCount > 0 ? `<span class="fd-geom-count">${groupCount}</span>` : ''}
+            <button class="fd-symbology-btn" data-fd-symbology="${geomType}" title="Edit symbology" onclick="event.stopPropagation()">⊛</button>
             <button class="vis-tog fd-group-vis fd-vis-lg${layerVis ? ' active' : ''}" data-fd-group="${layerPreset?.id ?? ''}" title="Toggle group" onclick="event.stopPropagation()"></button>
           </div>
           <div class="fd-geom-body${isGroupCollapsed ? ' fd-geom-body-collapsed' : ''}">
@@ -1579,6 +1598,39 @@ export class BasemapManager {
         this.onTypePresetChange?.(preset);
       });
     });
+
+    // Symbology studio button per geometry group
+    container.querySelectorAll<HTMLButtonElement>('[data-fd-symbology]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const geomType = btn.dataset.fdSymbology as GeometryType;
+        const geomStr = geomType === 'Point' ? 'point' : geomType === 'LineString' ? 'line' : 'polygon';
+        const features = this.collectedFeatures
+          .filter(f => f.geometry_type === geomType)
+          .map(f => ({
+            properties: {
+              type: f.type,
+              elevation: f.elevation,
+              accuracy: f.accuracy,
+              desc: f.desc,
+              created_by: f.created_by,
+            } as Record<string, unknown>,
+          }));
+        const layerPreset = this.featureLayerPresets.find(lp => lp.geometry_type === geomType);
+        const title = geomType === 'Point' ? 'Points' : geomType === 'LineString' ? 'Lines' : 'Polygons';
+
+        this.symbologyStudio.open({
+          title,
+          geomType: geomStr as 'point' | 'line' | 'polygon',
+          features,
+          initialState: layerPreset?.symbologyState,
+          onApply: (state: SymbologyState) => {
+            if (layerPreset) layerPreset.symbologyState = state;
+            this.mapManager.setCollectedLayerSymbology(geomType, state, features);
+            if (layerPreset) this.onFeatureLayerChange?.(layerPreset);
+          },
+        });
+      });
+    });
   }
 
   // ---- Stack item rendering ----
@@ -1626,6 +1678,10 @@ export class BasemapManager {
             min="0" max="100" step="5" value="${Math.round(currentFillOpacity * 100)}" title="Fill opacity" />
           <span class="bm-adj-val">${Math.round(currentFillOpacity * 100)}%</span>
         </div>` : ''}
+        <div class="bm-adj-row" style="margin-top:4px">
+          <button class="bm-vec-symbology btn-outline" data-iid="${layer.instanceId}"
+            style="font-size:10px;padding:4px 8px;flex:1" title="Open Symbology Studio">⊛ Symbology</button>
+        </div>
       </div>` : '';
 
     const isCogContour = ltype === 'cog-contour';
@@ -3160,6 +3216,37 @@ export class BasemapManager {
       });
     });
 
+    // Vector layer — Symbology Studio button
+    container.querySelectorAll<HTMLButtonElement>('.bm-vec-symbology').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        const ltype = this.getLayerType(layer);
+        const cfg = this.getVectorConfig(layer);
+        const geomStr = (cfg?.geomType ?? 'polygon') as 'line' | 'polygon';
+
+        let feats: { properties: Record<string, unknown> }[] = [];
+        if (ltype === 'nsprd-vector') {
+          feats = this.nsprdLayer?.getLoadedFeatureProps() ?? [];
+        } else if (ltype === 'nshn-vector') {
+          feats = this.nshnLayers.get(iid)?.getLoadedFeatureProps() ?? [];
+        }
+
+        this.symbologyStudio.open({
+          title: layer.label,
+          geomType: geomStr,
+          features: feats,
+          initialState: layer.symbologyState,
+          onApply: (state: SymbologyState) => {
+            layer.symbologyState = state;
+            this.mapManager.setVectorOverlaySymbology(iid, state, feats, geomStr);
+            this.saveStack();
+          },
+        });
+      });
+    });
+
     // PDF layer opacity
     container.querySelectorAll<HTMLInputElement>('.bm-pdf-opacity').forEach(slider => {
       slider.addEventListener('input', () => {
@@ -3264,6 +3351,31 @@ export class BasemapManager {
         this.userLayers = this.userLayers.filter(l => l.id !== id);
         this.onDeleteUserLayer?.(id);
         this.renderContent(container, onClose);
+      });
+    });
+
+    // User layer symbology
+    container.querySelectorAll<HTMLButtonElement>('.bm-ul-symbology').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.ulid!;
+        const ul = this.userLayers.find(l => l.id === id);
+        if (!ul || !ul.features?.length) return;
+        const features = ul.features;
+        const geomTypes = new Set(features.map(f => (f as any).geometry?.type as string).filter(Boolean));
+        const geomType: 'point' | 'line' | 'polygon' =
+          geomTypes.has('Polygon') || geomTypes.has('MultiPolygon') ? 'polygon' :
+          geomTypes.has('LineString') || geomTypes.has('MultiLineString') ? 'line' : 'point';
+        this.symbologyStudio.open({
+          title: ul.name,
+          geomType,
+          features: features as { properties: Record<string, unknown> }[],
+          initialState: ul.symbologyState,
+          onApply: (state) => {
+            ul.symbologyState = state;
+            this.mapManager.setImportedLayerSymbology(ul.id, state, features as { properties: Record<string, unknown> }[], ul.originalColor ?? '#888888');
+            this.onLayerStateChange?.(ul.id, { symbologyState: state });
+          },
+        });
       });
     });
 
