@@ -201,6 +201,7 @@ export class App {
     this.wireEvents();
     this.wireToolbar();
     this.initToolbarCollapse();
+    this.initRightToolbarCollapse();
     this.initHudDraggable();
     this.wireMapInteractions();
     this.wireCaptureControls();
@@ -561,6 +562,18 @@ export class App {
     });
   }
 
+  private initRightToolbarCollapse(): void {
+    const btn = document.getElementById('btn-collapse-right');
+    const panel = document.getElementById('right-controls');
+    if (!btn || !panel) return;
+    const KEY = 'right-toolbar-collapsed';
+    if (localStorage.getItem(KEY) === 'true') panel.classList.add('right-collapsed');
+    btn.addEventListener('click', () => {
+      panel.classList.toggle('right-collapsed');
+      localStorage.setItem(KEY, panel.classList.contains('right-collapsed') ? 'true' : 'false');
+    });
+  }
+
   private deactivateSectionTools(sectionId: string): void {
     const currentTool = this.captureManager.getCurrentTool();
     const gpsTools    = ['gps-point', 'gps-point-stream', 'gps-line', 'gps-polygon'];
@@ -582,13 +595,13 @@ export class App {
         break;
       }
       case 'edit':
-        if (editTools.includes(currentTool)) this.activateTool('gps-point');
+        if (editTools.includes(currentTool)) this.activateTool('none');
         this.featureListPanel.close();
         break;
       case 'info': {
         if (currentTool === 'measure') {
           this.measurePanel.stop();
-          this.captureManager.setTool('gps-point');
+          this.captureManager.setTool('none');
         }
         const identifyBtn = document.getElementById('btn-identify');
         if (identifyBtn?.classList.contains('active')) identifyBtn.click();
@@ -687,7 +700,7 @@ export class App {
         if (isToggle && currentTool === tool) {
           if (tool === 'measure') {
             this.measurePanel.stop();
-            this.captureManager.setTool('gps-point');
+            this.captureManager.setTool('none');
           } else {
             this.completeCurrentCapture(tool);
           }
@@ -1178,13 +1191,11 @@ export class App {
       this.captureManager.completeSketch(type, desc);
     } else if (tool === 'sketch-freehand') {
       // With press-drag-release, re-tapping the button cancels/deactivates the tool
-      this.captureManager.setTool('gps-point');
-      this.activateTool('gps-point');
+      this.activateTool('none');
       return;
     } else if (tool === 'lasso-select') {
       this.clearLassoSelection();
-      this.captureManager.setTool('gps-point');
-      this.activateTool('gps-point');
+      this.activateTool('none');
       return;
     } else if (tool === 'gps-line' || tool === 'gps-polygon') {
       const session = this.captureManager.getActiveSession();

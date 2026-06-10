@@ -898,6 +898,34 @@ html, body {
 }
 #right-controls::-webkit-scrollbar { display: none; }
 
+.right-collapse-btn {
+  width: 100%;
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.right-collapse-btn:hover { color: var(--color-accent); background: var(--color-accent-dim); }
+.right-collapse-btn svg { transition: transform 0.25s ease; }
+
+#right-controls.right-collapsed {
+  overflow: visible;
+}
+#right-controls.right-collapsed #right-controls-body {
+  display: none;
+}
+#right-controls.right-collapsed .right-collapse-btn svg {
+  transform: rotate(180deg);
+}
+
 .ctrl-separator {
   height: 1px;
   background: var(--color-border);
