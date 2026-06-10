@@ -578,7 +578,7 @@ export class App {
       case 'sketch': {
         const hudEl2 = document.getElementById('point-entry-hud');
         if (hudEl2 && sketchTools.includes(currentTool)) hudEl2.style.display = 'none';
-        if (sketchTools.includes(currentTool)) this.activateTool('gps-point');
+        if (sketchTools.includes(currentTool)) this.activateTool('none');
         break;
       }
       case 'edit':
@@ -602,8 +602,6 @@ export class App {
         break;
       case 'cache':
         this.cachePanel.close();
-        break;
-      case 'map opt':
         break;
     }
   }
@@ -2040,11 +2038,11 @@ export class App {
         console.log(`[import] saved layer preset: ${lp.name} → id=${saved.id}`);
       }
 
-      // Save features remapped to new project and new layer IDs
+      // Save features with fresh UUIDs so the originals in the source project are not overwritten
       for (const f of bundle.features) {
-        const saved = { ...f, project_id: newProjectId, layer_id: lpIdMap.get(f.layer_id) ?? f.layer_id };
+        const saved = { ...f, id: crypto.randomUUID(), project_id: newProjectId, layer_id: lpIdMap.get(f.layer_id) ?? f.layer_id };
         await this.storage.saveFeature(saved);
-        console.log(`[import] saved feature: ${f.id} → project=${saved.project_id} layer=${saved.layer_id}`);
+        console.log(`[import] saved feature: ${f.id} → ${saved.id} project=${saved.project_id} layer=${saved.layer_id}`);
       }
 
       // Verify counts from DB immediately after saving
