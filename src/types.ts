@@ -82,6 +82,8 @@ export interface TypePreset {
   dash_pattern?: DashPattern; // line dash style, default 'solid'
   rotation?: number;          // shape rotation degrees 0-360, default 0
   icon_rotation?: number;     // icon overlay rotation degrees 0-360, default 0
+  casing_color?: string;      // hex, line casing colour (border around line)
+  casing_width?: number;      // px, extra width added each side for casing (default 0 = no casing)
   is_quick_entry: boolean;
   visible?: boolean;          // hide all features of this type on map (default true)
   show_labels?: boolean;      // show type label text on map (default true)

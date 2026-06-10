@@ -429,6 +429,19 @@ export class MapManager {
       }
     });
 
+    // Line casing (rendered below main lines — wider, solid, casing_color)
+    this.map.addLayer({
+      id: 'collected-lines-casing',
+      type: 'line',
+      source: 'collected-lines',
+      filter: ['>', ['coalesce', ['get', 'casing_width'], 0], 0],
+      layout: { 'line-cap': 'butt', 'line-join': 'round' },
+      paint: {
+        'line-color': ['coalesce', ['get', 'casing_color'], 'rgba(0,0,0,0)'],
+        'line-width': ['+', ['coalesce', ['get', 'stroke_width'], 3], ['*', 2, ['coalesce', ['get', 'casing_width'], 0]]],
+      }
+    });
+
     // Lines — solid (default): all that are not dashed or dotted
     this.map.addLayer({
       id: LAYER_IDS.COLLECTED_LINES,
@@ -746,6 +759,8 @@ export class MapManager {
       const icon        = tp?.icon         ?? '';
       const shape       = tp?.shape        ?? 'circle';
       const dashPattern = tp?.dash_pattern ?? 'solid';
+      const casingColor = tp?.casing_color ?? null;
+      const casingWidth = tp?.casing_width ?? 0;
 
       // use_symbol: true when shape is non-circle OR has icon (triggers symbol layer)
       const useSymbol = (shape !== 'circle') || (icon !== '');
@@ -773,6 +788,8 @@ export class MapManager {
           dash_pattern: dashPattern,
           has_icon: icon !== '',
           use_symbol: useSymbol,
+          casing_color: casingColor,
+          casing_width: casingWidth,
           preset_id: tp?.id ?? '',
           layer_id: f.layer_id,
           created_at: f.created_at
