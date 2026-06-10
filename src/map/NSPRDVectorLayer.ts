@@ -27,6 +27,7 @@ export class NSPRDVectorLayer {
   private fetchId = 0;
   private moveHandler: (() => void) | null = null;
   private fillOpacity = 1.0;
+  private loadedFeatureProps: { properties: Record<string, unknown> }[] = [];
 
   constructor(private mapManager: MapManager) {}
 
@@ -286,7 +287,13 @@ export class NSPRDVectorLayer {
         if (fid !== this.fetchId || !this.instanceId) return;
         const src = map.getSource(srcId) as GeoJSONSource | undefined;
         src?.setData(data);
+        this.loadedFeatureProps = ((data as {features?: {properties?: unknown}[]}).features ?? [])
+          .map(f => ({ properties: (f.properties ?? {}) as Record<string, unknown> }));
       })
       .catch(err => console.warn('[NSPRD]', err));
+  }
+
+  getLoadedFeatureProps(): { properties: Record<string, unknown> }[] {
+    return this.loadedFeatureProps;
   }
 }

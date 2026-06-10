@@ -1,7 +1,8 @@
 import maplibregl from 'maplibre-gl';
 import type { Map as MLMap, LngLat, StyleSpecification } from 'maplibre-gl';
-import type { FieldFeature, AppSettings, LayerPreset, TypePreset } from '../types';
+import type { FieldFeature, AppSettings, LayerPreset, TypePreset, SymbologyState, GeometryType } from '../types';
 import { LAYER_IDS, BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
+import { buildColorExpression, buildRadiusExpression } from '../lib/symbologyEngine';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
 import { SymbolRenderer } from '../ui/SymbolRenderer';
@@ -805,7 +806,9 @@ export class MapManager {
           casing_width: casingWidth,
           preset_id: tp?.id ?? '',
           layer_id: f.layer_id,
-          created_at: f.created_at
+          created_at: f.created_at,
+          elevation: f.elevation,
+          accuracy: f.accuracy,
         }
       };
 
@@ -1134,6 +1137,172 @@ export class MapManager {
     });
     const srcId = `src-${id}`;
     if (this.map.getSource(srcId)) this.map.removeSource(srcId);
+  }
+
+  // Apply data-driven symbology to a collected-* geometry group.
+  // Pass null to reset to TypePreset-based defaults.
+  setCollectedLayerSymbology(
+    geomType: GeometryType,
+    state: SymbologyState | null,
+    features: { properties: Record<string, unknown> }[],
+  ): void {
+    if (!this.initialized) return;
+
+    if (geomType === 'Point') {
+      const layerId = LAYER_IDS.COLLECTED_POINTS;
+      if (!this.map.getLayer(layerId)) return;
+      if (!state || (state.method === 'categorical' && state.field === 'type')) {
+        this.map.setPaintProperty(layerId, 'circle-color', ['coalesce', ['get', 'color'], '#4ade80']);
+        this.map.setPaintProperty(layerId, 'circle-radius', ['coalesce', ['get', 'size'], 7]);
+        this.map.setPaintProperty(layerId, 'circle-opacity', 1);
+        this.map.setPaintProperty(layerId, 'circle-stroke-color', ['coalesce', ['get', 'stroke_color'], '#ffffff']);
+        this.map.setPaintProperty(layerId, 'circle-stroke-width', ['coalesce', ['get', 'stroke_width'], 2]);
+        return;
+      }
+      this.map.setPaintProperty(layerId, 'circle-color', buildColorExpression(features, state));
+      this.map.setPaintProperty(layerId, 'circle-opacity', state.opacity ?? 0.9);
+      this.map.setPaintProperty(layerId, 'circle-radius',
+        state.method === 'proportional'
+          ? buildRadiusExpression(features, state)
+          : (state.size ?? 7),
+      );
+      this.map.setPaintProperty(layerId, 'circle-stroke-color', state.outlineColor ?? '#ffffff');
+      this.map.setPaintProperty(layerId, 'circle-stroke-width', state.outlineWidth ?? 1.5);
+      return;
+    }
+
+    if (geomType === 'LineString') {
+      const layerId = LAYER_IDS.COLLECTED_LINES;
+      if (!this.map.getLayer(layerId)) return;
+      if (!state) {
+        this.map.setPaintProperty(layerId, 'line-color', ['coalesce', ['get', 'color'], '#facc15']);
+        this.map.setPaintProperty(layerId, 'line-width', ['coalesce', ['get', 'stroke_width'], 3]);
+        this.map.setPaintProperty(layerId, 'line-opacity', 1);
+        this.map.setLayoutProperty(layerId, 'line-cap', 'round');
+        return;
+      }
+      this.map.setPaintProperty(layerId, 'line-color', buildColorExpression(features, state));
+      this.map.setPaintProperty(layerId, 'line-width', state.size ?? 3);
+      this.map.setPaintProperty(layerId, 'line-opacity', state.opacity ?? 0.9);
+      if (state.cap) this.map.setLayoutProperty(layerId, 'line-cap', state.cap);
+      return;
+    }
+
+    if (geomType === 'Polygon') {
+      const fillId = LAYER_IDS.COLLECTED_POLYGONS_FILL;
+      const outlineId = LAYER_IDS.COLLECTED_POLYGONS_OUTLINE;
+      if (!state) {
+        if (this.map.getLayer(fillId)) {
+          this.map.setPaintProperty(fillId, 'fill-color', ['coalesce', ['get', 'color'], '#4ade80']);
+          this.map.setPaintProperty(fillId, 'fill-opacity', ['coalesce', ['get', 'fill_opacity'], 0.35]);
+        }
+        if (this.map.getLayer(outlineId)) {
+          this.map.setPaintProperty(outlineId, 'line-color', ['coalesce', ['get', 'stroke_color'], ['get', 'color'], '#4ade80']);
+          this.map.setPaintProperty(outlineId, 'line-width', ['coalesce', ['get', 'stroke_width'], 2]);
+        }
+        return;
+      }
+      const colorExpr = buildColorExpression(features, state);
+      if (this.map.getLayer(fillId)) {
+        this.map.setPaintProperty(fillId, 'fill-color', colorExpr);
+        this.map.setPaintProperty(fillId, 'fill-opacity', state.opacity ?? 0.65);
+      }
+      if (this.map.getLayer(outlineId)) {
+        this.map.setPaintProperty(outlineId, 'line-color', state.strokeColor ?? '#ffffff');
+        this.map.setPaintProperty(outlineId, 'line-width', state.size ?? 1.5);
+        this.map.setPaintProperty(outlineId, 'line-opacity', state.strokeOpacity ?? 0.4);
+      }
+    }
+  }
+
+  // Apply data-driven symbology to an imported GeoJSON layer.
+  setImportedLayerSymbology(
+    layerId: string,
+    state: SymbologyState | null,
+    features: { properties: Record<string, unknown> }[],
+    originalColor: string,
+  ): void {
+    if (!this.initialized) return;
+    const fillId = `${layerId}-fill`;
+    const lineId = `${layerId}-line`;
+    const pointId = `${layerId}-point`;
+
+    if (!state) {
+      if (this.map.getLayer(pointId)) {
+        this.map.setPaintProperty(pointId, 'circle-color', originalColor);
+        this.map.setPaintProperty(pointId, 'circle-opacity', 0.8);
+        this.map.setPaintProperty(pointId, 'circle-radius', 5);
+      }
+      if (this.map.getLayer(lineId)) {
+        this.map.setPaintProperty(lineId, 'line-color', originalColor);
+        this.map.setPaintProperty(lineId, 'line-opacity', 0.8);
+        this.map.setPaintProperty(lineId, 'line-width', 2);
+      }
+      if (this.map.getLayer(fillId)) {
+        this.map.setPaintProperty(fillId, 'fill-color', originalColor);
+        this.map.setPaintProperty(fillId, 'fill-opacity', 0.32);
+      }
+      return;
+    }
+
+    const colorExpr = buildColorExpression(features, state);
+    const opacity = state.opacity ?? 0.8;
+
+    if (this.map.getLayer(pointId)) {
+      this.map.setPaintProperty(pointId, 'circle-color', colorExpr);
+      this.map.setPaintProperty(pointId, 'circle-opacity', opacity);
+      this.map.setPaintProperty(pointId, 'circle-radius',
+        state.method === 'proportional'
+          ? buildRadiusExpression(features, state)
+          : (state.size ?? 5),
+      );
+      this.map.setPaintProperty(pointId, 'circle-stroke-color', state.outlineColor ?? '#ffffff');
+      this.map.setPaintProperty(pointId, 'circle-stroke-width', state.outlineWidth ?? 1);
+    }
+    if (this.map.getLayer(lineId)) {
+      this.map.setPaintProperty(lineId, 'line-color', colorExpr);
+      this.map.setPaintProperty(lineId, 'line-opacity', opacity);
+      this.map.setPaintProperty(lineId, 'line-width', state.size ?? 2);
+    }
+    if (this.map.getLayer(fillId)) {
+      this.map.setPaintProperty(fillId, 'fill-color', colorExpr);
+      this.map.setPaintProperty(fillId, 'fill-opacity', opacity * 0.4);
+    }
+  }
+
+  // Apply data-driven symbology to a web-based vector overlay (NSHN / NSPRD).
+  setVectorOverlaySymbology(
+    instanceId: string,
+    state: SymbologyState | null,
+    features: { properties: Record<string, unknown> }[],
+    geomType: 'line' | 'polygon',
+  ): void {
+    if (!this.initialized) return;
+    const layerId = `bm-ov-${instanceId}`;
+    const strokeId = `${layerId}-stroke`;
+
+    if (!state) return;
+
+    const colorExpr = buildColorExpression(features, state);
+    const opacity = state.opacity ?? 1.0;
+
+    if (geomType === 'line') {
+      if (this.map.getLayer(layerId)) {
+        this.map.setPaintProperty(layerId, 'line-color', colorExpr);
+        this.map.setPaintProperty(layerId, 'line-width', state.size ?? 1);
+        this.map.setPaintProperty(layerId, 'line-opacity', opacity);
+      }
+    } else {
+      if (this.map.getLayer(layerId)) {
+        this.map.setPaintProperty(layerId, 'fill-color', colorExpr);
+        this.map.setPaintProperty(layerId, 'fill-opacity', opacity * (state.opacity ?? 0.35));
+      }
+      if (this.map.getLayer(strokeId)) {
+        this.map.setPaintProperty(strokeId, 'line-color', state.strokeColor ?? '#ffffff');
+        this.map.setPaintProperty(strokeId, 'line-width', state.size ?? 1);
+        this.map.setPaintProperty(strokeId, 'line-opacity', opacity);
+      }
+    }
   }
 
   // ---- GeoPDF image overlay ----

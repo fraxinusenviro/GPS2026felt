@@ -9,7 +9,8 @@ export class NSHNVectorLayer {
   private instanceId: string | null = null;
   private fetchId = 0;
   private moveHandler: (() => void) | null = null;
-  private fillOpacityOverride: number | null = null; // null = 1.0 (full opacity)
+  private fillOpacityOverride: number | null = null;
+  private loadedFeatureProps: { properties: Record<string, unknown> }[] = [];
 
   constructor(
     private mapManager: MapManager,
@@ -235,6 +236,11 @@ export class NSHNVectorLayer {
       };
       const src = map.getSource(srcId) as GeoJSONSource | undefined;
       src?.setData(merged);
+      this.loadedFeatureProps = merged.features.map(f => ({ properties: (f.properties ?? {}) as Record<string, unknown> }));
     }).catch(err => console.warn('[NSHN]', err));
+  }
+
+  getLoadedFeatureProps(): { properties: Record<string, unknown> }[] {
+    return this.loadedFeatureProps;
   }
 }

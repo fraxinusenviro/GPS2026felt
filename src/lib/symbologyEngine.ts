@@ -1,0 +1,290 @@
+// Symbology engine: classifiers, ramps, legend building, MapLibre expression output
+
+import type { SymbologyState, ClassifierName } from '../types';
+
+// ---- Sequential ramps for graduated / proportional ----
+export const SEQ_RAMPS: Record<string, string[]> = {
+  Viridis: ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'],
+  Magma:   ['#0a0722', '#51127c', '#b73779', '#fc8961', '#fcfdbf'],
+  BluGrn:  ['#c4e6c3', '#80c6a3', '#4da284', '#2e7d6c', '#1d4f60'],
+  Sunset:  ['#f3e79b', '#f8a07e', '#eb7f86', '#ce6693', '#5c53a5'],
+  OrRd:    ['#fee8c8', '#fdbb84', '#ef6548', '#b30000', '#5c0000'],
+  RdBu:    ['#2166ac', '#67a9cf', '#d1e5f0', '#fddbc7', '#ef8a62', '#b2182b'],
+};
+
+// ---- Qualitative palettes for categorical ----
+export const QUAL_PALETTES: Record<string, string[]> = {
+  Bold:    ['#7F3C8D', '#11A579', '#3969AC', '#F2B701', '#E73F74', '#80BA5A', '#E68310'],
+  Vivid:   ['#E58606', '#5D69B1', '#52BCA3', '#99C945', '#CC61B0', '#24796C', '#DAA51B'],
+  Pastel:  ['#66C5CC', '#F6CF71', '#F89C74', '#DCB0F2', '#87C55F', '#9EB9F3', '#FE88B1'],
+  Antique: ['#855C75', '#D9AF6B', '#AF6458', '#736F4C', '#526A83', '#625377', '#68855C'],
+};
+
+export const SINGLE_COLORS = [
+  '#7fd1ae', '#5aa9e6', '#f2b701', '#e73f74', '#9b7ede', '#ef6548', '#9aa5b1', '#fde725',
+];
+export const OUTLINE_COLORS = [
+  '#0a0d12', '#22303f', '#ffffff', '#9aa5b1', '#7fd1ae', '#f2b701', '#e73f74', '#5aa9e6',
+];
+
+// ---- Utility ----
+
+function hex2rgb(h: string): [number, number, number] {
+  return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+}
+
+function rgb2hex(r: [number, number, number]): string {
+  return '#' + r.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+}
+
+export function sampleRamp(stops: string[], n: number): string[] {
+  if (n === 1) return [stops[Math.floor(stops.length / 2)]];
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = (i / (n - 1)) * (stops.length - 1);
+    const lo = Math.floor(t);
+    const hi = Math.min(stops.length - 1, lo + 1);
+    const f = t - lo;
+    const a = hex2rgb(stops[lo]);
+    const b = hex2rgb(stops[hi]);
+    out.push(rgb2hex([
+      a[0] + (b[0] - a[0]) * f,
+      a[1] + (b[1] - a[1]) * f,
+      a[2] + (b[2] - a[2]) * f,
+    ]));
+  }
+  return out;
+}
+
+// ---- Classifiers ----
+
+function equalInterval(vals: number[], k: number): number[] {
+  const mn = Math.min(...vals), mx = Math.max(...vals);
+  const s = (mx - mn) / k;
+  return Array.from({ length: k - 1 }, (_, i) => mn + s * (i + 1));
+}
+
+function quantile(vals: number[], k: number): number[] {
+  const v = [...vals].sort((a, b) => a - b);
+  return Array.from({ length: k - 1 }, (_, i) =>
+    v[Math.min(v.length - 1, Math.floor(v.length * (i + 1) / k))]
+  );
+}
+
+function jenks(vals: number[], k: number): number[] {
+  const d = [...vals].sort((a, b) => a - b);
+  const n = d.length;
+  if (k >= n) return d.slice(1, k);
+  const mat1 = Array.from({ length: n + 1 }, () => new Array(k + 1).fill(0));
+  const mat2 = Array.from({ length: n + 1 }, () => new Array(k + 1).fill(Infinity));
+  for (let j = 1; j <= k; j++) { mat1[1][j] = 1; mat2[1][j] = 0; }
+  for (let l = 2; l <= n; l++) {
+    let s1 = 0, s2 = 0, w = 0;
+    for (let m = 1; m <= l; m++) {
+      const i3 = l - m + 1;
+      const val = d[i3 - 1];
+      s2 += val * val; s1 += val; w++;
+      const v2 = s2 - (s1 * s1) / w;
+      const i4 = i3 - 1;
+      if (i4 !== 0) {
+        for (let j = 2; j <= k; j++) {
+          if (mat2[l][j] >= v2 + mat2[i4][j - 1]) {
+            mat1[l][j] = i3;
+            mat2[l][j] = v2 + mat2[i4][j - 1];
+          }
+        }
+      }
+    }
+    mat1[l][1] = 1;
+    mat2[l][1] = s2 - (s1 * s1) / w;
+  }
+  const breaks: number[] = [];
+  let kk = n;
+  for (let j = k; j >= 2; j--) {
+    const id = Math.max(0, mat1[kk][j] - 2);
+    breaks.unshift(d[id]);
+    kk = mat1[kk][j] - 1;
+  }
+  return breaks;
+}
+
+export const CLASSIFIERS: Record<ClassifierName, (vals: number[], k: number) => number[]> = {
+  'Natural breaks': jenks,
+  'Quantile': quantile,
+  'Equal interval': equalInterval,
+};
+
+// ---- Field analysis ----
+
+export interface FieldInfo {
+  name: string;
+  kind: 'categorical' | 'numeric';
+  uniqueCount: number;
+}
+
+export function detectFields(features: { properties: Record<string, unknown> }[]): FieldInfo[] {
+  if (features.length === 0) return [];
+  const allKeys = new Set<string>();
+  features.forEach(f => Object.keys(f.properties ?? {}).forEach(k => allKeys.add(k)));
+
+  return [...allKeys].map(name => {
+    const vals = features.map(f => (f.properties ?? {})[name]);
+    const unique = new Set(vals.filter(v => v !== null && v !== undefined));
+    const numericCount = vals.filter(v => typeof v === 'number' && isFinite(v as number)).length;
+    const kind: FieldInfo['kind'] = numericCount > features.length * 0.5 ? 'numeric' : 'categorical';
+    return { name, kind, uniqueCount: unique.size };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ---- Legend entries ----
+
+export interface LegendEntry {
+  color: string;
+  label: string;
+  cat?: string;
+  breaks?: number[];
+}
+
+const fmt = (v: number): string =>
+  Math.abs(v) >= 100 ? Math.round(v).toString() : (+v.toFixed(v < 10 ? 2 : 1)).toString();
+
+export function buildLegend(
+  features: { properties: Record<string, unknown> }[],
+  state: SymbologyState,
+): LegendEntry[] {
+  if (state.method === 'single' || state.method === 'proportional') {
+    return [{ color: state.color ?? SINGLE_COLORS[0], label: 'All features' }];
+  }
+
+  if (state.method === 'categorical') {
+    const field = state.field ?? '';
+    const cats = [...new Set(features.map(f => String((f.properties ?? {})[field] ?? '')))].sort();
+    const cols = QUAL_PALETTES[state.palette ?? 'Bold'] ?? QUAL_PALETTES.Bold;
+    return cats.map((c, i) => ({ color: cols[i % cols.length], label: c, cat: c }));
+  }
+
+  // graduated
+  const field = state.field ?? '';
+  const vals = features
+    .map(f => Number((f.properties ?? {})[field]))
+    .filter(v => isFinite(v));
+  if (vals.length === 0) return [];
+  const mn = Math.min(...vals), mx = Math.max(...vals);
+  const k = state.classes ?? 5;
+  const classify = CLASSIFIERS[state.classifier ?? 'Natural breaks'];
+  let breaks = classify(vals, k);
+  breaks = [...new Set(breaks)].filter(b => b > mn && b < mx);
+  const cols = sampleRamp(SEQ_RAMPS[state.ramp ?? 'Viridis'] ?? SEQ_RAMPS.Viridis, breaks.length + 1);
+  const edges = [mn, ...breaks, mx];
+  return cols.map((c, i) => ({
+    color: c,
+    label: `${fmt(edges[i])} – ${fmt(edges[i + 1])}`,
+    breaks,
+  }));
+}
+
+// ---- MapLibre expression builders ----
+
+export type MaplibreExpression = string | number | unknown[];
+
+export function buildColorExpression(
+  features: { properties: Record<string, unknown> }[],
+  state: SymbologyState,
+): MaplibreExpression {
+  if (state.method === 'single' || state.method === 'proportional') {
+    return state.color ?? SINGLE_COLORS[0];
+  }
+
+  const leg = buildLegend(features, state);
+
+  if (state.method === 'categorical') {
+    const expr: unknown[] = ['match', ['get', state.field ?? '']];
+    leg.forEach(l => { if (l.cat !== undefined) { expr.push(l.cat, l.color); } });
+    expr.push('#888888');
+    return expr;
+  }
+
+  // graduated
+  if (leg.length === 0) return state.color ?? SINGLE_COLORS[0];
+  const breaks = leg[0].breaks ?? [];
+  const expr: unknown[] = ['step', ['get', state.field ?? ''], leg[0].color];
+  breaks.forEach((b, i) => expr.push(+fmt(b), leg[i + 1]?.color ?? '#888888'));
+  return expr;
+}
+
+export function buildRadiusExpression(
+  features: { properties: Record<string, unknown> }[],
+  state: SymbologyState,
+): MaplibreExpression {
+  if (state.method !== 'proportional' || !state.field) return state.size ?? 6;
+  const vals = features
+    .map(f => Number((f.properties ?? {})[state.field!]))
+    .filter(v => isFinite(v));
+  if (vals.length === 0) return state.size ?? 6;
+  const mn = Math.min(...vals), mx = Math.max(...vals);
+  const maxR = 3 + (state.size ?? 6) * 2.5;
+  return ['interpolate', ['linear'], ['get', state.field],
+    +fmt(mn), 3,
+    +fmt(mx), maxR];
+}
+
+export function buildFullLayerSpec(
+  features: { properties: Record<string, unknown> }[],
+  state: SymbologyState,
+  geomType: 'point' | 'line' | 'polygon',
+): object {
+  const colorExpr = buildColorExpression(features, state);
+  const opacity = state.opacity ?? 0.9;
+
+  if (geomType === 'point') {
+    const paint: Record<string, unknown> = {
+      'circle-color': colorExpr,
+      'circle-opacity': opacity,
+      'circle-stroke-color': state.outlineColor ?? '#0a0d12',
+      'circle-stroke-width': state.outlineWidth ?? 1.5,
+      'circle-radius': state.method === 'proportional'
+        ? buildRadiusExpression(features, state)
+        : (state.size ?? 6),
+    };
+    return { type: 'circle', paint };
+  }
+
+  if (geomType === 'line') {
+    const out: Record<string, unknown> = {
+      type: 'line',
+      layout: { 'line-cap': state.cap ?? 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': colorExpr,
+        'line-opacity': opacity,
+        'line-width': state.size ?? 3,
+      },
+    };
+    if (state.casing && (state.casingWidth ?? 0) > 0) {
+      out['casingLayer'] = {
+        type: 'line',
+        layout: { 'line-cap': state.cap ?? 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': state.casingColor ?? '#0a0d12',
+          'line-opacity': opacity,
+          'line-width': (state.size ?? 3) + (state.casingWidth ?? 2) * 2,
+        },
+        note: 'add beneath main layer',
+      };
+    }
+    return out;
+  }
+
+  // polygon
+  return {
+    type: 'fill',
+    paint: { 'fill-color': colorExpr, 'fill-opacity': opacity },
+    strokeLayer: {
+      type: 'line',
+      paint: {
+        'line-color': state.strokeColor ?? '#ffffff',
+        'line-opacity': state.strokeOpacity ?? 0.4,
+        'line-width': state.size ?? 1.5,
+      },
+    },
+  };
+}
