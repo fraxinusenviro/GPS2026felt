@@ -696,12 +696,25 @@ export class MapManager {
       id: 'profile-preview-vertices',
       type: 'circle',
       source: 'profile-preview',
-      filter: ['==', '$type', 'Point'],
+      filter: ['all', ['==', '$type', 'Point'], ['!=', ['get', 'seg_type'], 'sample-pin']],
       paint: {
         'circle-radius': 4,
         'circle-color': '#ffffff',
         'circle-stroke-color': '#64748b',
         'circle-stroke-width': 1.5
+      }
+    });
+    // Sample-pin: the position clicked on the elevation-profile chart
+    this.map.addLayer({
+      id: 'profile-preview-pin',
+      type: 'circle',
+      source: 'profile-preview',
+      filter: ['all', ['==', '$type', 'Point'], ['==', ['get', 'seg_type'], 'sample-pin']],
+      paint: {
+        'circle-radius': 8,
+        'circle-color': '#f97316',
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 2.5
       }
     });
   }
