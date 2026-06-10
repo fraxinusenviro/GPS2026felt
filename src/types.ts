@@ -124,6 +124,8 @@ export interface AppSettings {
   map_bg_color?: string;
   outdoor_mode: boolean;
   theme: 'dark' | 'light';
+  font_family?: 'default' | 'oswald';
+  theme_color?: string;
 }
 
 // ---- GPS State ----

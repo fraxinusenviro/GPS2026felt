@@ -135,6 +135,7 @@ export class App {
     );
 
     this.basemapManager = new BasemapManager(this.mapManager);
+    this.basemapManager.setUserId(this.settings.user_id ?? '');
     this.basemapManager.init(this.settings.basemap_id);
     this.gridOverlay = new GridOverlay(this.mapManager);
     this.captureManager = new CaptureManager(this.mapManager);
@@ -263,10 +264,36 @@ export class App {
     if (darkIcon) darkIcon.style.display = theme === 'dark' ? '' : 'none';
     if (lightIcon) lightIcon.style.display = theme === 'light' ? '' : 'none';
 
+    // Font family
+    const root = document.documentElement;
+    if (settings.font_family === 'oswald') {
+      root.style.setProperty('--font', "'Oswald', system-ui, sans-serif");
+    } else {
+      root.style.removeProperty('--font');
+    }
+
+    // Theme accent color
+    const accent = settings.theme_color ?? '#4ade80';
+    this.applyAccentColor(accent);
+
+    // User ID in TOC
+    this.basemapManager.setUserId(settings.user_id ?? '');
+
     this.gridOverlay.setVisible(settings.grid_visible);
     this.updateButtonState('btn-grid', settings.grid_visible);
     this.updateButtonState('btn-follow', settings.follow_user);
     this.updateActiveLayerIndicator();
+  }
+
+  private applyAccentColor(hex: string): void {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return;
+    const root = document.documentElement;
+    root.style.setProperty('--color-accent', hex);
+    root.style.setProperty('--color-accent-dim', `rgba(${r},${g},${b},0.15)`);
+    root.style.setProperty('--color-accent-dark', `rgb(${Math.round(r*0.6)},${Math.round(g*0.6)},${Math.round(b*0.6)})`);
   }
 
   // ============================================================

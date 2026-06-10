@@ -164,16 +164,20 @@ export class BasemapManager {
   private onTypePresetChange: ((preset: TypePreset) => void) | null = null;
   private stylePicker = new StylePicker();
   private mapBgColor = '#000000';
+  private userId = '';
 
   private currentProjectId: string = '';
 
+  setUserId(id: string): void { this.userId = id; }
+
   constructor(private mapManager: MapManager) {
-    // Load persisted background color
+    // Load persisted background color and userId
     StorageManager.getInstance().getAppSettings().then(s => {
       if (s.map_bg_color) {
         this.mapBgColor = s.map_bg_color;
         this.mapManager.setBackgroundColor(s.map_bg_color);
       }
+      if (s.user_id) this.userId = s.user_id;
     }).catch(() => {/* ignore */});
 
     // Subscribe to C/F run store — sync map layers and re-render open panel
@@ -1490,7 +1494,8 @@ export class BasemapManager {
     const totalCount = this.collectedFeatures.length;
     const hint = totalCount > 0 ? `${totalCount} features` : '';
 
-    return this.sectionToggle('field-data', 'Field Data', hint) +
+    const fdLabel = (this.userId ? this.userId.toUpperCase() : 'Field') + ' Data';
+    return this.sectionToggle('field-data', fdLabel, hint) +
       this.sectionBody('field-data', `<div class="fd-body">${body}${untypedRow}</div>`);
   }
 
@@ -2396,10 +2401,13 @@ export class BasemapManager {
   private renderContent(container: HTMLElement, onClose: () => void): void {
     container.innerHTML = `
       <div class="panel-header">
-        <h3>Active Layers</h3>
+        <h3>Table of Contents</h3>
         <button class="panel-close" id="bm-close">✕</button>
       </div>
       <div class="panel-body bm-panel-body">
+
+        ${this.renderFieldDataSection()}
+        ${this.renderCutFillSection()}
 
         <div class="bm-section-header-row">
           ${this.sectionToggle('active-layers', 'Basemap Stack', '', false)}
@@ -2410,8 +2418,6 @@ export class BasemapManager {
             ${this.stack.map((layer, idx) => this.renderStackItem(layer, idx)).join('')}
           </div>`)}
 
-        ${this.renderFieldDataSection()}
-        ${this.renderCutFillSection()}
         ${this.renderUserLayersSection()}
         ${this.renderPDFSection()}
         ${this.renderMapDisplaySection()}
