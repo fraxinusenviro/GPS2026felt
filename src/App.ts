@@ -268,8 +268,10 @@ export class App {
     const root = document.documentElement;
     if (settings.font_family === 'oswald') {
       root.style.setProperty('--font', "'Oswald', system-ui, sans-serif");
+      root.setAttribute('data-font', 'oswald');
     } else {
       root.style.removeProperty('--font');
+      root.removeAttribute('data-font');
     }
 
     // Theme accent color
