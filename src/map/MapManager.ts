@@ -696,7 +696,7 @@ export class MapManager {
       id: 'profile-preview-vertices',
       type: 'circle',
       source: 'profile-preview',
-      filter: ['all', ['==', '$type', 'Point'], ['!=', ['get', 'seg_type'], 'sample-pin']],
+      filter: ['all', ['==', ['geometry-type'], 'Point'], ['!=', ['get', 'seg_type'], 'sample-pin']],
       paint: {
         'circle-radius': 4,
         'circle-color': '#ffffff',
@@ -709,7 +709,7 @@ export class MapManager {
       id: 'profile-preview-pin',
       type: 'circle',
       source: 'profile-preview',
-      filter: ['all', ['==', '$type', 'Point'], ['==', ['get', 'seg_type'], 'sample-pin']],
+      filter: ['all', ['==', ['geometry-type'], 'Point'], ['==', ['get', 'seg_type'], 'sample-pin']],
       paint: {
         'circle-radius': 8,
         'circle-color': '#f97316',
