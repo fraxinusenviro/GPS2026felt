@@ -313,6 +313,11 @@ html, body {
   -webkit-user-select: none;
 }
 
+/* Browsers don't inherit font to form controls by default — force it */
+button, input, select, textarea, optgroup {
+  font-family: var(--font);
+}
+
 /* ── Glassmorphic surfaces ── */
 /* Elements that float over the map canvas get backdrop blur */
 #left-toolbar,
@@ -5862,7 +5867,7 @@ input[type=color] {
   display: flex;
   flex-direction: column;
   background: #12201a;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: var(--font);
   user-select: none;
   -webkit-user-select: none;
 }
@@ -6286,7 +6291,7 @@ input[type=color] {
   border-radius: 5px;
   color: #f1f5f9;
   font-size: 12px;
-  font-family: 'Oswald', system-ui, sans-serif;
+  font-family: var(--font);
   padding: 6px 8px;
   resize: vertical;
   min-height: 48px;
@@ -7915,4 +7920,94 @@ input[type=color] {
 }
 .proj-bundle-btn {
   font-size: 11px;
+}
+
+/* ============================================================
+   Oswald font — weight & letter-spacing tuning
+   Applied when [data-font="oswald"] is set on <html>
+   ============================================================ */
+
+/* Hint / secondary / count text — use Light (300) for softness */
+[data-font="oswald"] .settings-hint,
+[data-font="oswald"] .bm-section-hint,
+[data-font="oswald"] .zoom-level-badge,
+[data-font="oswald"] .layer-badge,
+[data-font="oswald"] .fd-type-count,
+[data-font="oswald"] .cd-type-count,
+[data-font="oswald"] .cf-lyr-empty,
+[data-font="oswald"] .toast-message,
+[data-font="oswald"] p {
+  font-weight: 300;
+}
+
+/* Toolbar button labels — Medium (500) for legibility at small size */
+[data-font="oswald"] .tool-btn-label,
+[data-font="oswald"] .right-collapse-btn {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+/* Section pill labels (GPS, SKETCH, EDIT …) — Semi-bold + wide tracking */
+[data-font="oswald"] .toolbar-section-label {
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+
+/* Panel headings (h2/h3) — Semi-bold, relaxed tracking */
+[data-font="oswald"] .panel-header h2,
+[data-font="oswald"] .panel-header h3,
+[data-font="oswald"] .panel-header h4 {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+/* Settings section labels & group titles */
+[data-font="oswald"] .settings-section h4,
+[data-font="oswald"] .bm-toggle-label,
+[data-font="oswald"] .fd-geom-label,
+[data-font="oswald"] .preset-group-title {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* Feature-type and layer row labels — Regular (400) */
+[data-font="oswald"] .fd-type-label,
+[data-font="oswald"] .preset-label,
+[data-font="oswald"] label > span,
+[data-font="oswald"] label:not(.toggle-label) {
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+
+/* Action buttons */
+[data-font="oswald"] .btn-primary,
+[data-font="oswald"] .btn-outline,
+[data-font="oswald"] .btn-sm {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+/* HUD capture titles & preset chips */
+[data-font="oswald"] #point-hud-title-text,
+[data-font="oswald"] .point-hud-preset-chip {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+/* Tab buttons */
+[data-font="oswald"] .tab-btn {
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+/* Toast title / type label */
+[data-font="oswald"] .toast-title {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* Map control buttons (right toolbar) */
+[data-font="oswald"] .map-ctrl-btn .tool-btn-label {
+  font-weight: 400;
+  letter-spacing: 0.04em;
 }
