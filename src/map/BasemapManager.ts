@@ -1,7 +1,10 @@
 import maplibregl from 'maplibre-gl';
-import { BASEMAPS, BASEMAP_OVERLAYS, COG_RAMPS } from '../constants';
-import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature, SymbologyState } from '../types';
+import { BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
+import { NS_REST_ALL_DEFS } from '../data/nsRestAll';
+import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature, SymbologyState, RasterSymbologyState, RasterStretchMode, ClassifierName } from '../types';
 import { SymbologyStudio } from '../ui/SymbologyStudio';
+import { RasterSymbologyStudio } from '../ui/RasterSymbologyStudio';
+import { RASTER_RAMPS, EXTENDED_COLOR_RAMPS, buildRgbLut, buildCogColormap } from '../lib/rasterRamps';
 import type { HrdemContourLayerInfo } from '../io/VectorTileRenderer';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
@@ -39,11 +42,23 @@ interface StackLayer {
   vecFillOpacityOverride?: number;
   vecLineColor?: string;
   vecFillColor?: string;
-  cogRampId?: string; // 'original' | key of COG_RAMPS
+  cogRampId?: string; // 'original' | key of RASTER_RAMPS
   cogRampInvert?: boolean;
   cogSmooth?: boolean;
-  hrdemRampId?: string;    // key of HRDEM_RAMPS, default 'terrain'
+  cogClasses?: number;  // ≥2 = classified (equal-interval) COG rendering
+  cogMin?: number;      // custom value range override (native units)
+  cogMax?: number;
+  // RGB tile recolouring (rampify:// luminance LUT) for plain raster / web sources
+  rasterSymbology?: RasterSymbologyState;
+  hrdemRampId?: string;    // key of HRDEM_RAMPS / RASTER_RAMPS, default 'terrain'
   hrdemRampInvert?: boolean;
+  // Generic stretch + classification (Raster Symbology Studio)
+  hrdemStretch?: string;      // RasterStretchMode, default 'percentile'
+  hrdemStretchMin?: number;   // custom stretch range (m)
+  hrdemStretchMax?: number;
+  hrdemClassify?: boolean;
+  hrdemClassifier?: string;   // ClassifierName, default 'Natural breaks'
+  hrdemClassCount?: number;   // 3–9, default 5
   hrdemRasterVisible?:   boolean; // default true
   hrdemContourEnabled?:  boolean; // default false
   hrdemContourInterval?: number;  // default 10 (metres)
@@ -113,7 +128,7 @@ interface PDFLayerInfo {
   bounds?: [number, number, number, number];
 }
 
-const ALL_DEFS = (): BasemapDef[] => [...BASEMAPS, ...BASEMAP_OVERLAYS];
+const ALL_DEFS = (): BasemapDef[] => [...BASEMAPS, ...BASEMAP_OVERLAYS, ...NS_REST_ALL_DEFS];
 
 /** Generate a thumbnail URL from a tile URL template (z=4, x=4, y=5 ≈ eastern Canada) */
 const thumbUrl = (url: string) =>
@@ -148,6 +163,9 @@ export class BasemapManager {
   private collapsedRunSettings = new Set<string>();
   private panelState: { container: HTMLElement; onClose: () => void } | null = null;
   private symbologyStudio = new SymbologyStudio();
+  private rasterSymbologyStudio = new RasterSymbologyStudio();
+  // Bumped whenever an RGB recolour LUT changes so rampify:// tile URLs cache-bust
+  private rasterStyleVersion = 0;
   private unifiedLegendEl: HTMLElement | null = null;
   private unifiedLegendCollapsed = true;
 
@@ -662,6 +680,11 @@ export class BasemapManager {
           if (l.cogRampId) e.cr = l.cogRampId;
           if (l.cogRampInvert) e.cri = 1;
           if (l.cogSmooth) e.cs = 1;
+          if (l.cogClasses) e.ckl = l.cogClasses;
+          if (l.cogMin !== undefined) e.cmn = l.cogMin;
+          if (l.cogMax !== undefined) e.cmx = l.cogMax;
+          // RGB recolouring
+          if (l.rasterSymbology) e.rsy = l.rasterSymbology;
           if (l.cogContourThreshold !== undefined && l.cogContourThreshold !== 0.5) e.cct = l.cogContourThreshold;
           if (l.cogContourLineColor && l.cogContourLineColor !== '#1565c0') e.ccl = l.cogContourLineColor;
           if (l.cogContourLineWidth !== undefined && l.cogContourLineWidth !== 2.0) e.cclw = l.cogContourLineWidth;
@@ -674,6 +697,13 @@ export class BasemapManager {
           if (l.hrdemRampId) e.r = l.hrdemRampId;
           if (l.hrdemRampInvert) e.ri = 1;
           if (l.hrdemRasterVisible === false) e.hrv = 0;
+          // HRDEM stretch + classification
+          if (l.hrdemStretch && l.hrdemStretch !== 'percentile') e.hstr = l.hrdemStretch;
+          if (l.hrdemStretchMin !== undefined) e.hsmn = l.hrdemStretchMin;
+          if (l.hrdemStretchMax !== undefined) e.hsmx = l.hrdemStretchMax;
+          if (l.hrdemClassify) e.hkls = 1;
+          if (l.hrdemClassifier && l.hrdemClassifier !== 'Natural breaks') e.hklf = l.hrdemClassifier;
+          if (l.hrdemClassCount !== undefined && l.hrdemClassCount !== 5) e.hknt = l.hrdemClassCount;
           // HRDEM contours
           if (l.hrdemContourEnabled) e.ce = 1;
           if (l.hrdemContourInterval) e.ci = l.hrdemContourInterval;
@@ -747,6 +777,11 @@ export class BasemapManager {
         if (e['cr'])  layer.cogRampId = e['cr'] as string;
         if (e['cri']) layer.cogRampInvert = true;
         if (e['cs'])  layer.cogSmooth = true;
+        if (typeof e['ckl'] === 'number') layer.cogClasses = e['ckl'] as number;
+        if (typeof e['cmn'] === 'number') layer.cogMin = e['cmn'] as number;
+        if (typeof e['cmx'] === 'number') layer.cogMax = e['cmx'] as number;
+        // RGB recolouring
+        if (e['rsy'] && typeof e['rsy'] === 'object') layer.rasterSymbology = e['rsy'] as RasterSymbologyState;
         if (typeof e['cct']  === 'number') layer.cogContourThreshold   = e['cct']  as number;
         if (e['ccl'])                      layer.cogContourLineColor    = e['ccl']  as string;
         if (typeof e['cclw'] === 'number') layer.cogContourLineWidth    = e['cclw'] as number;
@@ -759,6 +794,13 @@ export class BasemapManager {
         if (e['r'])   layer.hrdemRampId         = e['r']  as string;
         if (e['ri'])  layer.hrdemRampInvert      = true;
         if (e['hrv'] === 0) layer.hrdemRasterVisible = false;
+        // HRDEM stretch + classification
+        if (e['hstr'])                      layer.hrdemStretch    = e['hstr'] as string;
+        if (typeof e['hsmn'] === 'number')  layer.hrdemStretchMin = e['hsmn'] as number;
+        if (typeof e['hsmx'] === 'number')  layer.hrdemStretchMax = e['hsmx'] as number;
+        if (e['hkls'])                      layer.hrdemClassify   = true;
+        if (e['hklf'])                      layer.hrdemClassifier = e['hklf'] as string;
+        if (typeof e['hknt'] === 'number')  layer.hrdemClassCount = e['hknt'] as number;
         // HRDEM contours
         if (e['ce'])                       layer.hrdemContourEnabled  = true;
         if (e['ci'])                       layer.hrdemContourInterval = e['ci']  as number;
@@ -868,28 +910,29 @@ export class BasemapManager {
     if (!origColormap) return;
 
     const cogUrl = BasemapManager.cogUrlFromLayer(layer);
+    const origMin = origColormap[0][0];
+    const origMax = origColormap[origColormap.length - 1][0];
+    const minVal = layer.cogMin ?? origMin;
+    const maxVal = layer.cogMax ?? origMax;
+
     if (rampId === 'original') {
-      const stops = origColormap as [number,number,number,number,number][];
+      // Remap original stop values into the (possibly custom) range, keep colours
+      const origRange = origMax - origMin || 1;
+      const scale = (maxVal - minVal) / origRange;
+      let stops = (origColormap as [number,number,number,number,number][]).map(
+        (s): [number,number,number,number,number] =>
+          [minVal + (s[0] - origMin) * scale, s[1], s[2], s[3], s[4]]);
       if (invert) {
         const colors = stops.map(s => [s[1], s[2], s[3], s[4]] as [number,number,number,number]);
         colors.reverse();
-        this.mapManager.setCogColormap(cogUrl, stops.map((s, i): [number,number,number,number,number] =>
-          [s[0], colors[i][0], colors[i][1], colors[i][2], colors[i][3]]));
-      } else {
-        this.mapManager.setCogColormap(cogUrl, stops);
+        stops = stops.map((s, i): [number,number,number,number,number] =>
+          [s[0], colors[i][0], colors[i][1], colors[i][2], colors[i][3]]);
       }
+      this.mapManager.setCogColormap(cogUrl, stops);
       return;
     }
-    const ramp = COG_RAMPS[rampId];
-    if (!ramp) return;
-    const minVal = origColormap[0][0];
-    const maxVal = origColormap[origColormap.length - 1][0];
-    const srcStops = invert ? [...ramp.stops].reverse() : ramp.stops;
-    const stops = srcStops.map((c, i, arr): [number,number,number,number,number] => {
-      const t = arr.length > 1 ? i / (arr.length - 1) : 0;
-      return [minVal + t * (maxVal - minVal), c[0], c[1], c[2], 255];
-    });
-    this.mapManager.setCogColormap(cogUrl, stops);
+    const stops = buildCogColormap(rampId, invert, minVal, maxVal, layer.cogClasses);
+    if (stops) this.mapManager.setCogColormap(cogUrl, stops);
   }
 
   private applyCogSmooth(layer: StackLayer): void {
@@ -900,8 +943,184 @@ export class BasemapManager {
   // ---- HRDEM ramp helpers ----
 
   private resolveHrdemRamp(layer: StackLayer): ColorRamp {
-    const entry = HRDEM_RAMPS[layer.hrdemRampId ?? 'terrain'] ?? HRDEM_RAMPS['terrain'];
+    const id = layer.hrdemRampId ?? 'terrain';
+    const entry = HRDEM_RAMPS[id] ?? EXTENDED_COLOR_RAMPS[id] ?? HRDEM_RAMPS['terrain'];
     return layer.hrdemRampInvert ? invertRamp(entry.ramp) : entry.ramp;
+  }
+
+  // ---- RGB tile recolouring (rampify://) ----
+
+  /**
+   * Resolve the tile URL for a plain raster stack layer, wrapping it in the
+   * rampify:// recolour protocol when a colour ramp is applied. Also registers
+   * (or clears) the layer's luminance LUT with the MapManager.
+   */
+  private resolveRasterUrl(layer: StackLayer): string {
+    const baseUrl = this.activeCacheLayers.get(layer.defId) ?? layer.url;
+    const sym = layer.rasterSymbology;
+    const unsupported = baseUrl.startsWith('cog://') || baseUrl.startsWith('mbtiles://')
+      || baseUrl.startsWith('bmcache://') || baseUrl.startsWith('rampify://');
+    if (!sym || sym.rampId === 'original' || unsupported) {
+      this.mapManager.setRasterRecolorLut(layer.instanceId, null);
+      return baseUrl;
+    }
+    const lut = buildRgbLut(sym);
+    if (!lut) {
+      this.mapManager.setRasterRecolorLut(layer.instanceId, null);
+      return baseUrl;
+    }
+    this.mapManager.setRasterRecolorLut(layer.instanceId, lut);
+    return MapManager.rampifyUrl(layer.instanceId, baseUrl, this.rasterStyleVersion);
+  }
+
+  /** Effective HRDEM product for a stack layer (mirrors rebuildMap's resolution). */
+  private effectiveHrdemProduct(layer: StackLayer): string {
+    return layer.hrdemProduct ?? (
+      layer.defId === 'hrdem-slope'               ? 'slope'
+      : layer.defId === 'hrdem-aspect'            ? 'aspect'
+      : layer.defId === 'hrdem-tpi'               ? 'tpi'
+      : layer.defId === 'hrdem-chm'               ? 'chm'
+      : layer.defId === 'raster-fn-hillshade'     ? 'hillshade'
+      : layer.defId === 'raster-fn-dsm-hillshade' ? 'hillshade'
+      : layer.defId === 'raster-fn-roughness'     ? 'roughness'
+      : layer.defId === 'raster-fn-slope-pct'     ? 'slope'
+      : layer.defId === 'raster-fn-aspect'        ? 'aspect'
+      : layer.defId === 'raster-fn-tpi'           ? 'tpi'
+      : layer.defId === 'raster-fn-chm-focal'     ? 'chm-focal'
+      : 'elevation'
+    );
+  }
+
+  /** Open the Raster Symbology Studio for a raster / COG / HRDEM stack layer. */
+  private openRasterSymbology(layer: StackLayer, container: HTMLElement, onClose: () => void): void {
+    const ltype = this.getLayerType(layer);
+    const rerender = () => this.renderContent(container, onClose);
+
+    if (ltype === 'hrdem-wcs') {
+      const product = this.effectiveHrdemProduct(layer);
+      const rampId = product === 'slope' ? (layer.hrdemSlopeRampId ?? 'classic')
+        : product === 'tpi'       ? (layer.hrdemTpiRampId ?? 'rdylbu')
+        : product === 'chm-focal' ? (layer.hrdemChmRampId ?? 'canopy_green')
+        : (layer.hrdemRampId ?? 'terrain');
+      const invert = product === 'slope' ? (layer.hrdemSlopeInvert ?? false)
+        : product === 'tpi'       ? (layer.hrdemTpiInvert ?? false)
+        : product === 'chm-focal' ? (layer.hrdemChmInvert ?? false)
+        : (layer.hrdemRampInvert ?? false);
+      const res = this.hrdemLayers.get(layer.instanceId)?.getLastResult() ?? null;
+
+      this.rasterSymbologyStudio.open({
+        title: layer.label,
+        kind: 'dem',
+        hasOriginal: false,
+        dataDriven: true,
+        demStretch: product === 'elevation',
+        valueRange: res
+          ? [Math.round(res.stretchMin), Math.round(res.stretchMax)]
+          : [layer.hrdemStretchMin ?? 0, layer.hrdemStretchMax ?? 100],
+        initial: {
+          rampId,
+          invert,
+          mode: layer.hrdemClassify ? 'classified' : 'continuous',
+          classifier: (layer.hrdemClassifier ?? 'Natural breaks') as ClassifierName,
+          classes: layer.hrdemClassCount ?? 5,
+          stretch: (layer.hrdemStretch ?? 'percentile') as RasterStretchMode,
+          stretchMin: layer.hrdemStretchMin,
+          stretchMax: layer.hrdemStretchMax,
+        },
+        onApply: (s) => {
+          if (product === 'slope')          { layer.hrdemSlopeRampId = s.rampId; layer.hrdemSlopeInvert = s.invert; }
+          else if (product === 'tpi')       { layer.hrdemTpiRampId   = s.rampId; layer.hrdemTpiInvert   = s.invert; }
+          else if (product === 'chm-focal') { layer.hrdemChmRampId   = s.rampId; layer.hrdemChmInvert   = s.invert; }
+          else                              { layer.hrdemRampId      = s.rampId; layer.hrdemRampInvert  = s.invert; }
+          layer.hrdemClassify   = s.mode === 'classified';
+          layer.hrdemClassifier = s.classifier;
+          layer.hrdemClassCount = s.classes;
+          if (product === 'elevation') {
+            layer.hrdemStretch    = s.stretch;
+            layer.hrdemStretchMin = s.stretchMin;
+            layer.hrdemStretchMax = s.stretchMax;
+          }
+          const inst = this.hrdemLayers.get(layer.instanceId);
+          if (inst) {
+            inst.setRenderOptions({
+              stretchMode: (layer.hrdemStretch ?? 'percentile') as RasterStretchMode,
+              stretchMin:  layer.hrdemStretchMin,
+              stretchMax:  layer.hrdemStretchMax,
+              classify:    layer.hrdemClassify ?? false,
+              classifier:  (layer.hrdemClassifier ?? 'Natural breaks') as ClassifierName,
+              classes:     layer.hrdemClassCount ?? 5,
+            });
+            if (product === 'slope') {
+              inst.setProductStyle({ slopeRampId: s.rampId, slopeInvert: s.invert ?? false });
+            } else if (product === 'tpi') {
+              inst.setProductStyle({ tpiRampId: s.rampId, tpiInvert: s.invert ?? false });
+            } else if (product === 'chm-focal') {
+              inst.setProductStyle({ chmRampId: s.rampId, chmInvert: s.invert ?? false });
+            } else {
+              inst.setRamp(this.resolveHrdemRamp(layer));
+            }
+          }
+          this.saveStack();
+          rerender();
+        },
+      });
+      return;
+    }
+
+    if (layer.url.startsWith('cog://')) {
+      const def = ALL_DEFS().find(d => d.id === layer.defId);
+      const cm = def?.cog_colormap;
+      const origMin = cm?.[0][0] ?? 0;
+      const origMax = cm?.[cm.length - 1][0] ?? 1;
+      const originalCss = cm
+        ? `linear-gradient(to right,${cm.map(s => `rgba(${s[1]},${s[2]},${s[3]},${s[4] / 255})`).join(',')})`
+        : undefined;
+
+      this.rasterSymbologyStudio.open({
+        title: layer.label,
+        kind: 'cog',
+        hasOriginal: true,
+        originalCss,
+        dataDriven: false,
+        valueRange: [layer.cogMin ?? origMin, layer.cogMax ?? origMax],
+        initial: {
+          rampId: layer.cogRampId ?? 'original',
+          invert: layer.cogRampInvert ?? false,
+          mode: (layer.cogClasses ?? 0) >= 2 ? 'classified' : 'continuous',
+          classes: layer.cogClasses ?? 5,
+          stretchMin: layer.cogMin ?? origMin,
+          stretchMax: layer.cogMax ?? origMax,
+        },
+        onApply: (s) => {
+          layer.cogRampId = s.rampId;
+          layer.cogRampInvert = s.invert;
+          layer.cogClasses = s.mode === 'classified' ? (s.classes ?? 5) : undefined;
+          layer.cogMin = s.stretchMin;
+          layer.cogMax = s.stretchMax;
+          this.applyCogRamp(layer);
+          this.refreshRasterOverlays();
+          this.saveStack();
+          rerender();
+        },
+      });
+      return;
+    }
+
+    // Plain RGB tile layer / web source — luminance recolouring
+    this.rasterSymbologyStudio.open({
+      title: layer.label,
+      kind: 'rgb',
+      hasOriginal: true,
+      dataDriven: false,
+      initial: layer.rasterSymbology ?? { rampId: 'original' },
+      onApply: (s) => {
+        layer.rasterSymbology = s.rampId === 'original' ? undefined : s;
+        this.rasterStyleVersion++;
+        this.rebuildMap();
+        this.saveStack();
+        rerender();
+      },
+    });
   }
 
   private refreshUnifiedLegend(): void {
@@ -976,7 +1195,7 @@ export class BasemapManager {
       if (ltype === 'raster') {
         this.mapManager.addSingleRasterOverlay({
           instanceId: l.instanceId,
-          url: this.activeCacheLayers.get(l.defId) ?? l.url,
+          url: this.resolveRasterUrl(l),
           opacity: l.opacity, visible: l.visible,
           hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
         });
@@ -1095,7 +1314,11 @@ export class BasemapManager {
     const allDefs = ALL_DEFS();
     const baseLayer = this.stack[this.stack.length - 1];
     const baseDef = allDefs.find(d => d.id === baseLayer.defId) ?? BASEMAPS[0];
-    this.mapManager.setBasemap(baseDef);
+    if (this.getLayerType(baseLayer) === 'raster' && baseLayer.rasterSymbology) {
+      this.mapManager.setBasemap({ ...baseDef, url: this.resolveRasterUrl(baseLayer) });
+    } else {
+      this.mapManager.setBasemap(baseDef);
+    }
     this.mapManager.setBasemapOpacity(baseLayer.visible ? (baseLayer.opacity ?? 1) : 0);
     this.mapManager.setBasemapPaint('raster-hue-rotate', baseLayer.hueRotate ?? 0);
     this.mapManager.setBasemapPaint('raster-saturation', baseLayer.saturation ?? 0);
@@ -1152,13 +1375,13 @@ export class BasemapManager {
       if (ltype === 'raster') {
         this.mapManager.addSingleRasterOverlay({
           instanceId: l.instanceId,
-          url: this.activeCacheLayers.get(l.defId) ?? l.url,
+          url: this.resolveRasterUrl(l),
           opacity: l.opacity, visible: l.visible,
           hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
         });
         // Re-apply COG ramp / invert / smooth overrides (needed after page reload or project switch)
         if (l.url.startsWith('cog://')) {
-          if (l.cogRampId || l.cogRampInvert) this.applyCogRamp(l);
+          if (l.cogRampId || l.cogRampInvert || l.cogClasses || l.cogMin !== undefined || l.cogMax !== undefined) this.applyCogRamp(l);
           if (l.cogSmooth) this.applyCogSmooth(l);
         }
       } else if (ltype === 'nsprd-vector') {
@@ -1236,6 +1459,14 @@ export class BasemapManager {
           chmMode:      (l.hrdemChmMode      ?? 'classified') as 'stretch' | 'classified',
           chmRampId:    l.hrdemChmRampId     ?? 'canopy_green',
           chmInvert:    l.hrdemChmInvert     ?? false,
+        });
+        hrdemInst.setRenderOptions({
+          stretchMode: (l.hrdemStretch ?? 'percentile') as RasterStretchMode,
+          stretchMin:  l.hrdemStretchMin,
+          stretchMax:  l.hrdemStretchMax,
+          classify:    l.hrdemClassify ?? false,
+          classifier:  (l.hrdemClassifier ?? 'Natural breaks') as ClassifierName,
+          classes:     l.hrdemClassCount ?? 5,
         });
       } else if (ltype === 'cog-contour') {
         if (!this.cogContourLayers.has(l.instanceId)) {
@@ -1956,6 +2187,7 @@ export class BasemapManager {
         </div>`;
     }
 
+    const hrdemStudioOk = ['elevation', 'slope', 'tpi', 'chm-focal'].includes(hrdemProduct);
     const hrdemAdjPanel = isHrdem ? `
       <div class="bm-adj-panel" data-iid="${iid}" style="display:none">
         <div class="bm-adj-row">
@@ -1964,6 +2196,11 @@ export class BasemapManager {
           <span class="bm-adj-val">${Math.round(layer.opacity * 100)}%</span>
         </div>
         ${hrdemInnerContent}
+        ${hrdemStudioOk ? `
+        <div class="bm-adj-row" style="margin-top:4px">
+          <button class="bm-raster-symbology btn-outline" data-iid="${iid}"
+            style="font-size:10px;padding:4px 8px;flex:1" title="Colour ramps, classification &amp; stretch">⊛ Symbology</button>
+        </div>` : ''}
       </div>` : '';
 
     const isCog = layer.url.startsWith('cog://');
@@ -1978,7 +2215,7 @@ export class BasemapManager {
         if (!cm) return '';
         stops = cm.map(s => `rgba(${s[1]},${s[2]},${s[3]},${s[4]/255})`);
       } else {
-        const ramp = COG_RAMPS[rampId];
+        const ramp = RASTER_RAMPS[rampId];
         if (!ramp) return '';
         stops = ramp.stops.map(c => `rgb(${c[0]},${c[1]},${c[2]})`);
       }
@@ -1991,7 +2228,7 @@ export class BasemapManager {
         <label class="bm-adj-label">Ramp</label>
         <select class="bm-cog-ramp" data-iid="${layer.instanceId}" style="flex:1;min-width:0;font-size:11px;background:var(--bg-2,#1a2a1a);color:var(--fg-1,#ccc);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px">
           <option value="original"${cogRampId==='original'?' selected':''}>Original</option>
-          ${Object.entries(COG_RAMPS).map(([k,r])=>`<option value="${k}"${cogRampId===k?' selected':''}>${r.label}</option>`).join('')}
+          ${Object.entries(RASTER_RAMPS).map(([k,r])=>`<option value="${k}"${cogRampId===k?' selected':''}>${r.label}</option>`).join('')}
         </select>
       </div>
       <div class="bm-adj-row">
@@ -2058,6 +2295,11 @@ export class BasemapManager {
             <input type="range" class="bm-adj-slider bm-bri" data-iid="${layer.instanceId}" min="0" max="200" step="5" value="${Math.round(layer.brightness * 100)}" />
             <span class="bm-adj-val">${Math.round(layer.brightness * 100)}%</span>
           </div>
+          ${ltype === 'raster' && !layer.url.startsWith('mbtiles://') ? `
+          <div class="bm-adj-row" style="margin-top:4px">
+            <button class="bm-raster-symbology btn-outline" data-iid="${layer.instanceId}"
+              style="font-size:10px;padding:4px 8px;flex:1" title="Colour ramps, classification &amp; stretch">⊛ Symbology</button>
+          </div>` : ''}
         </div>`}
       </div>`;
   }
@@ -2653,7 +2895,7 @@ export class BasemapManager {
         const cm = def?.cog_colormap;
         stops = cm ? cm.map(s => `rgba(${s[1]},${s[2]},${s[3]},${s[4]/255})`) : [];
       } else {
-        const ramp = COG_RAMPS[rampId];
+        const ramp = RASTER_RAMPS[rampId];
         stops = ramp ? ramp.stops.map(c => `rgb(${c[0]},${c[1]},${c[2]})`) : [];
       }
       if (invert) stops = [...stops].reverse();
@@ -3217,6 +3459,14 @@ export class BasemapManager {
     });
 
     // Vector layer — Symbology Studio button
+    // Raster Symbology Studio (RGB tiles, COG rasters, HRDEM products)
+    container.querySelectorAll<HTMLButtonElement>('.bm-raster-symbology').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const layer = this.stack.find(l => l.instanceId === btn.dataset.iid);
+        if (layer) this.openRasterSymbology(layer, container, onClose);
+      });
+    });
+
     container.querySelectorAll<HTMLButtonElement>('.bm-vec-symbology').forEach(btn => {
       btn.addEventListener('click', () => {
         const iid = btn.dataset.iid!;

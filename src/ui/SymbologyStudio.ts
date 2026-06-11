@@ -127,9 +127,7 @@ export class SymbologyStudio {
           <div class="ss-section">
             <div class="ss-lbl">Outline colour</div>
             <div class="ss-swatch-grid" id="ss-outline-swatches">
-              ${OUTLINE_COLORS.map(c =>
-                `<div class="ss-sw${c === state.outlineColor ? ' on' : ''}" data-outline="${c}" style="background:${c}" title="${c}"></div>`
-              ).join('')}
+              ${this.swatchGrid(OUTLINE_COLORS, state.outlineColor, 'outline')}
             </div>
             <div class="ss-lbl" style="margin-top:8px">Outline width <span class="ss-val" id="ss-ow-val">${state.outlineWidth ?? 1.5}px</span></div>
             <input type="range" id="ss-ow" min="0" max="4" step="0.5" value="${state.outlineWidth ?? 1.5}" />
@@ -155,9 +153,7 @@ export class SymbologyStudio {
             <div id="ss-casing-extra" class="${state.casing ? '' : 'ss-hidden'}" style="margin-top:10px">
               <div class="ss-lbl">Casing colour</div>
               <div class="ss-swatch-grid">
-                ${OUTLINE_COLORS.map(c =>
-                  `<div class="ss-sw${c === state.casingColor ? ' on' : ''}" data-casing-color="${c}" style="background:${c}" title="${c}"></div>`
-                ).join('')}
+                ${this.swatchGrid(OUTLINE_COLORS, state.casingColor, 'casing-color')}
               </div>
               <div class="ss-lbl" style="margin-top:8px">Casing width <span class="ss-val" id="ss-cw-val">${state.casingWidth ?? 2}px</span></div>
               <input type="range" id="ss-cw" min="0.5" max="5" step="0.5" value="${state.casingWidth ?? 2}" />
@@ -170,9 +166,7 @@ export class SymbologyStudio {
           <div class="ss-section">
             <div class="ss-lbl">Stroke colour</div>
             <div class="ss-swatch-grid">
-              ${OUTLINE_COLORS.map(c =>
-                `<div class="ss-sw${c === state.strokeColor ? ' on' : ''}" data-stroke="${c}" style="background:${c}" title="${c}"></div>`
-              ).join('')}
+              ${this.swatchGrid(OUTLINE_COLORS, state.strokeColor, 'stroke')}
             </div>
             <div class="ss-lbl" style="margin-top:8px">Stroke opacity <span class="ss-val" id="ss-so-val">${Math.round((state.strokeOpacity ?? 0.4) * 100)}%</span></div>
             <input type="range" id="ss-so" min="0" max="1" step="0.05" value="${state.strokeOpacity ?? 0.4}" />
@@ -207,6 +201,35 @@ export class SymbologyStudio {
 
   // ---- Builders for dynamic sections ----
 
+  // Swatch grid with a trailing custom colour-picker swatch.
+  // `attr` is the data attribute used by the click wiring (e.g. 'color', 'outline').
+  private swatchGrid(colors: string[], current: string | undefined, attr: string): string {
+    const isCustom = !!current && !colors.includes(current);
+    return `
+      ${colors.map(c =>
+        `<div class="ss-sw${c === current ? ' on' : ''}" data-${attr}="${c}" style="background:${c}" title="${c}"></div>`
+      ).join('')}
+      <label class="ss-sw ss-sw-custom${isCustom ? ' on' : ''}" title="Custom colour…"${isCustom ? ` style="background:${current}"` : ''}>
+        <input type="color" class="ss-custom-color" data-custom-for="${attr}" value="${isCustom ? current : '#22aa77'}" />
+      </label>`;
+  }
+
+  // Wires the custom colour input inside a swatch grid: picking a colour
+  // deselects the preset swatches and routes the value through `setter`.
+  private wireCustomColor(overlay: HTMLElement, attr: string, setter: (c: string) => void, rebuildDynamic: () => void): void {
+    overlay.querySelectorAll<HTMLInputElement>(`input.ss-custom-color[data-custom-for="${attr}"]`).forEach(inp => {
+      inp.addEventListener('input', () => {
+        const label = inp.closest<HTMLElement>('.ss-sw-custom');
+        const grid = label?.parentElement;
+        grid?.querySelectorAll('.ss-sw').forEach(e => e.classList.remove('on'));
+        if (label) { label.classList.add('on'); label.style.background = inp.value; }
+        setter(inp.value);
+        rebuildDynamic();
+      });
+      inp.addEventListener('click', e => e.stopPropagation());
+    });
+  }
+
   private buildColorSection(state: SymbologyState, features: { properties: Record<string, unknown> }[]): string {
     const m = state.method;
 
@@ -214,9 +237,7 @@ export class SymbologyStudio {
       return `<div class="ss-section">
         <div class="ss-lbl">Colour</div>
         <div class="ss-swatch-grid" id="ss-color-swatches">
-          ${SINGLE_COLORS.map(c =>
-            `<div class="ss-sw${c === state.color ? ' on' : ''}" data-color="${c}" style="background:${c}" title="${c}"></div>`
-          ).join('')}
+          ${this.swatchGrid(SINGLE_COLORS, state.color, 'color')}
         </div>
       </div>`;
     }
@@ -413,12 +434,13 @@ export class SymbologyStudio {
     if (geomType === 'point') {
       overlay.querySelectorAll<HTMLElement>('[data-outline]').forEach(el => {
         el.addEventListener('click', () => {
-          overlay.querySelectorAll('[data-outline]').forEach(e => e.classList.remove('on'));
+          el.parentElement?.querySelectorAll('.ss-sw').forEach(e => e.classList.remove('on'));
           el.classList.add('on');
           state.outlineColor = el.dataset.outline!;
           rebuildDynamic();
         });
       });
+      this.wireCustomColor(overlay, 'outline', c => { state.outlineColor = c; }, rebuildDynamic);
       const owSlider = overlay.querySelector<HTMLInputElement>('#ss-ow');
       const owVal = overlay.querySelector<HTMLElement>('#ss-ow-val');
       owSlider?.addEventListener('input', () => {
@@ -449,12 +471,13 @@ export class SymbologyStudio {
       });
       overlay.querySelectorAll<HTMLElement>('[data-casing-color]').forEach(el => {
         el.addEventListener('click', () => {
-          overlay.querySelectorAll('[data-casing-color]').forEach(e => e.classList.remove('on'));
+          el.parentElement?.querySelectorAll('.ss-sw').forEach(e => e.classList.remove('on'));
           el.classList.add('on');
           state.casingColor = el.dataset.casingColor!;
           rebuildDynamic();
         });
       });
+      this.wireCustomColor(overlay, 'casing-color', c => { state.casingColor = c; }, rebuildDynamic);
       const cwSlider = overlay.querySelector<HTMLInputElement>('#ss-cw');
       const cwVal = overlay.querySelector<HTMLElement>('#ss-cw-val');
       cwSlider?.addEventListener('input', () => {
@@ -468,12 +491,13 @@ export class SymbologyStudio {
     if (geomType === 'polygon') {
       overlay.querySelectorAll<HTMLElement>('[data-stroke]').forEach(el => {
         el.addEventListener('click', () => {
-          overlay.querySelectorAll('[data-stroke]').forEach(e => e.classList.remove('on'));
+          el.parentElement?.querySelectorAll('.ss-sw').forEach(e => e.classList.remove('on'));
           el.classList.add('on');
           state.strokeColor = el.dataset.stroke!;
           rebuildDynamic();
         });
       });
+      this.wireCustomColor(overlay, 'stroke', c => { state.strokeColor = c; }, rebuildDynamic);
       const soSlider = overlay.querySelector<HTMLInputElement>('#ss-so');
       const soVal = overlay.querySelector<HTMLElement>('#ss-so-val');
       soSlider?.addEventListener('input', () => {
@@ -518,12 +542,13 @@ export class SymbologyStudio {
     // Single/proportional colour swatches
     overlay.querySelectorAll<HTMLElement>('[data-color]').forEach(el => {
       el.addEventListener('click', () => {
-        overlay.querySelectorAll('[data-color]').forEach(e => e.classList.remove('on'));
+        el.parentElement?.querySelectorAll('.ss-sw').forEach(e => e.classList.remove('on'));
         el.classList.add('on');
         state.color = el.dataset.color!;
         rebuildDynamic();
       });
     });
+    this.wireCustomColor(overlay, 'color', c => { state.color = c; }, rebuildDynamic);
 
     // Categorical palette rows
     overlay.querySelectorAll<HTMLElement>('[data-palette]').forEach(el => {

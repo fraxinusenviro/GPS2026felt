@@ -89,6 +89,20 @@ export interface SymbologyState {
   strokeOpacity?: number;
 }
 
+// ---- Raster Symbology Studio ----
+export type RasterStretchMode = 'percentile' | 'minmax' | 'stddev1' | 'stddev2' | 'custom';
+
+export interface RasterSymbologyState {
+  rampId: string;             // 'original' | key of RASTER_RAMPS
+  invert?: boolean;
+  mode?: 'continuous' | 'classified';
+  classifier?: ClassifierName;
+  classes?: number;           // 3–9 classes when classified
+  stretch?: RasterStretchMode;
+  stretchMin?: number;        // custom stretch range (data units; 0–255 for RGB tiles)
+  stretchMax?: number;
+}
+
 // ---- Preset / Type configuration ----
 export type PointShape = 'circle' | 'square' | 'diamond' | 'triangle';
 export type DashPattern = 'solid' | 'dashed' | 'dotted';
@@ -214,6 +228,7 @@ export interface BasemapDef {
   type: 'raster' | 'vector' | 'nsprd-vector' | 'nshn-vector' | 'hrdem-wcs' | 'cog-contour';
   url: string;          // tile URL template or style URL
   attribution: string;
+  description?: string; // Data Library card description (catalogue layers)
   min_zoom?: number;
   max_zoom?: number;
   tile_size?: number;
