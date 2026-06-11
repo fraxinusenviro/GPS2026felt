@@ -2852,8 +2852,6 @@ label textarea {
   .tool-btn, .map-ctrl-btn { min-height: 46px; }
   .tool-btn svg, .map-ctrl-btn svg { width: 26px; height: 26px; }
   .icon-btn { width: 36px; height: 36px; }
-  .north-arrow-btn { width: 64px; height: 64px; right: 140px; bottom: 16px; }
-  #north-arrow-svg { width: 58px !important; height: 58px !important; }
   #left-toolbar { padding: 4px 2px; }
 }
 
@@ -4554,23 +4552,7 @@ input[type=color] {
 /* ============================================================
    North Arrow — floating overlay on the map canvas
    ============================================================ */
-.north-arrow-btn {
-  position: absolute;
-  bottom: 20px;
-  right: 170px;
-  z-index: 150;
-  width: 83px;
-  height: 83px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: opacity 0.15s;
-}
-
+/* North arrow now lives at the bottom of the right toolbar as a normal button */
 .north-arrow-btn:hover {
   opacity: 0.85;
 }
@@ -8121,16 +8103,16 @@ input[type=color] {
 
 /* +1px base — Oswald reads slightly smaller than system-ui at the same size */
 [data-font="oswald"] body {
-  font-size: 15px;
+  font-size: 16px;
 }
 /* Bump the text-size tokens so any var(--text-*) consumers also scale */
 [data-font="oswald"] {
-  --text-2xs: 9px;
-  --text-xs:  11px;
-  --text-sm:  13px;
-  --text-base: 15px;
-  --text-lg:  17px;
-  --text-xl:  21px;
+  --text-2xs: 10px;
+  --text-xs:  12px;
+  --text-sm:  14px;
+  --text-base: 16px;
+  --text-lg:  19px;
+  --text-xl:  24px;
 }
 
 /* Hint / secondary / count text — use Light (300) for softness */
@@ -8151,12 +8133,14 @@ input[type=color] {
 [data-font="oswald"] .right-collapse-btn {
   font-weight: 500;
   letter-spacing: 0.04em;
+  font-size: 10px;
 }
 
 /* Section pill labels (GPS, SKETCH, EDIT …) — Semi-bold + wide tracking */
 [data-font="oswald"] .toolbar-section-label {
   letter-spacing: 0.1em;
   font-weight: 600;
+  font-size: 12px;
 }
 
 /* Panel headings (h2/h3) — Semi-bold, relaxed tracking */

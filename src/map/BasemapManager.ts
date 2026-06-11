@@ -4,8 +4,8 @@ import { NS_REST_ALL_DEFS } from '../data/nsRestAll';
 import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature, SymbologyState, RasterSymbologyState, RasterStretchMode, ClassifierName } from '../types';
 import { SymbologyStudio } from '../ui/SymbologyStudio';
 import { RasterSymbologyStudio } from '../ui/RasterSymbologyStudio';
-import { RASTER_RAMPS, EXTENDED_COLOR_RAMPS, buildRgbLut, buildCogColormap } from '../lib/rasterRamps';
-import { equalIntervalClasses, classifiedRowsHtml } from '../lib/rasterLegend';
+import { RASTER_RAMPS, EXTENDED_COLOR_RAMPS, buildRgbLut, buildCogColormap, computeClassBreaks } from '../lib/rasterRamps';
+import { equalIntervalClasses, breaksToClasses, classifiedRowsHtml } from '../lib/rasterLegend';
 import type { HrdemContourLayerInfo } from '../io/VectorTileRenderer';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
@@ -46,7 +46,9 @@ interface StackLayer {
   cogRampId?: string; // 'original' | key of RASTER_RAMPS
   cogRampInvert?: boolean;
   cogSmooth?: boolean;
-  cogClasses?: number;  // ≥2 = classified (equal-interval) COG rendering
+  cogClasses?: number;  // ≥2 = classified COG rendering
+  cogClassifier?: string;  // ClassifierName — 'Equal interval' | 'Natural breaks' | 'Quantile'
+  cogBreaks?: number[];    // data-driven class breaks (Natural breaks / Quantile)
   cogMin?: number;      // custom value range override (native units)
   cogMax?: number;
   // RGB tile recolouring (rampify:// luminance LUT) for plain raster / web sources
@@ -935,7 +937,7 @@ export class BasemapManager {
       this.mapManager.setCogColormap(cogUrl, stops);
       return;
     }
-    const stops = buildCogColormap(rampId, invert, minVal, maxVal, layer.cogClasses);
+    const stops = buildCogColormap(rampId, invert, minVal, maxVal, layer.cogClasses, layer.cogBreaks);
     if (stops) this.mapManager.setCogColormap(cogUrl, stops);
   }
 
@@ -996,7 +998,7 @@ export class BasemapManager {
   }
 
   /** Open the Raster Symbology Studio for a raster / COG / HRDEM stack layer. */
-  private openRasterSymbology(layer: StackLayer, container: HTMLElement, onClose: () => void): void {
+  private async openRasterSymbology(layer: StackLayer, container: HTMLElement, onClose: () => void): Promise<void> {
     const ltype = this.getLayerType(layer);
     const rerender = () => this.renderContent(container, onClose);
 
@@ -1081,17 +1083,24 @@ export class BasemapManager {
         ? `linear-gradient(to right,${cm.map(s => `rgba(${s[1]},${s[2]},${s[3]},${s[4] / 255})`).join(',')})`
         : undefined;
 
+      // COGs have intrinsic pixel access — sample a coarse overview so the studio
+      // can offer data-driven classifiers (Natural breaks / Quantile), not just equal interval.
+      const dataValues = await this.mapManager.sampleCogValues(BasemapManager.cogUrlFromLayer(layer));
+      const dataDriven = dataValues.length >= 50;
+
       this.rasterSymbologyStudio.open({
         title: layer.label,
         kind: 'cog',
         hasOriginal: true,
         originalCss,
-        dataDriven: false,
+        dataDriven,
+        dataValues,
         valueRange: [layer.cogMin ?? origMin, layer.cogMax ?? origMax],
         initial: {
           rampId: layer.cogRampId ?? 'original',
           invert: layer.cogRampInvert ?? false,
           mode: (layer.cogClasses ?? 0) >= 2 ? 'classified' : 'continuous',
+          classifier: (layer.cogClassifier ?? 'Natural breaks') as ClassifierName,
           classes: layer.cogClasses ?? 5,
           stretchMin: layer.cogMin ?? origMin,
           stretchMax: layer.cogMax ?? origMax,
@@ -1100,8 +1109,16 @@ export class BasemapManager {
           layer.cogRampId = s.rampId;
           layer.cogRampInvert = s.invert;
           layer.cogClasses = s.mode === 'classified' ? (s.classes ?? 5) : undefined;
+          layer.cogClassifier = s.classifier;
           layer.cogMin = s.stretchMin;
           layer.cogMax = s.stretchMax;
+          // Data-driven classifiers compute real breaks from the sampled pixels;
+          // equal interval leaves breaks unset (buildCogColormap bins evenly).
+          if (s.mode === 'classified' && dataDriven && s.classifier && s.classifier !== 'Equal interval') {
+            layer.cogBreaks = computeClassBreaks(dataValues, s.classes ?? 5, s.classifier);
+          } else {
+            layer.cogBreaks = undefined;
+          }
           this.applyCogRamp(layer);
           this.refreshRasterOverlays();
           this.saveStack();
@@ -1148,6 +1165,15 @@ export class BasemapManager {
     const ltype = this.getLayerType(layer);
 
     if (ltype === 'hrdem-wcs') {
+      // Contour layers are symbolised as vector lines — show a line swatch, not a raster ramp.
+      const isContourDef = layer.defId === 'hrdem-contours' || layer.defId === 'hrdem-dsm-contours';
+      const contourOnly = isContourDef || (layer.hrdemContourEnabled === true && layer.hrdemRasterVisible === false);
+      if (contourOnly) {
+        const col = layer.hrdemContourColor ?? (isContourDef ? '#000000' : '#ffffff');
+        const ivl = layer.hrdemContourInterval ?? (isContourDef ? 1 : 10);
+        const ivlLbl = ivl % 1 === 0 ? ivl.toFixed(0) : String(ivl);
+        return `<div class="legend-row"><span class="legend-swatch-line" style="border-top:3px solid ${col}"></span><span class="legend-row-label">${ivlLbl} m contours</span></div>`;
+      }
       return this.hrdemLayers.get(layer.instanceId)?.getLegendHTML() ?? '';
     }
 
@@ -1177,7 +1203,12 @@ export class BasemapManager {
       const max = layer.cogMax ?? cm?.[cm.length - 1]?.[0] ?? 1;
       if ((layer.cogClasses ?? 0) >= 2 && rampId !== 'original') {
         const ramp = RASTER_RAMPS[rampId];
-        if (ramp) return classifiedRowsHtml(equalIntervalClasses(ramp.stops, invert, layer.cogClasses!, min, max, '', 1));
+        if (ramp) {
+          const classes = (layer.cogBreaks && layer.cogBreaks.length)
+            ? breaksToClasses(ramp.stops, invert, layer.cogBreaks, min, max, '', 1)
+            : equalIntervalClasses(ramp.stops, invert, layer.cogClasses!, min, max, '', 1);
+          return classifiedRowsHtml(classes);
+        }
       }
       let grad: string;
       if (rampId === 'original' && cm) {
@@ -1252,6 +1283,7 @@ export class BasemapManager {
 
   private legendBadge(layer: StackLayer): string {
     const ltype = this.getLayerType(layer);
+    if (layer.defId === 'hrdem-contours' || layer.defId === 'hrdem-dsm-contours') return 'CONTOUR';
     if (ltype === 'hrdem-wcs') return 'DEM';
     if (ltype === 'nsprd-vector' || ltype === 'nshn-vector') return 'VEC';
     if (ltype === 'cog-contour') return 'CONTOUR';
@@ -2233,7 +2265,9 @@ export class BasemapManager {
         <div style="font-size:10px;opacity:.55;font-style:italic">Use ⊛ Symbology for colour ramp, classification &amp; stretch.</div>`;
     }
 
-    const hrdemStudioOk = ['elevation', 'slope', 'tpi', 'chm-focal'].includes(hrdemProduct);
+    // Contour layers are symbolised as vector lines (interval/colour/width inline),
+    // so they don't get the raster Symbology Studio button.
+    const hrdemStudioOk = ['elevation', 'slope', 'tpi', 'chm-focal'].includes(hrdemProduct) && !isContourDef;
     const hrdemAdjPanel = isHrdem ? `
       <div class="bm-adj-panel" data-iid="${iid}" style="display:none">
         <div class="bm-adj-row">

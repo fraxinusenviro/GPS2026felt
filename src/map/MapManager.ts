@@ -1584,6 +1584,39 @@ export class MapManager {
     return decodeURIComponent(parts.join('/'));
   }
 
+  /**
+   * Sample pixel values from a COG by reading a coarse (downsampled) overview of
+   * the whole image. Returns finite values (nodata excluded) for data-driven
+   * classification (Natural breaks / Quantile). Returns [] on failure.
+   */
+  async sampleCogValues(cogUrl: string, maxDim = 96): Promise<number[]> {
+    try {
+      const { fromUrl } = await import('geotiff');
+      const tiff = await fromUrl(cogUrl);
+      // Read the smallest overview (last image) so sampling is a single small range read.
+      const count = await tiff.getImageCount();
+      const image = await tiff.getImage(Math.max(0, count - 1));
+      const w = image.getWidth(), h = image.getHeight();
+      const scale = Math.min(1, maxDim / Math.max(w, h));
+      const rw = Math.max(1, Math.round(w * scale));
+      const rh = Math.max(1, Math.round(h * scale));
+      const rasters = await image.readRasters({
+        width: rw, height: rh, interleave: false, resampleMethod: 'nearest',
+      }) as unknown as number[][];
+      const band = rasters[0];
+      const nodata = (image as unknown as { getGDALNoData?: () => number | null }).getGDALNoData?.() ?? null;
+      const out: number[] = [];
+      for (let i = 0; i < band.length; i++) {
+        const v = band[i];
+        if (isFinite(v) && v !== nodata) out.push(v);
+      }
+      return out;
+    } catch (e) {
+      console.warn('[COG] sampleCogValues failed', e);
+      return [];
+    }
+  }
+
   /** Register / clear the luminance recolour LUT for a rampify:// raster layer. */
   setRasterRecolorLut(key: string, lut: Uint8ClampedArray | null): void {
     if (lut) rasterLutRegistry.set(key, lut);

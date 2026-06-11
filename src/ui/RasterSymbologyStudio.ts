@@ -4,8 +4,8 @@
 // (natural breaks, quantiles, equal interval) and stretch options.
 
 import type { RasterSymbologyState, ClassifierName, RasterStretchMode } from '../types';
-import { RASTER_RAMPS, rampCssGradient } from '../lib/rasterRamps';
-import { equalIntervalClasses, classifiedRowsInlineHtml } from '../lib/rasterLegend';
+import { RASTER_RAMPS, rampCssGradient, computeClassBreaks } from '../lib/rasterRamps';
+import { equalIntervalClasses, breaksToClasses, classifiedRowsInlineHtml } from '../lib/rasterLegend';
 
 export interface RasterSymbologyOptions {
   title: string;
@@ -23,6 +23,8 @@ export interface RasterSymbologyOptions {
   valueRange?: [number, number];
   /** Unit shown next to classified value ranges in the legend (e.g. 'm') */
   valueUnit?: string;
+  /** Sampled pixel values — enables data-driven (Natural breaks / Quantile) class legend */
+  dataValues?: number[];
   initial?: RasterSymbologyState;
   onApply: (state: RasterSymbologyState) => void;
 }
@@ -226,7 +228,13 @@ export class RasterSymbologyStudio {
     const min = state.stretchMin ?? hintMin;
     const max = state.stretchMax ?? hintMax;
     const decimals = options.kind === 'rgb' ? 0 : 1;
-    const classes = equalIntervalClasses(def.stops, state.invert ?? false, state.classes ?? 5, min, max, options.valueUnit ?? '', decimals);
+    const k = state.classes ?? 5;
+    const invert = state.invert ?? false;
+    const unit = options.valueUnit ?? '';
+    const dataDriven = state.classifier && state.classifier !== 'Equal interval' && (options.dataValues?.length ?? 0) >= 50;
+    const classes = dataDriven
+      ? breaksToClasses(def.stops, invert, computeClassBreaks(options.dataValues!, k, state.classifier as ClassifierName), min, max, unit, decimals)
+      : equalIntervalClasses(def.stops, invert, k, min, max, unit, decimals);
     el.innerHTML = classifiedRowsInlineHtml(classes);
   }
 
@@ -288,6 +296,7 @@ export class RasterSymbologyStudio {
     // Classifier
     overlay.querySelector<HTMLSelectElement>('#rss-classifier')?.addEventListener('change', e => {
       state.classifier = (e.target as HTMLSelectElement).value as ClassifierName;
+      this.updateLegend(overlay, state, options);
     });
 
     // Classes stepper
