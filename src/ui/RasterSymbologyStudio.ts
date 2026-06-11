@@ -5,6 +5,7 @@
 
 import type { RasterSymbologyState, ClassifierName, RasterStretchMode } from '../types';
 import { RASTER_RAMPS, rampCssGradient } from '../lib/rasterRamps';
+import { equalIntervalClasses, classifiedRowsInlineHtml } from '../lib/rasterLegend';
 
 export interface RasterSymbologyOptions {
   title: string;
@@ -20,6 +21,8 @@ export interface RasterSymbologyOptions {
   dataDriven?: boolean;
   /** Default custom stretch range (e.g. COG colormap range, current DEM range) */
   valueRange?: [number, number];
+  /** Unit shown next to classified value ranges in the legend (e.g. 'm') */
+  valueUnit?: string;
   initial?: RasterSymbologyState;
   onApply: (state: RasterSymbologyState) => void;
 }
@@ -165,6 +168,12 @@ export class RasterSymbologyStudio {
             <div id="rss-preview" style="height:14px;border-radius:4px;border:1px solid var(--color-border,#444)"></div>
           </div>
 
+          <!-- Classified legend table -->
+          <div class="ss-section" id="rss-legend-section" style="${state.mode === 'classified' ? '' : 'display:none'}">
+            <div class="ss-lbl">Class legend</div>
+            <div id="rss-legend"></div>
+          </div>
+
         </div>
         <div class="ss-footer">
           <button class="btn-outline" id="rss-cancel">Cancel</button>
@@ -203,6 +212,24 @@ export class RasterSymbologyStudio {
     }
   }
 
+  // Classified value-range → colour table (shown only in classified mode)
+  private updateLegend(overlay: HTMLElement, state: RasterSymbologyState, options: RasterSymbologyOptions): void {
+    const section = overlay.querySelector<HTMLElement>('#rss-legend-section');
+    const el = overlay.querySelector<HTMLElement>('#rss-legend');
+    if (!section || !el) return;
+    const isClassified = state.mode === 'classified' && state.rampId !== 'original';
+    section.style.display = isClassified ? '' : 'none';
+    if (!isClassified) { el.innerHTML = ''; return; }
+    const def = RASTER_RAMPS[state.rampId];
+    if (!def) { el.innerHTML = ''; return; }
+    const [hintMin, hintMax] = options.valueRange ?? (options.kind === 'rgb' ? [0, 255] : [0, 100]);
+    const min = state.stretchMin ?? hintMin;
+    const max = state.stretchMax ?? hintMax;
+    const decimals = options.kind === 'rgb' ? 0 : 1;
+    const classes = equalIntervalClasses(def.stops, state.invert ?? false, state.classes ?? 5, min, max, options.valueUnit ?? '', decimals);
+    el.innerHTML = classifiedRowsInlineHtml(classes);
+  }
+
   // Grey out classification + stretch when "Original" is selected (no recolouring)
   private updateSectionStates(overlay: HTMLElement, state: RasterSymbologyState, options: RasterSymbologyOptions): void {
     const disabled = state.rampId === 'original' && options.kind !== 'dem';
@@ -228,6 +255,7 @@ export class RasterSymbologyStudio {
     const refresh = () => {
       this.updatePreview(overlay, state, options);
       this.updateSectionStates(overlay, state, options);
+      this.updateLegend(overlay, state, options);
     };
 
     // Ramp rows
@@ -287,11 +315,11 @@ export class RasterSymbologyStudio {
     // Custom min/max inputs (DEM custom + COG range)
     overlay.querySelector<HTMLInputElement>('#rss-min')?.addEventListener('input', e => {
       const v = parseFloat((e.target as HTMLInputElement).value);
-      if (isFinite(v)) state.stretchMin = v;
+      if (isFinite(v)) { state.stretchMin = v; this.updateLegend(overlay, state, options); }
     });
     overlay.querySelector<HTMLInputElement>('#rss-max')?.addEventListener('input', e => {
       const v = parseFloat((e.target as HTMLInputElement).value);
-      if (isFinite(v)) state.stretchMax = v;
+      if (isFinite(v)) { state.stretchMax = v; this.updateLegend(overlay, state, options); }
     });
 
     // RGB luminance levels
@@ -328,6 +356,7 @@ export class RasterSymbologyStudio {
 
     this.updatePreview(overlay, state, options);
     this.updateSectionStates(overlay, state, options);
+    this.updateLegend(overlay, state, options);
   }
 }
 

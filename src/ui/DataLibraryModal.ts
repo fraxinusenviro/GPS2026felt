@@ -348,6 +348,61 @@ export class DataLibraryModal {
       </div>`;
   }
 
+  // Results grid markup — kept separate so the search box can refresh just this
+  // region on each keystroke without rebuilding (and losing focus on) the input.
+  private gridWrapHtml(defs: BasemapDef[]): string {
+    return `
+          <div class="dl-grid-wrap">
+            <div class="dl-grid-label">
+              ${this.activeGroup === 'all' ? 'All Sources' : this.activeGroup === 'basemaps' ? 'Standard Basemaps' : this.activeGroup}
+              <span class="dl-count">${defs.length} layer${defs.length !== 1 ? 's' : ''}</span>
+              <span class="dl-flip-hint-global">tap preview to flip for details</span>
+            </div>
+            ${defs.length === 0
+              ? `<div class="dl-empty">No layers match "<strong>${this.searchQuery}</strong>"</div>`
+              : `<div class="dl-grid">${defs.slice(0, MAX_GRID_CARDS).map(d => this.renderCard(d)).join('')}</div>
+                 ${defs.length > MAX_GRID_CARDS ? `<div class="dl-empty">Showing the first ${MAX_GRID_CARDS} of ${defs.length} layers — use the search box to narrow down the list.</div>` : ''}`
+            }
+          </div>`;
+  }
+
+  // Refresh only the results grid + the clear button, leaving the search input
+  // (and its focus / caret position) untouched. Called on every search keystroke.
+  private refreshResults(): void {
+    const defs = this.filteredDefs();
+    const wrap = this.overlay.querySelector('.dl-grid-wrap');
+    if (wrap) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = this.gridWrapHtml(defs).trim();
+      const fresh = tmp.firstElementChild;
+      if (fresh) wrap.replaceWith(fresh);
+    }
+
+    // Keep the clear (✕) button in sync without touching the input element.
+    const searchWrap = this.overlay.querySelector('.dl-search-wrap');
+    if (searchWrap) {
+      const existing = searchWrap.querySelector('#dl-search-clear');
+      if (this.searchQuery && !existing) {
+        const btn = document.createElement('button');
+        btn.id = 'dl-search-clear';
+        btn.className = 'dl-search-clear';
+        btn.setAttribute('aria-label', 'Clear search');
+        btn.textContent = '✕';
+        btn.addEventListener('click', () => {
+          this.searchQuery = '';
+          const input = this.overlay.querySelector<HTMLInputElement>('#dl-search');
+          if (input) input.value = '';
+          this.refreshResults();
+        });
+        searchWrap.appendChild(btn);
+      } else if (!this.searchQuery && existing) {
+        existing.remove();
+      }
+    }
+
+    this.wireCards();
+  }
+
   private render(): void {
     const defs = this.filteredDefs();
     const groups = this.groups;
@@ -414,19 +469,7 @@ export class DataLibraryModal {
             </button>
           </div>
 
-          ${this.activeView === 'library' ? (this.configuringDefId ? this.renderConfigurePanel() : `
-          <div class="dl-grid-wrap">
-            <div class="dl-grid-label">
-              ${this.activeGroup === 'all' ? 'All Sources' : this.activeGroup === 'basemaps' ? 'Standard Basemaps' : this.activeGroup}
-              <span class="dl-count">${defs.length} layer${defs.length !== 1 ? 's' : ''}</span>
-              <span class="dl-flip-hint-global">tap preview to flip for details</span>
-            </div>
-            ${defs.length === 0
-              ? `<div class="dl-empty">No layers match "<strong>${this.searchQuery}</strong>"</div>`
-              : `<div class="dl-grid">${defs.slice(0, MAX_GRID_CARDS).map(d => this.renderCard(d)).join('')}</div>
-                 ${defs.length > MAX_GRID_CARDS ? `<div class="dl-empty">Showing the first ${MAX_GRID_CARDS} of ${defs.length} layers — use the search box to narrow down the list.</div>` : ''}`
-            }
-          </div>`) : `
+          ${this.activeView === 'library' ? (this.configuringDefId ? this.renderConfigurePanel() : this.gridWrapHtml(defs)) : `
           <div class="dl-io-wrap" id="dl-io-container"></div>`}
         </div>
       </div>
@@ -478,6 +521,37 @@ export class DataLibraryModal {
       </div>`;
   }
 
+  // Wire flip + add buttons on the result cards (re-runnable after refreshResults)
+  private wireCards(): void {
+    // Flip card thumbnails
+    this.overlay.querySelectorAll<HTMLElement>('.dl-card-thumb').forEach(thumb => {
+      thumb.addEventListener('click', (e) => {
+        e.stopPropagation();
+        thumb.classList.toggle('dl-flipped');
+      });
+    });
+
+    // Add to map (button only — card click no longer triggers add)
+    this.overlay.querySelectorAll<HTMLButtonElement>('.dl-card-add').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const defId = btn.dataset.defId!;
+        const def = this.allDefs.find(d => d.id === defId);
+        if (!def) return;
+        const hasParams = def.group === 'Raster Functions' && defId in RF_PARAM_SCHEMAS;
+        // For configurable raster functions, always open the configure panel (even if already in stack)
+        if (hasParams) {
+          this.configuringDefId = defId;
+          this.render();
+          return;
+        }
+        if (this.callbacks.isInStack(defId)) return;
+        this.callbacks.onAddToMap(def);
+        this.refreshResults();
+      });
+    });
+  }
+
   private wireEvents(): void {
     // Close
     this.overlay.querySelector('#dl-close')?.addEventListener('click', () => this.close());
@@ -485,15 +559,16 @@ export class DataLibraryModal {
       if (e.target === this.overlay) this.close();
     });
 
-    // Search
+    // Search — refresh only the results grid so the input keeps focus while typing
     const searchEl = this.overlay.querySelector<HTMLInputElement>('#dl-search');
     searchEl?.addEventListener('input', () => {
       this.searchQuery = searchEl.value;
-      this.render();
+      this.refreshResults();
     });
     this.overlay.querySelector('#dl-search-clear')?.addEventListener('click', () => {
       this.searchQuery = '';
-      this.render();
+      if (searchEl) searchEl.value = '';
+      this.refreshResults();
     });
 
     // Group nav (library layers)
@@ -524,33 +599,7 @@ export class DataLibraryModal {
       }
     }
 
-    // Flip card thumbnails
-    this.overlay.querySelectorAll<HTMLElement>('.dl-card-thumb').forEach(thumb => {
-      thumb.addEventListener('click', (e) => {
-        e.stopPropagation();
-        thumb.classList.toggle('dl-flipped');
-      });
-    });
-
-    // Add to map (button only — card click no longer triggers add)
-    this.overlay.querySelectorAll<HTMLButtonElement>('.dl-card-add').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const defId = btn.dataset.defId!;
-        const def = this.allDefs.find(d => d.id === defId);
-        if (!def) return;
-        const hasParams = def.group === 'Raster Functions' && defId in RF_PARAM_SCHEMAS;
-        // For configurable raster functions, always open the configure panel (even if already in stack)
-        if (hasParams) {
-          this.configuringDefId = defId;
-          this.render();
-          return;
-        }
-        if (this.callbacks.isInStack(defId)) return;
-        this.callbacks.onAddToMap(def);
-        this.render();
-      });
-    });
+    this.wireCards();
 
     // Configure panel — back button
     this.overlay.querySelector('#dl-config-cancel')?.addEventListener('click', () => {

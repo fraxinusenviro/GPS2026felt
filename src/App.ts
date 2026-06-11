@@ -203,6 +203,8 @@ export class App {
     this.wireToolbar();
     this.initToolbarCollapse();
     this.initRightToolbarCollapse();
+    this.initLeftToolbarCollapse();
+    this.wireMapLegend();
     this.initHudDraggable();
     this.wireMapInteractions();
     this.wireCaptureControls();
@@ -600,6 +602,34 @@ export class App {
     btn.addEventListener('click', () => {
       panel.classList.toggle('right-collapsed');
       localStorage.setItem(KEY, panel.classList.contains('right-collapsed') ? 'true' : 'false');
+    });
+  }
+
+  private wireMapLegend(): void {
+    const drawer = document.getElementById('map-legend-drawer');
+    const body = document.getElementById('map-legend-body');
+    const pill = document.getElementById('btn-legend');
+    const closeBtn = document.getElementById('map-legend-close');
+    if (!drawer || !body || !pill) return;
+    this.basemapManager.setLegendContainer(body);
+    const setOpen = (open: boolean) => {
+      drawer.style.display = open ? 'flex' : 'none';
+      pill.classList.toggle('active', open);
+      pill.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+    pill.addEventListener('click', () => setOpen(drawer.style.display === 'none'));
+    closeBtn?.addEventListener('click', () => setOpen(false));
+  }
+
+  private initLeftToolbarCollapse(): void {
+    const btn = document.getElementById('btn-collapse-left');
+    const panel = document.getElementById('left-toolbar');
+    if (!btn || !panel) return;
+    const KEY = 'left-toolbar-collapsed';
+    if (localStorage.getItem(KEY) === 'true') panel.classList.add('left-collapsed');
+    btn.addEventListener('click', () => {
+      panel.classList.toggle('left-collapsed');
+      localStorage.setItem(KEY, panel.classList.contains('left-collapsed') ? 'true' : 'false');
     });
   }
 

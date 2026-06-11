@@ -5,6 +5,7 @@ import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCac
 import { SymbologyStudio } from '../ui/SymbologyStudio';
 import { RasterSymbologyStudio } from '../ui/RasterSymbologyStudio';
 import { RASTER_RAMPS, EXTENDED_COLOR_RAMPS, buildRgbLut, buildCogColormap } from '../lib/rasterRamps';
+import { equalIntervalClasses, classifiedRowsHtml } from '../lib/rasterLegend';
 import type { HrdemContourLayerInfo } from '../io/VectorTileRenderer';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
@@ -103,6 +104,7 @@ interface StackLayer {
   cogContourFillColor?:   string;  // default '#1565c0'
   cogContourFillOpacity?: number;  // default 0.30
   symbologyState?: SymbologyState; // data-driven symbology override
+  showInLegend?: boolean;          // default true (non-base layers); base layers excluded
 }
 
 interface UserLayerInfo {
@@ -166,8 +168,9 @@ export class BasemapManager {
   private rasterSymbologyStudio = new RasterSymbologyStudio();
   // Bumped whenever an RGB recolour LUT changes so rampify:// tile URLs cache-bust
   private rasterStyleVersion = 0;
-  private unifiedLegendEl: HTMLElement | null = null;
-  private unifiedLegendCollapsed = true;
+  // Map Legend drawer
+  private legendBodyEl: HTMLElement | null = null;
+  private collapsedLegendItems = new Set<string>();
 
   private identifyActive = false;
   private identifyClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
@@ -232,6 +235,7 @@ export class BasemapManager {
         localStorage.setItem(BM_STACK_PROJECT_KEY, this.currentProjectId);
       }
     } catch { /* ignore QuotaExceededError */ }
+    this.refreshLegend();
     EventBus.emit('basemap-stack-changed');
   }
 
@@ -1014,6 +1018,7 @@ export class BasemapManager {
         hasOriginal: false,
         dataDriven: true,
         demStretch: product === 'elevation',
+        valueUnit: product === 'elevation' ? 'm' : '',
         valueRange: res
           ? [Math.round(res.stretchMin), Math.round(res.stretchMax)]
           : [layer.hrdemStretchMin ?? 0, layer.hrdemStretchMax ?? 100],
@@ -1123,68 +1128,135 @@ export class BasemapManager {
     });
   }
 
-  private refreshUnifiedLegend(): void {
+  // ---- Map Legend drawer ----
+
+  /** App registers the legend drawer body element here; legend re-renders into it. */
+  setLegendContainer(el: HTMLElement): void {
+    this.legendBodyEl = el;
+    this.refreshLegend();
+  }
+
+  /** True for layers eligible to appear in the legend (visible, non-base, toggled on). */
+  private isLegendEligible(layer: StackLayer, idx: number): boolean {
+    if (idx === this.stack.length - 1) return false; // base / basemap excluded
+    if (!layer.visible) return false;
+    return layer.showInLegend !== false;
+  }
+
+  /** Build the legend content block for a single stack layer. Returns '' if none. */
+  private buildLegendBody(layer: StackLayer): string {
+    const ltype = this.getLayerType(layer);
+
+    if (ltype === 'hrdem-wcs') {
+      return this.hrdemLayers.get(layer.instanceId)?.getLegendHTML() ?? '';
+    }
+
+    if (ltype === 'nsprd-vector' || ltype === 'nshn-vector') {
+      const cfg = this.getVectorConfig(layer);
+      const line = layer.vecLineColor ?? (typeof cfg?.lineColor === 'string' ? cfg.lineColor : '#888888');
+      const fill = layer.vecFillColor ?? (cfg?.fillColor && typeof cfg.fillColor === 'string' ? cfg.fillColor : line);
+      if (cfg?.geomType === 'line') {
+        return `<div class="legend-row"><span class="legend-swatch-line" style="border-top:3px solid ${line}"></span><span class="legend-row-label">Line feature</span></div>`;
+      }
+      return `<div class="legend-row"><span class="legend-swatch" style="background:${fill};border-color:${line}"></span><span class="legend-row-label">Polygon feature</span></div>`;
+    }
+
+    if (ltype === 'cog-contour') {
+      const col = layer.cogContourLineColor ?? '#1565c0';
+      const thr = layer.cogContourThreshold ?? 50;
+      return `<div class="legend-row"><span class="legend-swatch-line" style="border-top:3px solid ${col}"></span><span class="legend-row-label">Contour ≤ ${thr} cm</span></div>`;
+    }
+
+    // COG raster
+    if (layer.url.startsWith('cog://')) {
+      const rampId = layer.cogRampId ?? 'original';
+      const invert = layer.cogRampInvert ?? false;
+      const def = ALL_DEFS().find(d => d.id === layer.defId);
+      const cm = def?.cog_colormap;
+      const min = layer.cogMin ?? cm?.[0]?.[0] ?? 0;
+      const max = layer.cogMax ?? cm?.[cm.length - 1]?.[0] ?? 1;
+      if ((layer.cogClasses ?? 0) >= 2 && rampId !== 'original') {
+        const ramp = RASTER_RAMPS[rampId];
+        if (ramp) return classifiedRowsHtml(equalIntervalClasses(ramp.stops, invert, layer.cogClasses!, min, max, '', 1));
+      }
+      let grad: string;
+      if (rampId === 'original' && cm) {
+        grad = `linear-gradient(to top,${cm.map(s => `rgba(${s[1]},${s[2]},${s[3]},${s[4] / 255})`).join(',')})`;
+      } else {
+        const ramp = RASTER_RAMPS[rampId];
+        grad = ramp ? `linear-gradient(to top,${(invert ? [...ramp.stops].reverse() : ramp.stops).map(c => `rgb(${c[0]},${c[1]},${c[2]})`).join(',')})` : '';
+      }
+      if (!grad) return '';
+      return `<div class="legend-bar"><div class="legend-bar-gradient" style="background:${grad}"></div>
+        <div class="legend-bar-labels"><span>${Number(max.toFixed(1))}</span><span>${Number(min.toFixed(1))}</span></div></div>`;
+    }
+
+    // Plain RGB tile / web raster with a recolour ramp
+    if (ltype === 'raster' && layer.rasterSymbology && layer.rasterSymbology.rampId !== 'original') {
+      const s = layer.rasterSymbology;
+      const ramp = RASTER_RAMPS[s.rampId];
+      if (!ramp) return '';
+      const min = s.stretchMin ?? 0;
+      const max = s.stretchMax ?? 255;
+      if (s.mode === 'classified') {
+        return classifiedRowsHtml(equalIntervalClasses(ramp.stops, s.invert ?? false, s.classes ?? 5, min, max, '', 0));
+      }
+      const grad = `linear-gradient(to top,${(s.invert ? [...ramp.stops].reverse() : ramp.stops).map(c => `rgb(${c[0]},${c[1]},${c[2]})`).join(',')})`;
+      return `<div class="legend-bar"><div class="legend-bar-gradient" style="background:${grad}"></div>
+        <div class="legend-bar-labels"><span>high</span><span>low</span></div></div>`;
+    }
+
+    // Plain image layer with no symbology — just note the layer type.
+    return `<div class="legend-row-label" style="opacity:0.6">Image layer</div>`;
+  }
+
+  /** Rebuild the Map Legend drawer body from the current stack. */
+  private refreshLegend(): void {
+    const body = this.legendBodyEl;
+    if (!body) return;
     try {
-      const visible = this.stack.filter(l => this.getLayerType(l) === 'hrdem-wcs' && l.visible);
-      if (visible.length === 0) {
-        this.unifiedLegendEl?.remove();
-        this.unifiedLegendEl = null;
-        return;
-      }
-      if (!this.unifiedLegendEl) {
-        const container = this.mapManager.getMap().getContainer();
-        const el = document.createElement('div');
-        el.id = 'hrdem-unified-legend';
-        el.style.cssText = [
-          'position:absolute', 'bottom:36px', 'left:68px', 'z-index:10',
-          'background:rgba(18,36,26,0.78)',
-          'border:1px solid rgba(255,255,255,0.12)',
-          'border-radius:6px', 'overflow:hidden',
-          'font-family:inherit', 'font-size:11px', 'color:#c8d8c8',
-          'min-width:90px', 'pointer-events:auto',
-          'backdrop-filter:blur(4px)', '-webkit-backdrop-filter:blur(4px)',
-          'box-shadow:0 2px 12px rgba(0,0,0,0.45)',
-        ].join(';');
-        container.appendChild(el);
-        this.unifiedLegendEl = el;
-      }
-      const el = this.unifiedLegendEl;
-      const collapsed = this.unifiedLegendCollapsed;
+      const items = this.stack
+        .map((layer, idx) => ({ layer, idx }))
+        .filter(({ layer, idx }) => this.isLegendEligible(layer, idx))
+        .reverse(); // top-most layer first
 
-      const headerHtml = `<div class="hrdem-legend-hdr" style="display:flex;align-items:center;justify-content:space-between;padding:4px 8px 4px 10px;border-bottom:1px solid rgba(255,255,255,0.08);cursor:pointer;user-select:none">
-        <span style="font-size:8px;opacity:0.45;letter-spacing:.07em;text-transform:uppercase">Legend</span>
-        <button class="hrdem-legend-collapse" style="background:none;border:none;color:#9cb;cursor:pointer;font-size:11px;padding:0 0 0 6px;line-height:1">${collapsed ? '▸' : '▾'}</button>
-      </div>`;
-
-      let bodyHtml = '';
-      if (!collapsed) {
-        const blocks = visible.map(l => {
-          const inst = this.hrdemLayers.get(l.instanceId);
-          if (!inst) return '';
-          const blockInner = inst.getLegendHTML();
-          if (!blockInner) return '';   // ← skip layers with no legend content yet
-          return `<div style="padding:6px 10px;${visible.indexOf(l) < visible.length - 1 ? 'border-bottom:1px solid rgba(255,255,255,0.06)' : ''}">
-            <div style="font-size:8px;opacity:0.4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px">${l.label}</div>
-            ${blockInner}
-          </div>`;
-        }).filter(Boolean).join('');
-        bodyHtml = blocks;
-      }
-
-      // If all blocks ended up empty, remove the legend container
-      if (!bodyHtml && !collapsed) {
-        this.unifiedLegendEl?.remove();
-        this.unifiedLegendEl = null;
+      if (items.length === 0) {
+        body.innerHTML = `<div class="map-legend-empty">No layers in the legend.<br>Turn on “Show in legend” for a layer in the Table of Contents.</div>`;
         return;
       }
 
-      el.innerHTML = headerHtml + bodyHtml;
+      body.innerHTML = items.map(({ layer }) => {
+        const inner = this.buildLegendBody(layer);
+        const collapsed = this.collapsedLegendItems.has(layer.instanceId);
+        const badge = this.legendBadge(layer);
+        return `<div class="legend-item${collapsed ? ' collapsed' : ''}" data-legend-iid="${layer.instanceId}">
+          <button class="legend-item-header" data-legend-toggle="${layer.instanceId}">
+            <span class="legend-chevron">▾</span>
+            <span class="legend-item-title" title="${layer.label}">${layer.label}</span>
+            ${badge ? `<span class="legend-item-badge">${badge}</span>` : ''}
+          </button>
+          <div class="legend-item-body">${inner || '<div class="legend-row-label" style="opacity:0.6">—</div>'}</div>
+        </div>`;
+      }).join('');
 
-      el.querySelector<HTMLElement>('.hrdem-legend-hdr')?.addEventListener('click', () => {
-        this.unifiedLegendCollapsed = !this.unifiedLegendCollapsed;
-        this.refreshUnifiedLegend();
+      body.querySelectorAll<HTMLButtonElement>('[data-legend-toggle]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const iid = btn.dataset.legendToggle!;
+          if (this.collapsedLegendItems.has(iid)) this.collapsedLegendItems.delete(iid);
+          else this.collapsedLegendItems.add(iid);
+          btn.closest('.legend-item')?.classList.toggle('collapsed', this.collapsedLegendItems.has(iid));
+        });
       });
     } catch { /* map not ready yet */ }
+  }
+
+  private legendBadge(layer: StackLayer): string {
+    const ltype = this.getLayerType(layer);
+    if (ltype === 'hrdem-wcs') return 'DEM';
+    if (ltype === 'nsprd-vector' || ltype === 'nshn-vector') return 'VEC';
+    if (ltype === 'cog-contour') return 'CONTOUR';
+    if (layer.url.startsWith('cog://')) return 'COG';
+    return 'RASTER';
   }
 
   private refreshRasterOverlays(): void {
@@ -1403,7 +1475,7 @@ export class BasemapManager {
           this.hrdemLayers.set(l.instanceId, newLayer);
         }
         const hrdemInst = this.hrdemLayers.get(l.instanceId)!;
-        hrdemInst.onLegendUpdate = () => this.refreshUnifiedLegend();
+        hrdemInst.onLegendUpdate = () => this.refreshLegend();
         const isContourLayer = l.defId === 'hrdem-contours' || l.defId === 'hrdem-dsm-contours';
         hrdemInst.activate(l.instanceId, l.opacity, l.visible, this.resolveHrdemRamp(l));
         hrdemInst.setRasterVisible(l.hrdemRasterVisible ?? true);
@@ -1483,7 +1555,7 @@ export class BasemapManager {
         );
       }
     }
-    this.refreshUnifiedLegend();
+    this.refreshLegend();
   }
 
   renderPanel(
@@ -1869,6 +1941,13 @@ export class BasemapManager {
   private renderStackItem(layer: StackLayer, idx: number): string {
     const isBase = idx === this.stack.length - 1;
     const ltype = this.getLayerType(layer);
+    // "Show in legend" row — every non-base data layer gets this in its settings panel
+    const showInLegend = layer.showInLegend !== false;
+    const legendRow = isBase ? '' : `
+        <div class="bm-adj-row" style="margin-top:4px">
+          <label class="bm-adj-label" style="flex:1;text-align:left">Show in legend</label>
+          <button class="vis-tog bm-legend-tog ${showInLegend ? 'active' : ''}" data-iid="${layer.instanceId}" title="Toggle legend entry"></button>
+        </div>`;
     const isVectorLayer = ['nsprd-vector', 'nshn-vector'].includes(ltype);
     const cfg = isVectorLayer ? this.getVectorConfig(layer) : undefined;
     const eyeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
@@ -1913,6 +1992,7 @@ export class BasemapManager {
           <button class="bm-vec-symbology btn-outline" data-iid="${layer.instanceId}"
             style="font-size:10px;padding:4px 8px;flex:1" title="Open Symbology Studio">⊛ Symbology</button>
         </div>
+        ${legendRow}
       </div>` : '';
 
     const isCogContour = ltype === 'cog-contour';
@@ -1960,6 +2040,7 @@ export class BasemapManager {
           <span class="bm-cc-fo-val" data-iid="${layer.instanceId}"
             style="font-size:10px;opacity:.55;width:30px">${Math.round(ccFillOpacity * 100)}%</span>
         </div>
+        ${legendRow}
       </div>` : '';
 
     const isHrdem = ltype === 'hrdem-wcs';
@@ -2031,16 +2112,10 @@ export class BasemapManager {
         </div>`;
 
     } else if (layer.defId === 'hrdem-slope' || layer.defId === 'hrdem-dsm-slope') {
+      // Colour ramp / invert moved to the Symbology Studio (⊛). Only slope-specific
+      // controls (display unit + stretch) remain inline.
       hrdemInnerContent = `
-        <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px">
-          ${Object.entries(SLOPE_RAMPS).map(([k,r]) => chip(r.label, hrdemSlopeRampId===k, 'bm-hrdem-slope-ramp-chip', `data-ramp="${k}"`)).join('')}
-        </div>
-        <div class="bm-hrdem-slope-preview" data-iid="${iid}" style="height:7px;border-radius:2px;border:1px solid var(--border,#444);background:${slopeGradient};margin-bottom:6px"></div>
         <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-          <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--fg-2,#888);cursor:pointer">
-            <input type="checkbox" class="bm-hrdem-slope-invert" data-iid="${iid}"${hrdemSlopeInvert?' checked':''} /> Invert
-          </label>
-          <span style="font-size:10px;opacity:.25">|</span>
           <span style="font-size:9px;opacity:.55">Unit</span>
           ${chip('°', hrdemSlopeUnit==='degrees', 'bm-hrdem-slope-unit', 'data-unit="degrees"')}
           ${chip('%', hrdemSlopeUnit==='percent',  'bm-hrdem-slope-unit', 'data-unit="percent"')}
@@ -2072,16 +2147,10 @@ export class BasemapManager {
         </div>`;
 
     } else if (layer.defId === 'hrdem-tpi' || layer.defId === 'hrdem-dsm-tpi') {
+      // Colour ramp / invert moved to the Symbology Studio (⊛). Only the TPI
+      // stretch control remains inline.
       hrdemInnerContent = `
-        <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px">
-          ${Object.entries(TPI_RAMPS).map(([k,r]) => chip(r.label, hrdemTpiRampId===k, 'bm-hrdem-tpi-ramp-chip', `data-ramp="${k}"`)).join('')}
-        </div>
-        <div class="bm-hrdem-tpi-preview" data-iid="${iid}" style="height:7px;border-radius:2px;border:1px solid var(--border,#444);background:${tpiGradient};margin-bottom:6px"></div>
         <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-          <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--fg-2,#888);cursor:pointer">
-            <input type="checkbox" class="bm-hrdem-tpi-invert" data-iid="${iid}"${hrdemTpiInvert?' checked':''} /> Invert
-          </label>
-          <span style="font-size:10px;opacity:.25">|</span>
           <span style="font-size:9px;opacity:.55">Stretch</span>
           ${chip('Symmetric', hrdemTpiStretch==='symmetric', 'bm-hrdem-tpi-stretch', 'data-stretch="symmetric"')}
           ${chip('Auto',      hrdemTpiStretch==='auto',      'bm-hrdem-tpi-stretch', 'data-stretch="auto"')}
@@ -2145,46 +2214,23 @@ export class BasemapManager {
       hrdemInnerContent = `<div style="font-size:10px;opacity:.65">Terrain roughness — elevation range within a 3×3 cell window. No configurable parameters; colour ramp is fixed green→yellow→red.</div>`;
 
     } else if (layer.defId === 'raster-fn-slope-pct') {
-      const hrdemSlopeRampId2  = layer.hrdemSlopeRampId  ?? 'classic';
-      const hrdemSlopeInvert2  = layer.hrdemSlopeInvert  ?? false;
-      const slopeRampEntry2    = SLOPE_RAMPS[hrdemSlopeRampId2] ?? SLOPE_RAMPS['classic'];
-      const slopeGradient2     = rampToHorizontalGradient(hrdemSlopeInvert2 ? invertRamp(slopeRampEntry2.ramp) : slopeRampEntry2.ramp);
+      // Colour ramp moved to the Symbology Studio (⊛).
       hrdemInnerContent = `
-        <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px">
-          ${Object.entries(SLOPE_RAMPS).map(([k,r]) => chip(r.label, hrdemSlopeRampId2===k, 'bm-hrdem-slope-ramp-chip', `data-ramp="${k}"`)).join('')}
-        </div>
-        <div class="bm-hrdem-slope-preview" data-iid="${iid}" style="height:7px;border-radius:2px;border:1px solid var(--border,#444);background:${slopeGradient2};margin-bottom:6px"></div>
-        <div style="font-size:10px;opacity:.55;font-style:italic">Displaying slope as % grade (0–100%).</div>`;
+        <div style="font-size:10px;opacity:.55;font-style:italic">Displaying slope as % grade (0–100%). Use ⊛ Symbology for colour ramp &amp; classification.</div>`;
 
     } else if (layer.defId === 'raster-fn-aspect') {
       hrdemInnerContent = `<div style="font-size:10px;opacity:.65">Terrain aspect (slope direction). Rendered as a directional colour wheel — N cool blue, E orange, S warm red, W purple.</div>`;
 
     } else if (layer.defId === 'raster-fn-tpi') {
-      const hrdemTpiRampId2  = layer.hrdemTpiRampId  ?? 'rdylbu';
-      const hrdemTpiInvert2  = layer.hrdemTpiInvert  ?? false;
-      const tpiRampEntry2    = TPI_RAMPS[hrdemTpiRampId2] ?? TPI_RAMPS['rdylbu'];
-      const tpiGradient2     = rampToHorizontalGradient(hrdemTpiInvert2 ? invertRamp(tpiRampEntry2.ramp) : tpiRampEntry2.ramp);
+      // Colour ramp moved to the Symbology Studio (⊛).
       hrdemInnerContent = `
-        <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px">
-          ${Object.entries(TPI_RAMPS).map(([k,r]) => chip(r.label, hrdemTpiRampId2===k, 'bm-hrdem-tpi-ramp-chip', `data-ramp="${k}"`)).join('')}
-        </div>
-        <div class="bm-hrdem-tpi-preview" data-iid="${iid}" style="height:7px;border-radius:2px;border:1px solid var(--border,#444);background:${tpiGradient2};margin-bottom:6px"></div>
-        <div style="font-size:10px;opacity:.55;font-style:italic">Topographic Position Index — ridges (red) vs valleys (blue).</div>`;
+        <div style="font-size:10px;opacity:.55;font-style:italic">Topographic Position Index — ridges vs valleys. Use ⊛ Symbology for colour ramp &amp; classification.</div>`;
 
     } else {
-      // Default: elevation panel (DTM or DSM elevation)
+      // Default: elevation panel (DTM or DSM elevation).
+      // Colour ramp, invert, classification & stretch all live in the Symbology Studio (⊛).
       hrdemInnerContent = `
-        <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:5px">
-          ${Object.entries(HRDEM_RAMPS).map(([k,r]) => chip(r.label, hrdemRampId===k, 'bm-hrdem-ramp-chip', `data-ramp="${k}"`)).join('')}
-        </div>
-        <div class="bm-hrdem-ramp-preview" data-iid="${iid}" style="height:7px;border-radius:2px;border:1px solid var(--border,#444);background:${hrdemGradient};margin-bottom:6px"></div>
-        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-          <label style="display:flex;align-items:center;gap:3px;font-size:10px;color:var(--fg-2,#888);cursor:pointer">
-            <input type="checkbox" class="bm-hrdem-invert" data-iid="${iid}"${hrdemInvert?' checked':''} /> Invert
-          </label>
-          <span style="font-size:10px;opacity:.25">|</span>
-          <span style="font-size:9px;opacity:.55;font-style:italic">auto stretch per view</span>
-        </div>`;
+        <div style="font-size:10px;opacity:.55;font-style:italic">Use ⊛ Symbology for colour ramp, classification &amp; stretch.</div>`;
     }
 
     const hrdemStudioOk = ['elevation', 'slope', 'tpi', 'chm-focal'].includes(hrdemProduct);
@@ -2201,6 +2247,7 @@ export class BasemapManager {
           <button class="bm-raster-symbology btn-outline" data-iid="${iid}"
             style="font-size:10px;padding:4px 8px;flex:1" title="Colour ramps, classification &amp; stretch">⊛ Symbology</button>
         </div>` : ''}
+        ${legendRow}
       </div>` : '';
 
     const isCog = layer.url.startsWith('cog://');
@@ -2222,26 +2269,9 @@ export class BasemapManager {
       if (invert) stops = [...stops].reverse();
       return `linear-gradient(to right,${stops.join(',')})`;
     };
-    const cogRampGradient = isCog ? buildGradient(cogRampId, cogRampInvert) : '';
+    // Colour ramp / invert / classification & stretch for COG rasters live in the
+    // Symbology Studio (⊛). Only the Smooth toggle (not a symbology feature) stays inline.
     const cogRampRow = isCog ? `
-      <div class="bm-adj-row">
-        <label class="bm-adj-label">Ramp</label>
-        <select class="bm-cog-ramp" data-iid="${layer.instanceId}" style="flex:1;min-width:0;font-size:11px;background:var(--bg-2,#1a2a1a);color:var(--fg-1,#ccc);border:1px solid var(--border,#444);border-radius:3px;padding:2px 4px">
-          <option value="original"${cogRampId==='original'?' selected':''}>Original</option>
-          ${Object.entries(RASTER_RAMPS).map(([k,r])=>`<option value="${k}"${cogRampId===k?' selected':''}>${r.label}</option>`).join('')}
-        </select>
-      </div>
-      <div class="bm-adj-row">
-        <label class="bm-adj-label"></label>
-        <div class="bm-ramp-preview" data-iid="${layer.instanceId}" style="flex:1;height:10px;border-radius:3px;border:1px solid var(--border,#444);background:${cogRampGradient}"></div>
-      </div>
-      <div class="bm-adj-row">
-        <label class="bm-adj-label"></label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
-          <input type="checkbox" class="bm-cog-invert" data-iid="${layer.instanceId}"${cogRampInvert?' checked':''} />
-          Invert ramp
-        </label>
-      </div>
       <div class="bm-adj-row">
         <label class="bm-adj-label"></label>
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--fg-2,#888);cursor:pointer">
@@ -2300,6 +2330,7 @@ export class BasemapManager {
             <button class="bm-raster-symbology btn-outline" data-iid="${layer.instanceId}"
               style="font-size:10px;padding:4px 8px;flex:1" title="Colour ramps, classification &amp; stretch">⊛ Symbology</button>
           </div>` : ''}
+          ${legendRow}
         </div>`}
       </div>`;
   }
@@ -2808,11 +2839,23 @@ export class BasemapManager {
         else if (ltype2 === 'nshn-vector') this.nshnLayers.get(iid)?.setVisible(layer.visible);
         else if (ltype2 === 'hrdem-wcs') {
           this.hrdemLayers.get(iid)?.setVisible(layer.visible);
-          this.refreshUnifiedLegend();
+          this.refreshLegend();
         }
         else if (ltype2 === 'cog-contour') this.cogContourLayers.get(iid)?.setVisible(layer.visible);
         else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
         this.saveStack();
+      });
+    });
+
+    // "Show in legend" toggles
+    container.querySelectorAll<HTMLButtonElement>('.bm-legend-tog').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        layer.showInLegend = layer.showInLegend === false; // toggle (default true → false)
+        btn.classList.toggle('active', layer.showInLegend !== false);
+        this.saveStack(); // refreshes the legend
       });
     });
 
