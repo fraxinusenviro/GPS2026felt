@@ -1,6 +1,10 @@
 import { BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
+import { NS_REST_ALL_DEFS, NS_REST_ALL_GROUP } from '../data/nsRestAll';
 import type { BasemapDef } from '../types';
 import { EventBus } from '../utils/EventBus';
+
+// Cap on how many cards render at once (the NS REST catalogue is 1,000+ layers)
+const MAX_GRID_CARDS = 200;
 
 // ── Thumbnail type icons (public/layer-thumbs/type-*.png) ────────────────────
 // esri-imagery, esri-hybrid, osm, topo use live tile fetches (not listed here).
@@ -194,6 +198,11 @@ function getThumb(def: BasemapDef): { src: string; isTile: boolean } {
     const src = def.url.replace('{z}', '4').replace('{x}', '4').replace('{y}', '5').replace('{r}', '');
     return { src, isTile: true };
   }
+  // Vector catalogue layers — generic geometry icon
+  if (def.vector_config) {
+    return { src: def.vector_config.geomType === 'line' ? L : P, isTile: false };
+  }
+  if (def.type === 'raster') return { src: R, isTile: false };
   return { src: './layer-thumbs/default.png', isTile: false };
 }
 
@@ -249,13 +258,13 @@ export class DataLibraryModal {
   }
 
   private get allDefs(): BasemapDef[] {
-    return [...BASEMAPS, ...BASEMAP_OVERLAYS];
+    return [...BASEMAPS, ...BASEMAP_OVERLAYS, ...NS_REST_ALL_DEFS];
   }
 
   private get groups(): string[] {
     const seen = new Set<string>();
     BASEMAP_OVERLAYS.forEach(d => { if (d.group) seen.add(d.group); });
-    return [...seen].sort();
+    return [...[...seen].sort(), NS_REST_ALL_GROUP];
   }
 
   private filteredDefs(): BasemapDef[] {
@@ -263,7 +272,13 @@ export class DataLibraryModal {
     if (this.activeGroup !== 'all') {
       defs = this.activeGroup === 'basemaps'
         ? [...BASEMAPS]
+        : this.activeGroup === NS_REST_ALL_GROUP
+        ? [...NS_REST_ALL_DEFS]
         : BASEMAP_OVERLAYS.filter(d => d.group === this.activeGroup);
+    } else if (!this.searchQuery) {
+      // Browsing "All Sources" without a search: hide the 1,000+ layer NS REST
+      // catalogue so the curated library stays scannable (it has its own section).
+      defs = defs.filter(d => d.group !== NS_REST_ALL_GROUP);
     }
     if (this.searchQuery) {
       const q = this.searchQuery.toLowerCase();
@@ -271,7 +286,7 @@ export class DataLibraryModal {
         (LABEL_OVERRIDES[d.id] ?? d.label).toLowerCase().includes(q) ||
         (d.group ?? '').toLowerCase().includes(q) ||
         d.attribution.toLowerCase().includes(q) ||
-        (LAYER_DESCRIPTIONS[d.id] ?? '').toLowerCase().includes(q),
+        (LAYER_DESCRIPTIONS[d.id] ?? d.description ?? '').toLowerCase().includes(q),
       );
     }
     return defs;
@@ -283,7 +298,7 @@ export class DataLibraryModal {
     const displayLabel = LABEL_OVERRIDES[def.id] ?? def.label;
     const tl = typeLabel(def);
     const groupText = def.group ?? 'Standard';
-    const desc = LAYER_DESCRIPTIONS[def.id] ?? 'A geospatial data layer for use in field mapping projects.';
+    const desc = LAYER_DESCRIPTIONS[def.id] ?? def.description ?? 'A geospatial data layer for use in field mapping projects.';
     const source = def.attribution;
     const hasParams = def.group === 'Raster Functions' && def.id in RF_PARAM_SCHEMAS;
 
@@ -408,7 +423,8 @@ export class DataLibraryModal {
             </div>
             ${defs.length === 0
               ? `<div class="dl-empty">No layers match "<strong>${this.searchQuery}</strong>"</div>`
-              : `<div class="dl-grid">${defs.map(d => this.renderCard(d)).join('')}</div>`
+              : `<div class="dl-grid">${defs.slice(0, MAX_GRID_CARDS).map(d => this.renderCard(d)).join('')}</div>
+                 ${defs.length > MAX_GRID_CARDS ? `<div class="dl-empty">Showing the first ${MAX_GRID_CARDS} of ${defs.length} layers — use the search box to narrow down the list.</div>` : ''}`
             }
           </div>`) : `
           <div class="dl-io-wrap" id="dl-io-container"></div>`}

@@ -2,22 +2,67 @@
 
 import type { SymbologyState, ClassifierName } from '../types';
 
-// ---- Sequential ramps for graduated / proportional ----
+// ---- Sequential / diverging ramps for graduated / proportional ----
 export const SEQ_RAMPS: Record<string, string[]> = {
-  Viridis: ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'],
-  Magma:   ['#0a0722', '#51127c', '#b73779', '#fc8961', '#fcfdbf'],
-  BluGrn:  ['#c4e6c3', '#80c6a3', '#4da284', '#2e7d6c', '#1d4f60'],
-  Sunset:  ['#f3e79b', '#f8a07e', '#eb7f86', '#ce6693', '#5c53a5'],
-  OrRd:    ['#fee8c8', '#fdbb84', '#ef6548', '#b30000', '#5c0000'],
-  RdBu:    ['#2166ac', '#67a9cf', '#d1e5f0', '#fddbc7', '#ef8a62', '#b2182b'],
+  // Perceptually uniform sequential
+  Viridis:  ['#440154', '#3b528b', '#21918c', '#5ec962', '#fde725'],
+  Magma:    ['#0a0722', '#51127c', '#b73779', '#fc8961', '#fcfdbf'],
+  Plasma:   ['#0d0887', '#9c179e', '#ed7953', '#f6cf20', '#f0f921'],
+  Inferno:  ['#000004', '#57106e', '#bc3754', '#f98e09', '#fcffa4'],
+  Cividis:  ['#00204d', '#31446b', '#666970', '#a69d75', '#ffea46'],
+  Turbo:    ['#30123b', '#31a7a5', '#7ae556', '#f99c1a', '#b2182b'],
+  Mako:     ['#0b0405', '#3b2f5e', '#357ba3', '#4cc8ad', '#def5e5'],
+  Rocket:   ['#03051a', '#641a80', '#cb1b4f', '#f6845f', '#faebdd'],
+  // ColorBrewer sequential
+  Blues:    ['#f7fbff', '#c6dbef', '#6baed6', '#2171b5', '#08306b'],
+  Greens:   ['#f7fcf5', '#bae4b3', '#74c476', '#238b45', '#00441b'],
+  Reds:     ['#fff5f0', '#fcbba1', '#fc8d59', '#de2d26', '#a50f15'],
+  Oranges:  ['#fff5eb', '#fdd0a2', '#fd8d3c', '#d94801', '#7f2704'],
+  Purples:  ['#fcfbfd', '#dadaeb', '#9e9ac8', '#6a51a3', '#3f007d'],
+  Greys:    ['#ffffff', '#cccccc', '#969696', '#525252', '#000000'],
+  YlGn:     ['#ffffe5', '#d9f0a3', '#78c679', '#238443', '#004529'],
+  YlGnBu:   ['#ffffd9', '#a1dab4', '#41b6c4', '#225ea8', '#081d58'],
+  YlOrRd:   ['#ffffcc', '#fed976', '#fd8d3c', '#e31a1c', '#800026'],
+  OrRd:     ['#fee8c8', '#fdbb84', '#ef6548', '#b30000', '#5c0000'],
+  BuGn:     ['#f7fcfd', '#ccece6', '#66c2a4', '#238b45', '#00441b'],
+  BuPu:     ['#f7fcfd', '#bfd3e6', '#8c96c6', '#88419d', '#4d004b'],
+  GnBu:     ['#f7fcf0', '#ccebc5', '#7bccc4', '#2b8cbe', '#084081'],
+  PuRd:     ['#f7f4f9', '#d4b9da', '#df65b0', '#ce1256', '#67001f'],
+  // CARTO sequential
+  BluGrn:   ['#c4e6c3', '#80c6a3', '#4da284', '#2e7d6c', '#1d4f60'],
+  Sunset:   ['#f3e79b', '#f8a07e', '#eb7f86', '#ce6693', '#5c53a5'],
+  Emrld:    ['#d3f2a3', '#82d091', '#4c9b82', '#217a79', '#074050'],
+  Teal:     ['#d1eeea', '#85c4c9', '#4f90a6', '#3b738f', '#2a5674'],
+  Peach:    ['#fde0c5', '#facba6', '#f8b58b', '#f59e72', '#f2855d'],
+  // Diverging
+  RdBu:     ['#2166ac', '#67a9cf', '#d1e5f0', '#fddbc7', '#ef8a62', '#b2182b'],
+  RdYlBu:   ['#a50026', '#f46d43', '#ffffbf', '#74add1', '#313695'],
+  RdYlGn:   ['#a50026', '#f46d43', '#ffffbf', '#a6d96a', '#006837'],
+  BrBG:     ['#8c510a', '#d8b365', '#f5f5f5', '#5ab4ac', '#01665e'],
+  PiYG:     ['#c51b7d', '#e9a3c9', '#f7f7f7', '#a1d76a', '#4d9221'],
+  PRGn:     ['#762a83', '#af8dc3', '#f7f7f7', '#7fbf7b', '#1b7837'],
+  PuOr:     ['#b35806', '#f1a340', '#f7f7f7', '#998ec3', '#542788'],
+  Spectral: ['#9e0142', '#d53e4f', '#fdae61', '#ffffbf', '#abdda4', '#489977', '#5e4fa2'],
+  Coolwarm: ['#3b4cc0', '#8db0fe', '#dddddd', '#f49a7b', '#b40426'],
+  // Thematic
+  Terrain:  ['#336600', '#b4a05a', '#966437', '#b4aaa0', '#ffffff'],
+  Bathy:    ['#081d58', '#225ea8', '#41b6c4', '#a1dab4', '#ffffd9'],
 };
 
 // ---- Qualitative palettes for categorical ----
 export const QUAL_PALETTES: Record<string, string[]> = {
-  Bold:    ['#7F3C8D', '#11A579', '#3969AC', '#F2B701', '#E73F74', '#80BA5A', '#E68310'],
-  Vivid:   ['#E58606', '#5D69B1', '#52BCA3', '#99C945', '#CC61B0', '#24796C', '#DAA51B'],
-  Pastel:  ['#66C5CC', '#F6CF71', '#F89C74', '#DCB0F2', '#87C55F', '#9EB9F3', '#FE88B1'],
-  Antique: ['#855C75', '#D9AF6B', '#AF6458', '#736F4C', '#526A83', '#625377', '#68855C'],
+  Bold:     ['#7F3C8D', '#11A579', '#3969AC', '#F2B701', '#E73F74', '#80BA5A', '#E68310'],
+  Vivid:    ['#E58606', '#5D69B1', '#52BCA3', '#99C945', '#CC61B0', '#24796C', '#DAA51B'],
+  Pastel:   ['#66C5CC', '#F6CF71', '#F89C74', '#DCB0F2', '#87C55F', '#9EB9F3', '#FE88B1'],
+  Antique:  ['#855C75', '#D9AF6B', '#AF6458', '#736F4C', '#526A83', '#625377', '#68855C'],
+  Prism:    ['#5F4690', '#1D6996', '#38A6A5', '#0F8554', '#73AF48', '#EDAD08', '#E17C05'],
+  Safe:     ['#88CCEE', '#CC6677', '#DDCC77', '#117733', '#332288', '#AA4499', '#44AA99'],
+  Tableau:  ['#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F', '#EDC948', '#B07AA1'],
+  Set1:     ['#E41A1C', '#377EB8', '#4DAF4A', '#984EA3', '#FF7F00', '#FFFF33', '#A65628'],
+  Set2:     ['#66C2A5', '#FC8D62', '#8DA0CB', '#E78AC3', '#A6D854', '#FFD92F', '#E5C494'],
+  Dark2:    ['#1B9E77', '#D95F02', '#7570B3', '#E7298A', '#66A61E', '#E6AB02', '#A6761D'],
+  Accent:   ['#7FC97F', '#BEAED4', '#FDC086', '#FFFF99', '#386CB0', '#F0027F', '#BF5B17'],
+  Retro:    ['#5B8E7D', '#F4A259', '#BC4B51', '#8CB369', '#F4E285', '#6B4E71', '#3B6064'],
 };
 
 export const SINGLE_COLORS = [

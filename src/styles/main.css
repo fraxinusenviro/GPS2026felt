@@ -8200,6 +8200,7 @@ input[type=color] {
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 .ss-section.ss-hidden { display: none; }
+.ss-hidden { display: none !important; }
 
 .ss-lbl {
   font-size: 11px;
@@ -8244,6 +8245,9 @@ input[type=color] {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 2px;
 }
 .ss-ramp-item {
   display: flex;
@@ -8288,6 +8292,24 @@ input[type=color] {
 }
 .ss-sw:hover { transform: scale(1.15); }
 .ss-sw.on { border-color: #fff; box-shadow: 0 0 0 1px var(--color-accent); }
+
+/* Custom colour-picker swatch (rainbow ring until a colour is chosen) */
+.ss-sw-custom {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: conic-gradient(#f44, #fb0, #4c4, #0cc, #44f, #c4c, #f44);
+}
+.ss-sw-custom input[type="color"] {
+  position: absolute;
+  inset: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  opacity: 0;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
 
 /* Legend */
 .ss-legend-row {

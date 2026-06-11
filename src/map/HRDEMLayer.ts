@@ -30,6 +30,8 @@ import {
   type ColorRamp,
 } from '../lib/elevationRenderer';
 import { generateContours } from '../lib/contourGenerator';
+import { EXTENDED_COLOR_RAMPS, computeClassBreaks } from '../lib/rasterRamps';
+import type { ClassifierName, RasterStretchMode } from '../types';
 import { computeSlope, computeAspect, computeTPI } from '../lib/demProducts';
 import { LAYER_IDS } from '../constants';
 import type { CutFillResult } from '../lib/cutFillEngine';
@@ -58,6 +60,15 @@ export interface ChmFocalParams {
   radius: number;
   stat: 'mean' | 'min' | 'max' | 'median' | 'sum' | 'percentile';
   percentile: number;
+}
+
+export interface RenderOptions {
+  stretchMode?:  RasterStretchMode;   // elevation product only
+  stretchMin?:   number;              // custom stretch range (m)
+  stretchMax?:   number;
+  classify?:     boolean;             // classified rendering (elevation/slope/TPI/CHM-stretch)
+  classifier?:   ClassifierName;
+  classes?:      number;              // 3–9
 }
 
 export interface ProductStyle {
@@ -124,6 +135,16 @@ export class HRDEMLayer {
   private hillshadeAzimuth:  number = 315;
   private hillshadeAltitude: number = 45;
   private hillshadeZFactor:  number = 1;
+
+  // Generic stretch + classification (Raster Symbology Studio)
+  private stretchMode: RasterStretchMode = 'percentile';
+  private stretchCustomMin = 0;
+  private stretchCustomMax = 100;
+  private classifyEnabled  = false;
+  private classifierName: ClassifierName = 'Natural breaks';
+  private classCount = 5;
+  // Range actually used by the most recent render (drives legend labels)
+  private lastRenderRange: [number, number] | null = null;
 
   private contourEnabled  = false;
   private contourInterval = 1;
@@ -334,7 +355,7 @@ export class HRDEMLayer {
     this.ramp = invert ? invertRamp(ramp) : ramp;
     if (this.hrdemProduct !== 'elevation') return;
     if (this.lastResult) {
-      renderElevation(this.canvas, this.lastResult, this.ramp);
+      this.renderProduct(this.canvas, this.lastResult);
       this.canvasHasData = true;
       const src = this.mapManager.getMap().getSource(this.srcId) as maplibregl.ImageSource | undefined;
       if (src) src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
@@ -371,6 +392,24 @@ export class HRDEMLayer {
     if (style.chmRampId    !== undefined) this.chmRampId    = style.chmRampId;
     if (style.chmInvert    !== undefined) this.chmInvert    = style.chmInvert;
     if (style.chmClassPaletteId !== undefined) this.chmClassPaletteId = style.chmClassPaletteId;
+
+    if (this.lastResult) {
+      this.renderProduct(this.canvas, this.lastResult);
+      this.canvasHasData = true;
+      const src = this.mapManager.getMap().getSource(this.srcId) as maplibregl.ImageSource | undefined;
+      if (src) src.updateImage({ url: this.canvas.toDataURL('image/png'), coordinates: this.lastCoords });
+      this.onLegendUpdate?.();
+    }
+  }
+
+  /** Stretch + classification options from the Raster Symbology Studio. */
+  setRenderOptions(opts: RenderOptions): void {
+    if (opts.stretchMode !== undefined) this.stretchMode      = opts.stretchMode;
+    if (opts.stretchMin  !== undefined) this.stretchCustomMin = opts.stretchMin;
+    if (opts.stretchMax  !== undefined) this.stretchCustomMax = opts.stretchMax;
+    if (opts.classify    !== undefined) this.classifyEnabled  = opts.classify;
+    if (opts.classifier  !== undefined) this.classifierName   = opts.classifier;
+    if (opts.classes     !== undefined) this.classCount       = Math.max(3, Math.min(9, opts.classes));
 
     if (this.lastResult) {
       this.renderProduct(this.canvas, this.lastResult);
@@ -461,21 +500,80 @@ export class HRDEMLayer {
   // --------------------------------------------------------------------------
 
   private resolveSlopeRamp(): ColorRamp {
-    const entry = SLOPE_RAMPS[this.slopeRampId] ?? SLOPE_RAMPS['classic'];
+    const entry = SLOPE_RAMPS[this.slopeRampId] ?? EXTENDED_COLOR_RAMPS[this.slopeRampId] ?? SLOPE_RAMPS['classic'];
     return this.slopeInvert ? invertRamp(entry.ramp) : entry.ramp;
   }
 
   private resolveTpiRamp(): ColorRamp {
-    const entry = TPI_RAMPS[this.tpiRampId] ?? TPI_RAMPS['rdylbu'];
+    const entry = TPI_RAMPS[this.tpiRampId] ?? EXTENDED_COLOR_RAMPS[this.tpiRampId] ?? TPI_RAMPS['rdylbu'];
     return this.tpiInvert ? invertRamp(entry.ramp) : entry.ramp;
   }
 
   private resolveChmRamp(): ColorRamp {
-    const entry = CHM_RAMPS[this.chmRampId] ?? CHM_RAMPS['canopy_green'];
+    const entry = CHM_RAMPS[this.chmRampId] ?? EXTENDED_COLOR_RAMPS[this.chmRampId] ?? CHM_RAMPS['canopy_green'];
     return this.chmInvert ? invertRamp(entry.ramp) : entry.ramp;
   }
 
+  /** Resolve the stretch range for the elevation product per the configured mode. */
+  private computeElevationStretch(result: HRDEMResult): [number, number] {
+    switch (this.stretchMode) {
+      case 'minmax':  return [result.elevMin, result.elevMax];
+      case 'custom':  return [this.stretchCustomMin, this.stretchCustomMax];
+      case 'stddev1':
+      case 'stddev2': {
+        const step = Math.max(1, Math.floor(result.grid.length / 8000));
+        let sum = 0, sumSq = 0, count = 0;
+        for (let i = 0; i < result.grid.length; i += step) {
+          const v = result.grid[i];
+          if (!isFinite(v) || (result.nodata !== null && Math.abs(v - result.nodata) < 0.001)) continue;
+          sum += v; sumSq += v * v; count++;
+        }
+        if (count < 2) return [result.stretchMin, result.stretchMax];
+        const mean = sum / count;
+        const sd = Math.sqrt(Math.max(0, sumSq / count - mean * mean));
+        const k = this.stretchMode === 'stddev1' ? 1 : 2;
+        return [
+          Math.max(result.elevMin, mean - k * sd),
+          Math.min(result.elevMax, mean + k * sd),
+        ];
+      }
+      default: return [result.stretchMin, result.stretchMax]; // 2–98 percentile
+    }
+  }
+
+  /**
+   * When classification is enabled, replace the continuous ramp with a stepped
+   * ramp whose breaks are computed from the grid data within [min,max].
+   */
+  private applyClassification(
+    grid: Float32Array,
+    min: number,
+    max: number,
+    ramp: ColorRamp,
+  ): ColorRamp {
+    if (!this.classifyEnabled) return ramp;
+    const breaks = computeClassBreaks(grid, this.classCount, this.classifierName);
+    const range = max - min || 1;
+    const ts = breaks
+      .map(b => (b - min) / range)
+      .filter(t => t > 0 && t < 1)
+      .sort((a, b) => a - b);
+    if (ts.length === 0) return ramp;
+    const k = ts.length + 1;
+    const colors = Array.from({ length: k }, (_, i) => sampleRamp(ramp, k > 1 ? i / (k - 1) : 0.5));
+    const out: ColorRamp = { stops: [] };
+    const EPS = 0.0001;
+    out.stops.push({ t: 0, r: colors[0][0], g: colors[0][1], b: colors[0][2] });
+    ts.forEach((t, i) => {
+      out.stops.push({ t: Math.max(0, t - EPS), r: colors[i][0], g: colors[i][1], b: colors[i][2] });
+      out.stops.push({ t, r: colors[i + 1][0], g: colors[i + 1][1], b: colors[i + 1][2] });
+    });
+    out.stops.push({ t: 1, r: colors[k - 1][0], g: colors[k - 1][1], b: colors[k - 1][2] });
+    return out;
+  }
+
   private renderProduct(canvas: HTMLCanvasElement, result: HRDEMResult): void {
+    this.lastRenderRange = null;
     switch (this.hrdemProduct) {
       case 'slope': {
         const { grid, min, max } = computeSlope(result);
@@ -503,7 +601,9 @@ export class HRDEMLayer {
         if (!isFinite(rMax) || rMax > outMax) rMax = outMax;
         if (rMin < outMin) rMin = outMin;
 
-        renderGrid(canvas, outGrid, result.width, result.height, rMin, rMax, null, this.resolveSlopeRamp());
+        this.lastRenderRange = [rMin, rMax];
+        renderGrid(canvas, outGrid, result.width, result.height, rMin, rMax, null,
+          this.applyClassification(outGrid, rMin, rMax, this.resolveSlopeRamp()));
         break;
       }
       case 'aspect': {
@@ -520,15 +620,19 @@ export class HRDEMLayer {
         } else {
           rMin = min; rMax = max;
         }
-        renderGrid(canvas, grid, result.width, result.height, rMin, rMax, null, this.resolveTpiRamp());
+        this.lastRenderRange = [rMin, rMax];
+        renderGrid(canvas, grid, result.width, result.height, rMin, rMax, null,
+          this.applyClassification(grid, rMin, rMax, this.resolveTpiRamp()));
         break;
       }
       case 'chm':
         if (this.chmMode === 'classified') {
           renderCHMClassified(canvas, result.grid, result.width, result.height, this.chmClassPaletteId);
         } else {
+          this.lastRenderRange = [result.stretchMin, result.stretchMax];
           renderGrid(canvas, result.grid, result.width, result.height,
-            result.stretchMin, result.stretchMax, result.nodata, this.resolveChmRamp());
+            result.stretchMin, result.stretchMax, result.nodata,
+            this.applyClassification(result.grid, result.stretchMin, result.stretchMax, this.resolveChmRamp()));
         }
         break;
       case 'hillshade': {
@@ -573,8 +677,16 @@ export class HRDEMLayer {
         renderGrid(canvas, focal.grid, chmBase.width, chmBase.height, focal.min, focal.max, chmBase.nodata, this.resolveChmRamp());
         break;
       }
-      default:
-        renderElevation(canvas, result, this.ramp);
+      default: {
+        const [rMin, rMax] = this.computeElevationStretch(result);
+        this.lastRenderRange = [rMin, rMax];
+        const finalRamp = this.applyClassification(result.grid, rMin, rMax, this.ramp);
+        if (this.stretchMode === 'percentile' && finalRamp === this.ramp) {
+          renderElevation(canvas, result, this.ramp);
+        } else {
+          renderGrid(canvas, result.grid, result.width, result.height, rMin, rMax, result.nodata, finalRamp);
+        }
+      }
     }
   }
 
@@ -2635,9 +2747,15 @@ export class HRDEMLayer {
   }
 
   private buildElevationLegend(result: HRDEMResult | null): string {
-    const grad = rampToGradient(this.ramp);
-    const minLbl = result ? `${result.stretchMin.toFixed(0)} m` : '—';
-    const maxLbl = result ? `${result.stretchMax.toFixed(0)} m` : '—';
+    const grad = rampToGradient(
+      this.classifyEnabled && result
+        ? this.applyClassification(result.grid, this.lastRenderRange?.[0] ?? result.stretchMin, this.lastRenderRange?.[1] ?? result.stretchMax, this.ramp)
+        : this.ramp,
+    );
+    const rangeMin = this.lastRenderRange?.[0] ?? result?.stretchMin;
+    const rangeMax = this.lastRenderRange?.[1] ?? result?.stretchMax;
+    const minLbl = rangeMin !== undefined ? `${rangeMin.toFixed(0)} m` : '—';
+    const maxLbl = rangeMax !== undefined ? `${rangeMax.toFixed(0)} m` : '—';
     const stats  = result ? `${result.elevMin.toFixed(0)}–${result.elevMax.toFixed(0)} m` : '';
     const iv = this.contourInterval;
     const ivlLbl = iv < 1 ? `${iv} m` : `${iv % 1 === 0 ? iv.toFixed(0) : iv} m`;

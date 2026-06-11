@@ -14,6 +14,10 @@ type CogColorStop = [number, number, number, number, number]; // [value, R, G, B
 const cogColormapRegistry = new Map<string, CogColorStop[]>();
 const cogSmoothRegistry = new Map<string, boolean>();
 
+// ---- Module-level raster recolour LUT registry (luminance → RGB, 256×3) ----
+// Used by the rampify:// protocol to apply colour ramps to plain RGB tile layers.
+const rasterLutRegistry = new Map<string, Uint8ClampedArray>();
+
 // Initialize from BASEMAP_OVERLAYS at module load time
 for (const def of BASEMAP_OVERLAYS) {
   if (def.cog_colormap && def.url.startsWith('cog://')) {
@@ -226,6 +230,46 @@ export class MapManager {
         const blob = await StorageManager.getInstance().getTile(layerId, z, x, y);
         if (!blob) return { data: new ArrayBuffer(0) };
         return { data: await blob.arrayBuffer() };
+      });
+    }
+
+    // Register rampify:// protocol — recolours RGB tiles through a luminance LUT
+    // URL format: rampify://<key>@<version>/<real tile URL (templates pre-expanded)>
+    if (!(maplibregl as unknown as { _rampifyProtocolRegistered?: boolean })._rampifyProtocolRegistered) {
+      (maplibregl as unknown as { _rampifyProtocolRegistered?: boolean })._rampifyProtocolRegistered = true;
+      maplibregl.addProtocol('rampify', async (params) => {
+        try {
+          const withoutProto = params.url.slice('rampify://'.length);
+          const slash = withoutProto.indexOf('/');
+          if (slash === -1) return { data: new ArrayBuffer(0) };
+          const key = withoutProto.slice(0, slash).split('@')[0];
+          const realUrl = withoutProto.slice(slash + 1);
+          const resp = await fetch(realUrl);
+          if (!resp.ok) return { data: new ArrayBuffer(0) };
+          const blob = await resp.blob();
+          const lut = rasterLutRegistry.get(key);
+          if (!lut) return { data: await blob.arrayBuffer() };
+
+          const bmp = await createImageBitmap(blob);
+          const canvas = new OffscreenCanvas(bmp.width, bmp.height);
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(bmp, 0, 0);
+          const img = ctx.getImageData(0, 0, bmp.width, bmp.height);
+          const d = img.data;
+          for (let i = 0; i < d.length; i += 4) {
+            if (d[i + 3] === 0) continue;
+            const lum = Math.round(0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]);
+            d[i]     = lut[lum * 3];
+            d[i + 1] = lut[lum * 3 + 1];
+            d[i + 2] = lut[lum * 3 + 2];
+          }
+          ctx.putImageData(img, 0, 0);
+          const out = await canvas.convertToBlob({ type: 'image/png' });
+          return { data: await out.arrayBuffer() };
+        } catch (e) {
+          console.warn('[rampify] tile error', params.url, e);
+          return { data: new ArrayBuffer(0) };
+        }
       });
     }
 
@@ -1538,6 +1582,17 @@ export class MapManager {
     const parts = tileTemplate.split('?')[0].slice('cog://'.length).split('/');
     parts.pop(); parts.pop(); parts.pop(); // strip {y}, {x}, {z}
     return decodeURIComponent(parts.join('/'));
+  }
+
+  /** Register / clear the luminance recolour LUT for a rampify:// raster layer. */
+  setRasterRecolorLut(key: string, lut: Uint8ClampedArray | null): void {
+    if (lut) rasterLutRegistry.set(key, lut);
+    else rasterLutRegistry.delete(key);
+  }
+
+  /** Wrap a tile URL template in the rampify:// recolour protocol. */
+  static rampifyUrl(key: string, url: string, version: number): string {
+    return `rampify://${key}@${version}/${url}`;
   }
 
   destroy(): void {
