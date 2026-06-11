@@ -83,15 +83,6 @@
         <button id="lasso-dismiss" class="lasso-action">✕</button>
       </div>
 
-      <!-- Floating North Arrow -->
-      <button id="north-arrow" class="north-arrow-btn" title="Reset North">
-        <svg id="north-arrow-svg" viewBox="0 0 24 24" width="72" height="72" xmlns="http://www.w3.org/2000/svg">
-          <polygon points="12,2 16,18 12,15 8,18" fill="#ef4444" stroke="none"/>
-          <polygon points="12,22 8,6 12,9 16,6" fill="rgba(255,255,255,0.3)" stroke="none"/>
-          <text x="12" y="13.5" text-anchor="middle" font-size="5" fill="#fff" font-family="sans-serif" font-weight="bold">N</text>
-        </svg>
-      </button>
-
       <!-- Crosshair -->
       <div id="crosshair">
         <div class="ch-h"></div>
@@ -325,6 +316,15 @@
         <button id="btn-share" class="map-ctrl-btn" title="Share — copy URL with current map view and layer stack">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M229.66,109.66l-48,48a8,8,0,0,1-11.32-11.32L204.69,112H165a88.21,88.21,0,0,0-75.06,42.34,8,8,0,0,1-13.79-8A103.9,103.9,0,0,1,165,96h39.71L170.34,61.66a8,8,0,0,1,11.32-11.32l48,48A8,8,0,0,1,229.66,109.66ZM192,208H40V88a8,8,0,0,0-16,0V208a16,16,0,0,0,16,16H192a8,8,0,0,0,0-16Z"/></svg>
           <span class="tool-btn-label">Share</span>
+        </button>
+        <div class="ctrl-separator"></div>
+        <button id="north-arrow" class="map-ctrl-btn north-arrow-btn" title="Reset North">
+          <svg id="north-arrow-svg" viewBox="0 0 24 24" width="34" height="34" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="12,2 16,18 12,15 8,18" fill="#ef4444" stroke="none"/>
+            <polygon points="12,22 8,6 12,9 16,6" fill="rgba(255,255,255,0.3)" stroke="none"/>
+            <text x="12" y="13.5" text-anchor="middle" font-size="5" fill="#fff" font-family="sans-serif" font-weight="bold">N</text>
+          </svg>
+          <span class="tool-btn-label">North</span>
         </button>
         </div><!-- /right-controls-body -->
       </div>

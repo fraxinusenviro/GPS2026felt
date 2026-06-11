@@ -179,15 +179,30 @@ export function buildCogColormap(
   min: number,
   max: number,
   classes?: number,
+  breaks?: number[],
 ): CogColorStop[] | null {
   const def = RASTER_RAMPS[rampId];
   if (!def) return null;
   const range = max - min || 1;
+  const eps = range * 0.0001;
+  // Data-driven breaks (Natural breaks / Quantile) — class boundaries at the supplied values.
+  const valid = (breaks ?? []).filter(b => b > min && b < max).sort((a, b) => a - b);
+  if (valid.length >= 1) {
+    const edges = [min, ...valid, max];
+    const k = edges.length - 1;
+    const colors = sampleRampColors(def.stops, k, invert);
+    const out: CogColorStop[] = [];
+    for (let i = 0; i < k; i++) {
+      const c = colors[i];
+      out.push([edges[i], c[0], c[1], c[2], 255]);
+      out.push([edges[i + 1] - eps, c[0], c[1], c[2], 255]);
+    }
+    return out;
+  }
   if (classes && classes >= 2) {
     const k = Math.min(12, classes);
     const colors = sampleRampColors(def.stops, k, invert);
     const out: CogColorStop[] = [];
-    const eps = range * 0.0001;
     for (let i = 0; i < k; i++) {
       const lo = min + (i / k) * range;
       const hi = min + ((i + 1) / k) * range;

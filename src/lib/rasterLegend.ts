@@ -44,6 +44,33 @@ export function equalIntervalClasses(
   return out;
 }
 
+/**
+ * Class list from explicit data-driven break values (Natural breaks / Quantile).
+ * Produces N+1 classes: [min,b0], [b0,b1] … [bN-1,max].
+ */
+export function breaksToClasses(
+  stops: RGB[],
+  invert: boolean,
+  breaks: number[],
+  min: number,
+  max: number,
+  unit = '',
+  decimals = 1,
+): LegendClass[] {
+  const lo = Math.min(min, max);
+  const hi = Math.max(min, max);
+  const valid = breaks.filter(b => b > lo && b < hi).sort((a, b) => a - b);
+  const edges = [lo, ...valid, hi];
+  const k = edges.length - 1;
+  const colors = sampleRampColors(stops, k, invert);
+  const u = unit ? ` ${unit}` : '';
+  const out: LegendClass[] = [];
+  for (let i = 0; i < k; i++) {
+    out.push({ color: colors[i], label: `${fmt(edges[i], decimals)} – ${fmt(edges[i + 1], decimals)}${u}` });
+  }
+  return out;
+}
+
 /** Inline-styled classified swatch rows — works inside any container (studio or drawer). */
 export function classifiedRowsInlineHtml(classes: LegendClass[]): string {
   return classes.map(c =>

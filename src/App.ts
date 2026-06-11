@@ -610,9 +610,14 @@ export class App {
     const body = document.getElementById('map-legend-body');
     const pill = document.getElementById('btn-legend');
     const closeBtn = document.getElementById('map-legend-close');
+    const toolbar = document.getElementById('left-toolbar');
     if (!drawer || !body || !pill) return;
     this.basemapManager.setLegendContainer(body);
     const setOpen = (open: boolean) => {
+      if (open && toolbar instanceof HTMLElement) {
+        // Sit flush against the right edge of the left toolbar
+        drawer.style.left = `${toolbar.offsetLeft + toolbar.offsetWidth}px`;
+      }
       drawer.style.display = open ? 'flex' : 'none';
       pill.classList.toggle('active', open);
       pill.setAttribute('aria-expanded', open ? 'true' : 'false');
