@@ -26,6 +26,15 @@ export interface CutFillParams {
   targetElevation: number;  // metres
   /** H:V ratio — e.g. 2 means 2 m horizontal per 1 m vertical.  null = vertical walls. */
   slopeRatio: number | null;
+  /**
+   * Optional per-vertex target elevations defining a graded ("3D") pad.
+   * Aligns index-for-index with the polygon's outer ring vertices (the closing
+   * duplicate vertex is ignored). When supplied with ≥3 finite values, the
+   * interior target surface is interpolated from these control points using
+   * inverse-distance weighting, and `targetElevation` acts as a uniform
+   * vertical offset applied to the whole graded surface (0 = as-drawn).
+   */
+  vertexElevations?: number[];
 }
 
 export interface CutFillResult {
@@ -71,6 +80,21 @@ export function computeCutFill(hrdem: HRDEMResult, params: CutFillParams): CutFi
     ? computeEuclideanDT(inside, width, height)
     : null;
 
+  // Graded (3D) pad: interpolate a target elevation per pixel from the
+  // per-vertex control elevations. `targetElevation` becomes a uniform
+  // vertical offset. Flat pad → constant targetElevation everywhere.
+  const graded =
+    Array.isArray(params.vertexElevations) &&
+    params.vertexElevations.filter(isFinite).length >= 3;
+  const targetGrid = graded
+    ? buildIDWTargetGrid(
+        polygon.coordinates[0], params.vertexElevations!,
+        width, height, west, south, east, north,
+      )
+    : null;
+  const targetAt = (i: number): number =>
+    graded ? targetGrid![i] + targetElevation : targetElevation;
+
   const modifiedGrid = new Float32Array(grid.length);
   const diffGrid     = new Float32Array(grid.length);
 
@@ -88,12 +112,13 @@ export function computeCutFill(hrdem: HRDEMResult, params: CutFillParams): CutFi
     }
 
     let newVal: number;
+    const tgt = targetAt(i);
 
     if (inside[i]) {
-      newVal = targetElevation;
+      newVal = tgt;
 
       // Accumulate volumes (only inside the polygon footprint)
-      const diff = orig - targetElevation;
+      const diff = orig - tgt;
       if (diff > 0) { cutVolume  += diff * pixelArea; cutArea  += pixelArea; }
       else if (diff < 0) { fillVolume -= diff * pixelArea; fillArea += pixelArea; }
 
@@ -101,12 +126,12 @@ export function computeCutFill(hrdem: HRDEMResult, params: CutFillParams): CutFi
       const d = distPx[i] * pixelM; // convert pixels → metres
       const delta = d / slopeRatio!;
 
-      if (orig >= targetElevation) {
+      if (orig >= tgt) {
         // Cut shoulder: slope rises from target to meet existing grade
-        newVal = Math.min(orig, targetElevation + delta);
+        newVal = Math.min(orig, tgt + delta);
       } else {
         // Fill embankment: slope drops from target to meet existing grade
-        newVal = Math.max(orig, targetElevation - delta);
+        newVal = Math.max(orig, tgt - delta);
       }
     } else {
       // Vertical walls — outside pixels unchanged
@@ -150,9 +175,13 @@ export function computeCutFill(hrdem: HRDEMResult, params: CutFillParams): CutFi
 export function findBalancedElevation(
   hrdem: HRDEMResult,
   params: Omit<CutFillParams, 'targetElevation'>,
+  bounds?: [number, number],
 ): number {
-  const lo0 = hrdem.elevMin;
-  const hi0 = hrdem.elevMax;
+  // For a flat pad the search variable is the absolute pad elevation; for a
+  // graded pad (params.vertexElevations) it is the vertical offset, so the
+  // caller supplies an appropriate search range via `bounds`.
+  const lo0 = bounds ? bounds[0] : hrdem.elevMin;
+  const hi0 = bounds ? bounds[1] : hrdem.elevMax;
 
   const netAt = (elev: number): number => {
     const r = computeCutFill(hrdem, { ...params, targetElevation: elev });
@@ -390,6 +419,67 @@ export function sampleElevation(
   const v = grid[row * width + col];
   if (!isFinite(v) || (nodata !== null && Math.abs(v - nodata) < 0.001)) return null;
   return v;
+}
+
+// ---------------------------------------------------------------------------
+// Graded-pad target surface — inverse-distance weighting (power 2)
+//
+// Builds a full-grid target elevation surface interpolated from the polygon's
+// per-vertex control elevations. The surface passes (very nearly) through each
+// control vertex and varies smoothly between them, and is defined everywhere on
+// the grid (including outside the footprint) so the side-slope daylight
+// transition can reference a per-pixel pad-edge elevation.
+// ---------------------------------------------------------------------------
+
+function buildIDWTargetGrid(
+  ring: [number, number][],
+  elevs: number[],
+  width: number,
+  height: number,
+  west: number,
+  south: number,
+  east: number,
+  north: number,
+): Float32Array {
+  // Control points — skip the closing duplicate vertex and any non-finite elev
+  const px: number[] = [];
+  const py: number[] = [];
+  const pz: number[] = [];
+  const n = Math.min(ring.length, elevs.length);
+  for (let k = 0; k < n; k++) {
+    const z = elevs[k];
+    if (!isFinite(z)) continue;
+    px.push(ring[k][0]);
+    py.push(ring[k][1]);
+    pz.push(z);
+  }
+
+  const out = new Float32Array(width * height);
+  const m = px.length;
+  if (m === 0) return out;
+
+  const dxDeg = (east - west)  / Math.max(1, width  - 1);
+  const dyDeg = (north - south) / Math.max(1, height - 1);
+
+  for (let row = 0; row < height; row++) {
+    const lat = north - row * dyDeg;
+    for (let col = 0; col < width; col++) {
+      const lon = west + col * dxDeg;
+      let num = 0, den = 0, exact = NaN;
+      for (let p = 0; p < m; p++) {
+        const dx = lon - px[p];
+        const dy = lat - py[p];
+        const d2 = dx * dx + dy * dy;
+        if (d2 < 1e-18) { exact = pz[p]; break; }
+        const w = 1 / d2; // 1/distance² ⇒ IDW power 2
+        num += w * pz[p];
+        den += w;
+      }
+      out[row * width + col] = isFinite(exact) ? exact : (den > 0 ? num / den : pz[0]);
+    }
+  }
+
+  return out;
 }
 
 // ---------------------------------------------------------------------------

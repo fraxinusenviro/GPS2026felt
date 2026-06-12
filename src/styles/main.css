@@ -7563,6 +7563,149 @@ input[type=color] {
 }
 
 /* ============================================================
+   3D Surface Viewer modal
+   ============================================================ */
+
+.cf3d-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.cf3d-overlay.open { opacity: 1; }
+
+.cf3d-modal {
+  width: min(92vw, 1100px);
+  height: min(88vh, 760px);
+  background: var(--color-surface, #0f1720);
+  border: 1px solid var(--color-border, rgba(74,222,128,0.25));
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg, 0 12px 40px rgba(0,0,0,0.5));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cf3d-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(74, 222, 128, 0.15);
+  flex-wrap: wrap;
+}
+
+.cf3d-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #4ade80;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cf3d-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cf3d-btn {
+  background: rgba(74, 222, 128, 0.1);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  border-radius: 5px;
+  color: #4ade80;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 9px;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.cf3d-btn:hover { background: rgba(74, 222, 128, 0.2); }
+.cf3d-btn-active { background: rgba(74, 222, 128, 0.28); border-color: #4ade80; }
+.cf3d-close { color: var(--color-text-muted, #94a3b8); border-color: rgba(148,163,184,0.3); }
+.cf3d-close:hover { color: #f87171; }
+
+.cf3d-toggle,
+.cf3d-vexag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--color-text-muted, #94a3b8);
+  user-select: none;
+}
+.cf3d-toggle input { accent-color: var(--color-accent, #4ade80); cursor: pointer; }
+.cf3d-vexag input[type="range"] { width: 90px; accent-color: var(--color-accent, #4ade80); }
+.cf3d-sep { width: 1px; height: 18px; background: rgba(148,163,184,0.25); margin: 0 2px; }
+
+.cf3d-canvas-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: radial-gradient(circle at 50% 35%, #1b2430 0%, #11181f 100%);
+}
+.cf3d-canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+.cf3d-canvas-wrap canvas:active { cursor: grabbing; }
+
+.cf3d-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  font-size: 10px;
+  color: rgba(203, 213, 225, 0.65);
+  pointer-events: none;
+  background: rgba(0,0,0,0.3);
+  padding: 3px 7px;
+  border-radius: 4px;
+}
+
+.cf3d-legend {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid rgba(148,163,184,0.2);
+  border-radius: 6px;
+  padding: 6px 8px;
+  width: 160px;
+  pointer-events: none;
+}
+.cf3d-legend-title {
+  font-size: 10px;
+  color: #cbd5e1;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.cf3d-legend-bar { height: 8px; border-radius: 3px; }
+.cf3d-legend-elev {
+  background: linear-gradient(90deg, #2c7bb6, #abd9e9, #ffffbf, #fdae61, #d7191c);
+}
+.cf3d-legend-diff {
+  background: linear-gradient(90deg, rgb(33,102,172), rgb(247,247,247), rgb(178,24,43));
+}
+.cf3d-legend-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: #94a3b8;
+  margin-top: 3px;
+}
+
+/* ============================================================
    Cut & Fill Layer Manager section
    ============================================================ */
 
