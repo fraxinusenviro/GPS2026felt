@@ -4,13 +4,12 @@ name: Deploy fieldmapper Worker to Cloudflare
 # API) to Cloudflare. Runs on push to the default branch, or on demand.
 #
 # Prerequisites (one-time — see cloud/ACCESS.md):
-#   - Resources created once: `wrangler r2 bucket create ffm-blobs`,
-#     `wrangler d1 create ffm` (paste database_id into cloud/wrangler.toml),
-#     and Worker secrets set (`wrangler secret put R2_ACCESS_KEY_ID` etc.).
+#   - Resources created once: an R2 bucket `ffm-blobs` and a D1 database `ffm`
+#     (paste its database_id into cloud/wrangler.toml). The R2 *binding* is all
+#     the app needs for photos; the R2 S3 API secrets are optional (only the
+#     unused presigned-URL routes need them).
 #   - GitHub repo secrets (Settings → Secrets and variables → Actions):
-#       CLOUDFLARE_API_TOKEN  — token with Account: Workers Scripts:Edit,
-#                               D1:Edit, Workers R2 Storage:Edit, Account
-#                               Settings:Read.
+#       CLOUDFLARE_API_TOKEN  — "Edit Cloudflare Workers" template + D1:Edit.
 #       CLOUDFLARE_ACCOUNT_ID — your Cloudflare account id.
 
 on:
