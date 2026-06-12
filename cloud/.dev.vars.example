@@ -1,0 +1,12 @@
+# Copy to `.dev.vars` for local `wrangler dev`. NEVER commit the real file.
+# For deployed Workers, set secrets with `wrangler secret put <NAME>` instead.
+
+# R2 S3-compatible credentials — needed ONLY for the presigned-URL routes.
+# Create at: Cloudflare dashboard → R2 → Manage R2 API Tokens (Object Read & Write).
+# Leave blank to skip the presigned test (proxied /blobs still works locally).
+R2_ACCESS_KEY_ID=""
+R2_SECRET_ACCESS_KEY=""
+
+# Cloudflare Access is left UNSET locally so the Worker runs in dev mode
+# (identity from the X-Dev-User header). In production set TEAM_DOMAIN and
+# ACCESS_AUD in wrangler.toml [vars] to enforce real Access JWT verification.

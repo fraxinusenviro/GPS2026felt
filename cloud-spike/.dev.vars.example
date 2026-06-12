@@ -1,0 +1,11 @@
+# Copy to `.dev.vars` for local `wrangler dev`. NEVER commit the real file.
+# For deployed Workers, set these with `wrangler secret put <NAME>` instead.
+
+# Placeholder shared auth token (Phase 0 only; real auth = Cloudflare Access).
+SPIKE_TOKEN="dev-token"
+
+# R2 S3-compatible credentials — needed ONLY for the presigned-URL test (section 3).
+# Create at: Cloudflare dashboard → R2 → Manage R2 API Tokens.
+# Leave blank to skip the presigned test (the proxied blob path still works locally).
+R2_ACCESS_KEY_ID=""
+R2_SECRET_ACCESS_KEY=""

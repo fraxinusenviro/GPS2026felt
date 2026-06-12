@@ -1,0 +1,25 @@
+# Phase 0 spike — Cloudflare Worker config.
+# Local `wrangler dev` simulates R2 + D1 via Miniflare, so the Worker logic and
+# D1 round-trip can be validated WITHOUT a Cloudflare account. The presigned-URL
+# path needs real R2 S3 credentials (see README + .dev.vars.example).
+
+name = "ffm-cloud-spike"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+# Object storage for blobs (photos, rasters). S3-compatible, zero egress.
+[[r2_buckets]]
+binding = "BLOBS"
+bucket_name = "ffm-blobs-spike"
+
+# SQLite at the edge for structured feature/project/layer metadata + changes feed.
+[[d1_databases]]
+binding = "DB"
+database_name = "ffm-spike"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"   # filled in after `wrangler d1 create ffm-spike`
+
+[vars]
+# Non-secret config. Secrets (SPIKE_TOKEN, R2 S3 keys) go in .dev.vars (local)
+# or `wrangler secret put` (deployed) — never commit them.
+R2_ACCOUNT_ID = ""
+R2_BUCKET_NAME = "ffm-blobs-spike"
