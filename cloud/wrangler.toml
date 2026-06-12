@@ -26,15 +26,15 @@ bucket_name = "ffm-blobs"
 [[d1_databases]]
 binding = "DB"
 database_name = "ffm"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"   # from `wrangler d1 create ffm`
+database_id = "0a87fcf2-acb9-4ccd-80cd-faeb816d8835"   # from `wrangler d1 create ffm`
 migrations_dir = "schema"
 
 [vars]
-# Cloudflare Access config. When BOTH TEAM_DOMAIN and ACCESS_AUD are set the
-# Worker enforces Access (JWT verified against the team JWKS); leaving them blank
-# is DEV MODE only. See ACCESS.md for the full setup runbook.
-TEAM_DOMAIN = "https://fraxinusenviro.cloudflareaccess.com"
-ACCESS_AUD = ""         # paste the AUD tag after creating the Access application (ACCESS.md step 3)
+# Cloudflare Access config. When BOTH are blank the Worker runs in DEV MODE:
+# it skips JWT verification and takes identity from an optional `X-Dev-User`
+# header (defaulting to dev@local). Set both in production to enforce Access.
+TEAM_DOMAIN = ""        # e.g. https://fraxinus.cloudflareaccess.com
+ACCESS_AUD = "4b471a9ec9308413b060ed3377fa1656f4b433aafdc022ddb3da4a11dce961a4"         # Access application Audience (AUD) tag
 
 # CORS is NOT needed in the single-origin setup (PWA + API share this Worker).
 # Only set this if a separate-origin client must call the API cross-origin.
@@ -42,5 +42,5 @@ ALLOWED_ORIGIN = ""
 
 # R2 S3 presigned-URL config (secrets R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY
 # go via `wrangler secret put`). R2_ACCOUNT_ID is your Cloudflare account id.
-R2_ACCOUNT_ID = ""
+R2_ACCOUNT_ID = "1edcb67fc582d37374725ed3bd8dc91a"
 R2_BUCKET_NAME = "ffm-blobs"
