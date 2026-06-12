@@ -2,6 +2,8 @@ import type { AppSettings } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import { SwUpdate } from '../utils/SwUpdate';
+import { SyncManager } from '../sync/SyncManager';
+import type { SyncStatus } from '../sync/types';
 import type { PresetManager } from './PresetManager';
 
 export class SettingsPanel {
@@ -9,6 +11,7 @@ export class SettingsPanel {
   private isOpen = false;
   private settings!: AppSettings;
   private storage = StorageManager.getInstance();
+  private lastSyncStatus: SyncStatus | null = null;
 
   constructor(private presetManager: PresetManager) {
     document.getElementById('btn-settings')?.addEventListener('click', () => {
@@ -23,6 +26,10 @@ export class SettingsPanel {
 
   async init(settings: AppSettings): Promise<void> {
     this.settings = { ...settings };
+    EventBus.on<SyncStatus>('sync-status', (s) => {
+      this.lastSyncStatus = s;
+      this.updateSyncStatusUI();
+    });
   }
 
   toggle(): void {
@@ -46,6 +53,7 @@ export class SettingsPanel {
   }
 
   private render(): void {
+    const syncCfg = SyncManager.getConfig();
     this.panel.innerHTML = `
       <div class="side-panel-inner">
         <div class="panel-header">
@@ -147,6 +155,26 @@ export class SettingsPanel {
             </label>
           </div>
 
+          <!-- Cloud Sync -->
+          <div class="settings-section">
+            <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M160,40a88.08,88.08,0,0,0-78.71,48.68A64,64,0,1,0,72,216h88a88,88,0,0,0,0-176Z"/></svg>Cloud Sync</h4>
+            <label class="toggle-label">
+              <span>Enable team sync</span>
+              <input type="checkbox" id="s-sync-enabled" ${syncCfg.enabled ? 'checked' : ''} />
+              <span class="toggle-slider"></span>
+            </label>
+            <label>Backend URL
+              <input type="url" id="s-sync-url" value="${syncCfg.url}"
+                placeholder="https://ffm-backend.<subdomain>.workers.dev"
+                autocomplete="off" spellcheck="false" />
+              <span class="settings-hint">Shared Cloudflare backend. Sign in via Cloudflare Access in the browser first.</span>
+            </label>
+            <div class="btn-group">
+              <button class="btn-outline" id="s-sync-now">Sync Now</button>
+            </div>
+            <div id="s-sync-status" class="settings-hint"></div>
+          </div>
+
           <!-- Data Management -->
           <div class="settings-section">
             <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M128,24C74.17,24,32,48.6,32,80v96c0,31.4,42.17,56,96,56s96-24.6,96-56V80C224,48.6,181.83,24,128,24Zm80,104c0,9.62-7.88,19.43-21.61,26.92C170.93,163.35,150.19,168,128,168s-42.93-4.65-58.39-13.08C55.88,147.43,48,137.62,48,128V111.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64Zm-21.61,74.92C170.93,211.35,150.19,216,128,216s-42.93-4.65-58.39-13.08C55.88,195.43,48,185.62,48,176V159.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64V176C208,185.62,200.12,195.43,186.39,202.92Z"/></svg>Data Management</h4>
@@ -214,6 +242,10 @@ export class SettingsPanel {
       }
     });
 
+    // Cloud sync: trigger an immediate sync; App relays to the SyncManager.
+    this.panel.querySelector('#s-sync-now')?.addEventListener('click', () => EventBus.emit('sync-now'));
+    this.updateSyncStatusUI();
+
     // Wire update-reload button (may already be rendered if update arrived before panel opened)
     this.panel.querySelector('#s-sw-reload')?.addEventListener('click', () => SwUpdate.reload());
 
@@ -257,6 +289,11 @@ export class SettingsPanel {
     if (feltKey) localStorage.setItem('felt_key', feltKey);
     else localStorage.removeItem('felt_key');
 
+    // Cloud sync config — App relays {enabled, url} to the SyncManager.
+    const syncEnabled = get<HTMLInputElement>('s-sync-enabled')?.checked ?? false;
+    const syncUrl = (get<HTMLInputElement>('s-sync-url')?.value ?? '').trim();
+    EventBus.emit('sync-config-changed', { enabled: syncEnabled, url: syncUrl });
+
     const ids = this.presetManager['quickEntryPresetIds'] as [string, string, string];
     this.settings.quick_entry_preset_id   = ids[0];
     this.settings.quick_entry_preset_id_2 = ids[1];
@@ -266,6 +303,19 @@ export class SettingsPanel {
     EventBus.emit('settings-changed', { settings: this.settings });
     EventBus.emit('toast', { message: 'Settings saved', type: 'success' });
     this.close();
+  }
+
+  private updateSyncStatusUI(): void {
+    const el = this.panel.querySelector('#s-sync-status');
+    if (!el) return;
+    const s = this.lastSyncStatus;
+    if (!s || !s.enabled) { el.textContent = 'Sync disabled'; return; }
+    const bits = [s.online ? 'online' : 'offline'];
+    if (s.syncing) bits.push('syncing…');
+    if (s.pending > 0) bits.push(`${s.pending} pending`);
+    if (s.lastSync) bits.push(`last ${new Date(s.lastSync).toLocaleTimeString()}`);
+    if (s.lastError) bits.push(`error: ${s.lastError}`);
+    el.textContent = bits.join(' · ');
   }
 
   getSettings(): AppSettings { return { ...this.settings }; }

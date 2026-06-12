@@ -29,6 +29,7 @@ import { UndoManager } from './utils/UndoManager';
 import { SymbolRenderer } from './ui/SymbolRenderer';
 import { LayoutMode } from './ui/LayoutMode';
 import { DataLibraryModal } from './ui/DataLibraryModal';
+import { SyncManager } from './sync/SyncManager';
 import * as turf from '@turf/turf';
 
 export class App {
@@ -66,6 +67,7 @@ export class App {
   private undoManager = UndoManager.getInstance();
   private symbolRenderer!: SymbolRenderer;
   private layoutMode!: LayoutMode;
+  private syncManager!: SyncManager;
 
   private settings!: AppSettings;
   private features: FieldFeature[] = [];
@@ -241,7 +243,27 @@ export class App {
       history.replaceState(null, '', hash);
     });
 
+    // Cloud sync (opt-in; no-op unless enabled in Settings). Registered after
+    // all managers exist so a pull can safely refresh the UI.
+    this.syncManager = new SyncManager(this.storage);
+    this.storage.setSyncHook(this.syncManager);
+    this.syncManager.start();
+
     EventBus.emit('toast', { message: 'Field Mapper ready', type: 'success', duration: 2000 });
+  }
+
+  /**
+   * Read-only refresh after a cloud pull applies remote changes: reload presets
+   * and the active project's features/layers, then re-render. Does not write, so
+   * it cannot trigger a sync feedback loop.
+   */
+  async refreshAfterSync(): Promise<void> {
+    const activeId = this.settings.active_project_id || 'default';
+    await this.presetManager.init(this.settings);
+    this.features = await this.storage.getFeaturesByProject(activeId);
+    this.projectLayerPresets = await this.storage.getLayersByProject(activeId);
+    this.symbolRenderer.registerAll(this.presetManager.getPresets());
+    this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
   }
 
   // ============================================================
@@ -424,6 +446,15 @@ export class App {
       this.symbolRenderer.registerAll(this.presetManager.getPresets());
       this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     });
+
+    // Cloud sync pulled remote changes — reload + redraw the active project.
+    EventBus.on('cloud-data-changed', () => { void this.refreshAfterSync(); });
+
+    // Cloud sync config/actions from the Settings panel.
+    EventBus.on<{ enabled: boolean; url: string }>('sync-config-changed', ({ enabled, url }) => {
+      this.syncManager.setConfig(enabled, url);
+    });
+    EventBus.on('sync-now', () => { void this.syncManager.syncNow(); });
 
     // Project bundle import (triggered by ImportDataPanel)
     EventBus.on<{ bundle: ProjectBundle; mode: 'new' | 'merge' }>('import-project-bundle', async ({ bundle, mode }) => {

@@ -12,14 +12,41 @@ import {
   DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack
 } from '../constants';
 
+/**
+ * Optional sink for local writes, used by the cloud sync layer to record which
+ * entities changed. Kept as a minimal local interface so StorageManager has no
+ * dependency on src/sync.
+ */
+export interface StorageSyncHook {
+  mark(
+    kind: 'projects' | 'features' | 'layer_presets' | 'type_presets',
+    id: string,
+    op: 'upsert' | 'delete',
+    updatedAt: string
+  ): void;
+}
+
 export class StorageManager {
   private db!: IDBPDatabase;
   private static instance: StorageManager;
+
+  // Cloud sync wiring (no-ops until a hook is registered, e.g. sync disabled).
+  private syncHook?: StorageSyncHook;
+  private applyingRemote = false;
 
   static getInstance(): StorageManager {
     if (!StorageManager.instance) StorageManager.instance = new StorageManager();
     return StorageManager.instance;
   }
+
+  /** Register the cloud sync hook. Call after init() so seeding isn't synced. */
+  setSyncHook(hook: StorageSyncHook): void {
+    this.syncHook = hook;
+  }
+
+  /** While applying pulled data, suppress restamping/hook so there's no echo. */
+  beginRemote(): void { this.applyingRemote = true; }
+  endRemote(): void { this.applyingRemote = false; }
 
   async init(): Promise<void> {
     this.db = await openDB(DB_NAME, DB_VERSION, {
@@ -189,8 +216,9 @@ export class StorageManager {
 
   // ---- Features ----
   async saveFeature(feature: FieldFeature): Promise<void> {
-    feature.updated_at = new Date().toISOString();
+    if (!this.applyingRemote) feature.updated_at = new Date().toISOString();
     await this.db.put(STORE_FEATURES, feature);
+    if (!this.applyingRemote) this.syncHook?.mark('features', feature.id, 'upsert', feature.updated_at);
   }
 
   async getFeature(id: string): Promise<FieldFeature | undefined> {
@@ -207,6 +235,7 @@ export class StorageManager {
 
   async deleteFeature(id: string): Promise<void> {
     await this.db.delete(STORE_FEATURES, id);
+    if (!this.applyingRemote) this.syncHook?.mark('features', id, 'delete', new Date().toISOString());
   }
 
   async getFeaturesByLayer(layerId: string): Promise<FieldFeature[]> {
@@ -245,16 +274,26 @@ export class StorageManager {
     return this.db.getAll(STORE_PRESETS);
   }
 
+  async getTypePreset(id: string): Promise<TypePreset | undefined> {
+    return this.db.get(STORE_PRESETS, id);
+  }
+
   async saveTypePreset(preset: TypePreset): Promise<void> {
     await this.db.put(STORE_PRESETS, preset);
+    if (!this.applyingRemote) this.syncHook?.mark('type_presets', preset.id, 'upsert', new Date().toISOString());
   }
 
   async deleteTypePreset(id: string): Promise<void> {
     await this.db.delete(STORE_PRESETS, id);
+    if (!this.applyingRemote) this.syncHook?.mark('type_presets', id, 'delete', new Date().toISOString());
   }
 
   async getAllLayerPresets(): Promise<LayerPreset[]> {
     return this.db.getAll(STORE_LAYERS);
+  }
+
+  async getLayerPreset(id: string): Promise<LayerPreset | undefined> {
+    return this.db.get(STORE_LAYERS, id);
   }
 
   async getLayersByProject(projectId: string): Promise<LayerPreset[]> {
@@ -263,10 +302,12 @@ export class StorageManager {
 
   async saveLayerPreset(layer: LayerPreset): Promise<void> {
     await this.db.put(STORE_LAYERS, layer);
+    if (!this.applyingRemote) this.syncHook?.mark('layer_presets', layer.id, 'upsert', new Date().toISOString());
   }
 
   async deleteLayerPreset(id: string): Promise<void> {
     await this.db.delete(STORE_LAYERS, id);
+    if (!this.applyingRemote) this.syncHook?.mark('layer_presets', id, 'delete', new Date().toISOString());
   }
 
   async deleteLayersByProject(projectId: string): Promise<void> {
@@ -377,6 +418,7 @@ export class StorageManager {
   // ---- Projects ----
   async saveProject(project: Project): Promise<void> {
     await this.db.put(STORE_PROJECTS, project);
+    if (!this.applyingRemote) this.syncHook?.mark('projects', project.id, 'upsert', project.updated_at ?? new Date().toISOString());
   }
 
   async getAllProjects(): Promise<Project[]> {
@@ -389,6 +431,7 @@ export class StorageManager {
 
   async deleteProject(id: string): Promise<void> {
     await this.db.delete(STORE_PROJECTS, id);
+    if (!this.applyingRemote) this.syncHook?.mark('projects', id, 'delete', new Date().toISOString());
   }
 
   // ---- Export all data for backup ----
