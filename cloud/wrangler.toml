@@ -1,10 +1,20 @@
-# Production Cloudflare Worker for the Fraxinus Field Mapper backend.
-# Replaces the throwaway cloud-spike/. Auth is Cloudflare Access (JWT verified
-# against the team JWKS) instead of the spike's placeholder bearer token.
+# Production Cloudflare Worker for the Fraxinus Field Mapper.
+# Serves BOTH the PWA (Workers Static Assets, from ../dist) and the sync/blob API
+# from one origin, so the Access cookie is first-party and there is no CORS.
+# Auth is Cloudflare Access (JWT verified against the team JWKS). See ACCESS.md.
 
-name = "ffm-backend"
+name = "fieldmapper"
 main = "src/index.ts"
 compatibility_date = "2025-06-01"
+
+# Static PWA assets (built by `npm run build` at the repo root → ../dist). The
+# Worker runs first (run_worker_first) so API paths hit our code; everything else
+# is delegated to env.ASSETS, with SPA fallback to index.html.
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
 
 # Object storage for de-inlined photos/blobs. S3-compatible, zero egress.
 [[r2_buckets]]
@@ -26,10 +36,9 @@ migrations_dir = "schema"
 TEAM_DOMAIN = "https://fraxinusenviro.cloudflareaccess.com"
 ACCESS_AUD = ""         # paste the AUD tag after creating the Access application (ACCESS.md step 3)
 
-# CORS: the PWA origin allowed to call this backend with credentials. Required
-# because the PWA is hosted on a SEPARATE origin from this Worker (cross-origin).
-# Set to the exact PWA origin, e.g. https://fieldmapper.pages.dev — no trailing slash.
-ALLOWED_ORIGIN = ""     # set to the PWA origin (ACCESS.md step 4)
+# CORS is NOT needed in the single-origin setup (PWA + API share this Worker).
+# Only set this if a separate-origin client must call the API cross-origin.
+ALLOWED_ORIGIN = ""
 
 # R2 S3 presigned-URL config (secrets R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY
 # go via `wrangler secret put`). R2_ACCOUNT_ID is your Cloudflare account id.

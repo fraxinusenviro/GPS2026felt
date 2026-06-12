@@ -12,7 +12,11 @@ export class BackendClient {
   private base: string;
 
   constructor(baseUrl: string) {
-    this.base = baseUrl.replace(/\/+$/, '');
+    // Blank URL → same-origin (the PWA is served by the Worker itself), so API
+    // calls are first-party and need no CORS.
+    const trimmed = baseUrl.trim();
+    const origin = typeof location !== 'undefined' ? location.origin : '';
+    this.base = (trimmed || origin).replace(/\/+$/, '');
   }
 
   /** Liveness check; never throws. */

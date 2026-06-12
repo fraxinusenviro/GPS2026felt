@@ -1,13 +1,17 @@
-# Fraxinus Field Mapper — Cloud Backend (Phase 1)
+# Fraxinus Field Mapper — Cloud Backend
 
-Production Cloudflare Worker that backs a **shared, org-controlled team dataset**:
+Production Cloudflare Worker (`fieldmapper`) that serves the **PWA and the
+sync/blob API from one origin** and backs a **shared, org-controlled team dataset**:
 
+- **Static Assets** — the Worker serves the built PWA (`../dist`); API paths
+  (`/sync`, `/changes`, `/blobs`, `/uploads/*`, `/health`) are handled in code.
+  Single origin → the Access cookie is first-party and there is **no CORS**.
 - **D1** — one row per synced entity (projects, features, layer/type presets),
   with a server-assigned monotonic `rev` driving an incremental changes feed.
 - **R2** — de-inlined photo/blob storage via presigned direct upload/download
   (zero egress), mirroring the Felt presigned-S3 pattern in `../src/io/FeltService.ts`.
 - **Cloudflare Access** — real auth: the Worker verifies the Access JWT against
-  the team JWKS. (The Phase 0 spike's placeholder bearer token is gone.)
+  the team JWKS. See **ACCESS.md** for the deploy + Access setup runbook.
 
 This supersedes the throwaway `../cloud-spike/`.
 
@@ -63,49 +67,33 @@ POST /sync
 ## A. Local validation (no Cloudflare account)
 
 ```bash
+npm run build                       # from repo ROOT — builds the PWA into ../dist
+                                    # (Static Assets needs ../dist to exist)
 cd cloud
 npm install
 cp .dev.vars.example .dev.vars      # blank R2 keys is fine; Access stays off (dev mode)
 npm run migrate:local               # apply schema to the local D1
-npm run dev                         # http://localhost:8787
+npm run dev                         # http://localhost:8787 — serves PWA + API
 # in another terminal:
 BASE=http://localhost:8787 npm test
 ```
 
 Expect sections [1]–[5] to pass; section [6] (presigned R2) reports `⊘ skipped`
-without real R2 keys.
+without real R2 keys. `GET /` should return the PWA's `index.html`.
 
-## B. Deploy to Cloudflare (needs the account + an Access app)
+## B. Deploy to Cloudflare
 
-```bash
-# 1. Resources
-npx wrangler r2 bucket create ffm-blobs
-npx wrangler d1 create ffm           # → paste database_id into wrangler.toml
-#    Set R2_ACCOUNT_ID in wrangler.toml [vars].
-
-# 2. Schema
-npm run migrate:remote
-
-# 3. R2 presigned secrets (R2 → Manage R2 API Tokens, Object Read & Write)
-npx wrangler secret put R2_ACCESS_KEY_ID
-npx wrangler secret put R2_SECRET_ACCESS_KEY
-
-# 4. Cloudflare Access
-#    Create a self-hosted Access application in front of the Worker route, then
-#    set TEAM_DOMAIN (https://<team>.cloudflareaccess.com) and ACCESS_AUD (the
-#    application Audience tag) in wrangler.toml [vars]. Set ALLOWED_ORIGIN to the
-#    PWA origin for CORS.
-
-# 5. Deploy + test against the real deployment
-npm run deploy
-BASE=https://ffm-backend.<subdomain>.workers.dev TOKEN=<a valid Access JWT> npm test
-```
+The full deploy + Cloudflare Access runbook lives in **ACCESS.md**. In short:
+`npm run build` (root) → create R2/D1 + secrets → `wrangler deploy` → create the
+self-hosted Access application over `fieldmapper.fraxinusenviro.workers.dev`,
+copy its AUD into `ACCESS_AUD`, and redeploy.
 
 ## Status / next
 
-Phase 1 delivers the production backend (schema + routes + Access). Validated
-locally (12/12) including last-write-wins, the rev cursor, soft deletes, and the
-auth gate denying unauthenticated requests. **Not yet validated**: real Access
-JWT verification against a live Access app (needs deployment). Phase 2/3 wires
-the PWA's `StorageManager` to this backend (push on save, pull on `/changes`,
-de-inline photos to R2 on capture).
+Backend + sync engine + single-origin PWA hosting are built and validated
+locally (12/12 API: last-write-wins, the rev cursor, soft deletes, the auth gate
+denying unauthenticated requests; plus static-asset + SPA-fallback serving). The
+PWA client (`../src/sync/`) pushes on save and pulls via `/changes`, de-inlining
+photos to R2. **Not yet validated**: the live deploy + real Access JWT
+verification against the Access application (needs your Cloudflare account —
+see ACCESS.md).

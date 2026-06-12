@@ -5,6 +5,7 @@
 export interface Env {
   DB: D1Database;
   BLOBS: R2Bucket;
+  ASSETS: Fetcher; // Workers Static Assets — serves the built PWA (../dist)
 
   // Cloudflare Access (blank in both → dev mode, see auth.ts).
   TEAM_DOMAIN?: string;

@@ -64,7 +64,8 @@ export class SyncManager implements StorageSyncHook {
 
   start(): void {
     const { enabled, url } = SyncManager.getConfig();
-    this.enabled = enabled && !!url;
+    // A blank URL is valid: it means same-origin (the PWA served by the Worker).
+    this.enabled = enabled;
     this.client = this.enabled ? new BackendClient(url) : null;
     if (!this.enabled) {
       this.emitStatus();
