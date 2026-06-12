@@ -22,10 +22,12 @@ import {
   computeDaylightFeatures,
   findBalancedElevation,
   sampleElevation,
+  sampleElevationBilinear,
   type CutFillResult,
 } from '../lib/cutFillEngine';
 import { exportGeoTIFF } from '../lib/geotiffExporter';
 import { fetchHRDEM } from '../lib/hrdemWCS';
+import { SurfaceViewer3D } from './SurfaceViewer3D';
 
 // Padding fraction applied to polygon bbox before fetching HRDEM
 const FETCH_PAD = 0.5;
@@ -39,10 +41,16 @@ export class CutFillPanel {
   private visible = false;
 
   // Draw-polygon state
-  private drawMode: 'idle' | 'drawing' | 'pickElev' = 'idle';
+  private drawMode: 'idle' | 'drawing' | 'drawing3d' | 'pickElev' = 'idle';
   private vertices: [number, number][] = [];
   private freehandActive = false;
   private freehandCleanup: (() => void) | null = null;
+
+  // 3D (graded) polygon state — parallel to `vertices`
+  //   source 'hrdem' → vertex sits at existing ground (sampled at compute time)
+  //   source 'user'  → vertex sits at a fixed elevation `value`
+  private poly3D = false;
+  private vertexElev: Array<{ source: 'hrdem' | 'user'; value: number | null }> = [];
 
   // Layer manager
   private cutFillLayer: CutFillLayer;
@@ -113,6 +121,15 @@ export class CutFillPanel {
       return true;
     }
 
+    if (this.drawMode === 'drawing3d') {
+      this.vertices.push([lng, lat]);
+      this.vertexElev.push(this.currentVertexSource(lng, lat));
+      this.updateSketchPreview();
+      this.updateVertexCount();
+      this.updateComputeBtn();
+      return true;
+    }
+
     if (this.drawMode === 'pickElev') {
       this.pickElevationAt(lng, lat);
       this.setDrawMode('idle');
@@ -154,12 +171,25 @@ export class CutFillPanel {
         <div class="cf-label">1 · Polygon footprint</div>
         <div class="cf-row">
           <button class="cf-btn" id="cf-draw-btn">Draw</button>
+          <button class="cf-btn" id="cf-draw3d-btn" title="Draw a graded polygon with per-vertex elevations">3D</button>
           <button class="cf-btn" id="cf-freehand-btn" title="Draw polygon freehand (press and drag)">Freehand</button>
           <button class="cf-btn cf-btn-sm" id="cf-undo-btn" title="Remove last vertex">↩</button>
           <button class="cf-btn cf-btn-sm" id="cf-clear-btn">Clear</button>
           <span class="cf-hint" id="cf-vtx-count">0 pts</span>
         </div>
         <div class="cf-hint" id="cf-draw-hint"></div>
+      </div>
+
+      <div class="cf-section" id="cf-3d-source-section" style="display:none">
+        <div class="cf-label">1b · Vertex elevation source</div>
+        <div class="cf-row">
+          <select id="cf-vtx-source" class="cf-input" style="flex:1;min-width:0">
+            <option value="hrdem">Ground (HRDEM)</option>
+            <option value="user">Constant elevation</option>
+          </select>
+          <input type="number" id="cf-vtx-elev" class="cf-input" style="width:78px" step="0.1" placeholder="m" disabled>
+        </div>
+        <div class="cf-hint">Each click adds a vertex at the selected source. Switch source between clicks to mix ground-matched and fixed-elevation points.</div>
       </div>
 
       <div class="cf-section">
@@ -173,7 +203,7 @@ export class CutFillPanel {
       </div>
 
       <div class="cf-section">
-        <div class="cf-label">3 · Target elevation (m)</div>
+        <div class="cf-label" id="cf-elev-label">3 · Target elevation (m)</div>
         <div class="cf-row">
           <input type="number" id="cf-target-elev" class="cf-input" step="0.1" placeholder="e.g. 45.0">
           <button class="cf-btn cf-btn-sm" id="cf-pick-elev" title="Click map to sample elevation">⊕ Pick</button>
@@ -216,6 +246,7 @@ export class CutFillPanel {
           <label class="cf-toggle-row">
             <input type="checkbox" id="cf-hillshade-toggle"> Hillshade
           </label>
+          <button class="cf-btn cf-btn-sm" id="cf-view-3d" title="Open interactive 3D surface viewer" style="margin-left:auto">⬡ 3D View</button>
         </div>
 
         <div class="cf-label cf-label-mt">Contours</div>
@@ -245,6 +276,9 @@ export class CutFillPanel {
 
     this.syncDisplayState();
     this.wireEvents();
+    this.updateElevLabel();
+    this.updateVertexCount();
+    this.updateComputeBtn();
     el.style.display = 'flex';
   }
 
@@ -264,12 +298,45 @@ export class CutFillPanel {
           this.updateComputeBtn();
         }
       } else {
+        // Starting a fresh flat polygon — discard any 3D vertex elevations
+        this.vertices = [];
+        this.vertexElev = [];
+        this.poly3D = false;
+        this.updateSketchPreview();
+        this.updateVertexCount();
+        this.updateElevLabel();
         this.setDrawMode('drawing');
       }
     });
 
+    el.querySelector('#cf-draw3d-btn')?.addEventListener('click', () => {
+      if (this.drawMode === 'drawing3d') {
+        if (this.vertices.length >= 3) {
+          this.setDrawMode('idle');
+          this.updateComputeBtn();
+        }
+      } else {
+        // Starting a fresh 3D polygon
+        this.vertices = [];
+        this.vertexElev = [];
+        this.poly3D = true;
+        this.stopFreehand();
+        this.updateSketchPreview();
+        this.updateVertexCount();
+        this.setDrawMode('drawing3d');
+        this.updateElevLabel();
+      }
+    });
+
+    el.querySelector('#cf-vtx-source')?.addEventListener('change', () => {
+      const src = this.el?.querySelector<HTMLSelectElement>('#cf-vtx-source')?.value;
+      const elevIn = this.el?.querySelector<HTMLInputElement>('#cf-vtx-elev');
+      if (elevIn) elevIn.disabled = src !== 'user';
+    });
+
     el.querySelector('#cf-undo-btn')?.addEventListener('click', () => {
       this.vertices.pop();
+      if (this.poly3D) this.vertexElev.pop();
       this.updateSketchPreview();
       this.updateVertexCount();
       this.updateComputeBtn();
@@ -277,17 +344,23 @@ export class CutFillPanel {
 
     el.querySelector('#cf-clear-btn')?.addEventListener('click', () => {
       this.vertices = [];
+      this.vertexElev = [];
+      this.poly3D = false;
       this.setDrawMode('idle');
       this.stopFreehand();
       this.updateSketchPreview();
       this.updateVertexCount();
       this.updateComputeBtn();
+      this.updateElevLabel();
     });
 
     el.querySelector('#cf-freehand-btn')?.addEventListener('click', () => {
       if (this.freehandActive) {
         this.stopFreehand();
       } else {
+        this.poly3D = false;
+        this.vertexElev = [];
+        this.updateElevLabel();
         this.setDrawMode('idle');
         this.startFreehand();
       }
@@ -313,6 +386,10 @@ export class CutFillPanel {
 
     el.querySelector('#cf-view-elev')?.addEventListener('click', () => this.switchView('elevation'));
     el.querySelector('#cf-view-diff')?.addEventListener('click', () => this.switchView('diff'));
+
+    el.querySelector('#cf-view-3d')?.addEventListener('click', () => {
+      if (this.lastResult) SurfaceViewer3D.open(this.lastResult);
+    });
 
     el.querySelector<HTMLInputElement>('#cf-hillshade-toggle')?.addEventListener('change', (e) => {
       this.hillshadeOn = (e.target as HTMLInputElement).checked;
@@ -376,21 +453,29 @@ export class CutFillPanel {
   // Draw mode
   // --------------------------------------------------------------------------
 
-  private setDrawMode(mode: 'idle' | 'drawing' | 'pickElev'): void {
+  private setDrawMode(mode: 'idle' | 'drawing' | 'drawing3d' | 'pickElev'): void {
     this.drawMode = mode;
     if (!this.el) return;
 
-    const drawBtn = this.el.querySelector<HTMLButtonElement>('#cf-draw-btn');
-    const hint    = this.el.querySelector<HTMLElement>('#cf-draw-hint');
-    const pickBtn = this.el.querySelector<HTMLButtonElement>('#cf-pick-elev');
+    const drawBtn   = this.el.querySelector<HTMLButtonElement>('#cf-draw-btn');
+    const draw3dBtn = this.el.querySelector<HTMLButtonElement>('#cf-draw3d-btn');
+    const hint      = this.el.querySelector<HTMLElement>('#cf-draw-hint');
+    const pickBtn   = this.el.querySelector<HTMLButtonElement>('#cf-pick-elev');
+    const srcSec    = this.el.querySelector<HTMLElement>('#cf-3d-source-section');
 
     if (drawBtn) {
       drawBtn.textContent = mode === 'drawing' ? 'Finish' : 'Draw';
       drawBtn.classList.toggle('cf-btn-active', mode === 'drawing');
     }
+    if (draw3dBtn) {
+      draw3dBtn.textContent = mode === 'drawing3d' ? 'Finish' : '3D';
+      draw3dBtn.classList.toggle('cf-btn-active', mode === 'drawing3d');
+    }
     if (hint) {
       hint.textContent = mode === 'drawing'
         ? 'Click map to add vertices · click Finish when done'
+        : mode === 'drawing3d'
+        ? 'Click map to add graded vertices · click Finish when done'
         : mode === 'pickElev'
         ? 'Click any point on the map to read its elevation'
         : '';
@@ -398,6 +483,8 @@ export class CutFillPanel {
     if (pickBtn) {
       pickBtn.classList.toggle('cf-btn-active', mode === 'pickElev');
     }
+    // Show the per-vertex source picker only while drawing a 3D polygon
+    if (srcSec) srcSec.style.display = mode === 'drawing3d' ? 'flex' : 'none';
 
     const canvas = this.mapManager.getMap().getCanvas();
     canvas.style.cursor = mode !== 'idle' ? 'crosshair' : '';
@@ -411,7 +498,70 @@ export class CutFillPanel {
 
   private updateVertexCount(): void {
     const el = this.el?.querySelector('#cf-vtx-count');
-    if (el) el.textContent = `${this.vertices.length} pts`;
+    if (!el) return;
+    if (this.poly3D && this.vertexElev.length > 0) {
+      const last = this.vertexElev[this.vertexElev.length - 1];
+      const lbl = last.source === 'user'
+        ? (last.value !== null && isFinite(last.value) ? `${last.value.toFixed(1)}m fixed` : 'fixed')
+        : (last.value !== null && isFinite(last.value) ? `${last.value.toFixed(1)}m ground` : 'ground');
+      el.textContent = `${this.vertices.length} pts · ${lbl}`;
+    } else {
+      el.textContent = `${this.vertices.length} pts`;
+    }
+  }
+
+  /** Determine the elevation source/value for a vertex being placed at lng/lat. */
+  private currentVertexSource(lng: number, lat: number): { source: 'hrdem' | 'user'; value: number | null } {
+    const src = this.el?.querySelector<HTMLSelectElement>('#cf-vtx-source')?.value === 'user'
+      ? 'user' : 'hrdem';
+    if (src === 'user') {
+      const v = parseFloat(this.el?.querySelector<HTMLInputElement>('#cf-vtx-elev')?.value ?? '');
+      return { source: 'user', value: isFinite(v) ? v : null };
+    }
+    // Ground: try to sample any loaded HRDEM for live feedback (resolved firmly at compute)
+    const sample = this.sampleAnyHrdem(lng, lat);
+    return { source: 'hrdem', value: sample };
+  }
+
+  /** Sample elevation from any available HRDEM source (cached or basemap). */
+  private sampleAnyHrdem(lng: number, lat: number): number | null {
+    const sources: Array<HRDEMResult | null> = [
+      this.lastHrdem,
+      this.basemapManager.getFirstHrdemResult(),
+    ];
+    for (const hr of sources) {
+      if (!hr) continue;
+      const e = sampleElevationBilinear(hr.grid, hr.width, hr.height, hr.bbox, hr.nodata, lng, lat)
+            ?? sampleElevation(hr.grid, hr.width, hr.height, hr.bbox, hr.nodata, lng, lat);
+      if (e !== null) return e;
+    }
+    return null;
+  }
+
+  /** Resolve final per-vertex elevations against the fetched reference surface. */
+  private resolveVertexElevations(hrdem: HRDEMResult): number[] {
+    return this.vertices.map((v, i) => {
+      const meta = this.vertexElev[i];
+      if (meta && meta.source === 'user' && meta.value !== null && isFinite(meta.value)) {
+        return meta.value;
+      }
+      const e = sampleElevationBilinear(hrdem.grid, hrdem.width, hrdem.height, hrdem.bbox, hrdem.nodata, v[0], v[1])
+            ?? sampleElevation(hrdem.grid, hrdem.width, hrdem.height, hrdem.bbox, hrdem.nodata, v[0], v[1]);
+      // Fall back to a live sample, then to the reference minimum
+      return e ?? meta?.value ?? this.sampleAnyHrdem(v[0], v[1]) ?? hrdem.elevMin;
+    });
+  }
+
+  /** Relabel the elevation section to reflect flat-pad vs graded-offset semantics. */
+  private updateElevLabel(): void {
+    const label = this.el?.querySelector<HTMLElement>('#cf-elev-label');
+    const input = this.el?.querySelector<HTMLInputElement>('#cf-target-elev');
+    if (label) {
+      label.textContent = this.poly3D ? '3 · Vertical offset (m)' : '3 · Target elevation (m)';
+    }
+    if (input) {
+      input.placeholder = this.poly3D ? '0  (raise / lower graded surface)' : 'e.g. 45.0';
+    }
   }
 
   private updateSketchPreview(): void {
@@ -440,7 +590,9 @@ export class CutFillPanel {
     const elevInput = this.el?.querySelector<HTMLInputElement>('#cf-target-elev');
     const hasElev   = elevInput && elevInput.value.trim() !== '' && isFinite(parseFloat(elevInput.value));
     const hasPolygon = this.vertices.length >= 3;
-    btn.disabled = !hasElev || !hasPolygon || this.computing;
+    // Graded (3D) pads derive their surface from per-vertex elevations, so the
+    // target/offset field is optional (defaults to 0).
+    btn.disabled = !hasPolygon || (!this.poly3D && !hasElev) || this.computing;
   }
 
   // --------------------------------------------------------------------------
@@ -488,8 +640,11 @@ export class CutFillPanel {
     const slopeInput = this.el?.querySelector<HTMLInputElement>('#cf-slope');
     const computeBtn = this.el?.querySelector<HTMLButtonElement>('#cf-compute');
 
-    const targetElevation = parseFloat(elevInput?.value ?? '');
-    if (!isFinite(targetElevation) || this.vertices.length < 3) return;
+    const rawElev = parseFloat(elevInput?.value ?? '');
+    // For a graded pad the field is a vertical offset (default 0); for a flat
+    // pad it is the required target elevation.
+    const targetElevation = this.poly3D ? (isFinite(rawElev) ? rawElev : 0) : rawElev;
+    if ((!this.poly3D && !isFinite(targetElevation)) || this.vertices.length < 3) return;
 
     const slopeRatio = this.parseSlopeRatio(slopeInput?.value ?? '');
 
@@ -540,7 +695,8 @@ export class CutFillPanel {
 
       if (computeBtn) computeBtn.textContent = 'Computing…';
 
-      const result = computeCutFill(hrdem, { polygon, targetElevation, slopeRatio });
+      const vertexElevations = this.poly3D ? this.resolveVertexElevations(hrdem) : undefined;
+      const result = computeCutFill(hrdem, { polygon, targetElevation, slopeRatio, vertexElevations });
       this.lastResult   = result;
       this.savedToLayers = false;
       this.daylightFC   = null; // invalidate cached daylight
@@ -594,14 +750,16 @@ export class CutFillPanel {
     const elevInput  = this.el?.querySelector<HTMLInputElement>('#cf-target-elev');
     const slopeInput = this.el?.querySelector<HTMLInputElement>('#cf-slope');
 
-    const targetElevation = parseFloat(elevInput?.value ?? '');
-    if (!isFinite(targetElevation)) return;
+    const rawElev = parseFloat(elevInput?.value ?? '');
+    const targetElevation = this.poly3D ? (isFinite(rawElev) ? rawElev : 0) : rawElev;
+    if (!this.poly3D && !isFinite(targetElevation)) return;
 
     const slopeRatio = this.parseSlopeRatio(slopeInput?.value ?? '');
     const ring       = [...this.vertices, this.vertices[0]];
     const polygon    = { type: 'Polygon' as const, coordinates: [ring] };
 
-    const result       = computeCutFill(this.lastHrdem, { polygon, targetElevation, slopeRatio });
+    const vertexElevations = this.poly3D ? this.resolveVertexElevations(this.lastHrdem) : undefined;
+    const result       = computeCutFill(this.lastHrdem, { polygon, targetElevation, slopeRatio, vertexElevations });
     this.lastResult    = result;
     this.savedToLayers = false;
     this.daylightFC    = null;
@@ -631,7 +789,20 @@ export class CutFillPanel {
     if (balBtn) { balBtn.disabled = true; balBtn.textContent = '⚖…'; }
 
     try {
-      const balanced = findBalancedElevation(this.lastHrdem, { polygon, slopeRatio });
+      let balanced: number;
+      if (this.poly3D) {
+        // Search for the vertical offset that balances cut vs fill on the graded surface
+        const vertexElevations = this.resolveVertexElevations(this.lastHrdem);
+        const minV = Math.min(...vertexElevations);
+        const maxV = Math.max(...vertexElevations);
+        const bounds: [number, number] = [
+          this.lastHrdem.elevMin - maxV,
+          this.lastHrdem.elevMax - minV,
+        ];
+        balanced = findBalancedElevation(this.lastHrdem, { polygon, slopeRatio, vertexElevations }, bounds);
+      } else {
+        balanced = findBalancedElevation(this.lastHrdem, { polygon, slopeRatio });
+      }
       const elevInput = this.el?.querySelector<HTMLInputElement>('#cf-target-elev');
       if (elevInput) elevInput.value = balanced.toFixed(2);
       this.updateComputeBtn();
