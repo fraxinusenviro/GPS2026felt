@@ -30,11 +30,11 @@ database_id = "0a87fcf2-acb9-4ccd-80cd-faeb816d8835"   # from `wrangler d1 creat
 migrations_dir = "schema"
 
 [vars]
-# Cloudflare Access config. When BOTH are blank the Worker runs in DEV MODE:
-# it skips JWT verification and takes identity from an optional `X-Dev-User`
-# header (defaulting to dev@local). Set both in production to enforce Access.
-TEAM_DOMAIN = ""        # e.g. https://fraxinus.cloudflareaccess.com
-ACCESS_AUD = "4b471a9ec9308413b060ed3377fa1656f4b433aafdc022ddb3da4a11dce961a4"         # Access application Audience (AUD) tag
+# Cloudflare Access config. When BOTH TEAM_DOMAIN and ACCESS_AUD are set the
+# Worker enforces Access (JWT verified against the team JWKS); leaving either
+# blank is DEV MODE (no enforcement). See ACCESS.md.
+TEAM_DOMAIN = "https://fraxinusenviro.cloudflareaccess.com"
+ACCESS_AUD = "4b471a9ec9308413b060ed3377fa1656f4b433aafdc022ddb3da4a11dce961a4"
 
 # CORS is NOT needed in the single-origin setup (PWA + API share this Worker).
 # Only set this if a separate-origin client must call the API cross-origin.
