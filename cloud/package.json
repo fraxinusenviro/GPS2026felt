@@ -1,0 +1,23 @@
+{
+  "name": "ffm-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Production Cloudflare Worker (D1 + R2 + Access) backend for the Fraxinus Field Mapper",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "migrate:local": "wrangler d1 migrations apply ffm --local",
+    "migrate:remote": "wrangler d1 migrations apply ffm --remote",
+    "test": "node test/backend.test.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "aws4fetch": "^1.0.20"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250601.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^4.0.0"
+  }
+}

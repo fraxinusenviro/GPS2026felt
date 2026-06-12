@@ -1,0 +1,36 @@
+# Production Cloudflare Worker for the Fraxinus Field Mapper backend.
+# Replaces the throwaway cloud-spike/. Auth is Cloudflare Access (JWT verified
+# against the team JWKS) instead of the spike's placeholder bearer token.
+
+name = "ffm-backend"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+# Object storage for de-inlined photos/blobs. S3-compatible, zero egress.
+[[r2_buckets]]
+binding = "BLOBS"
+bucket_name = "ffm-blobs"
+
+# SQLite at the edge: one row per synced entity, with a global `rev` sequence
+# driving the /changes cursor. Schema lives in ./schema as numbered migrations.
+[[d1_databases]]
+binding = "DB"
+database_name = "ffm"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"   # from `wrangler d1 create ffm`
+migrations_dir = "schema"
+
+[vars]
+# Cloudflare Access config. When BOTH are blank the Worker runs in DEV MODE:
+# it skips JWT verification and takes identity from an optional `X-Dev-User`
+# header (defaulting to dev@local). Set both in production to enforce Access.
+TEAM_DOMAIN = ""        # e.g. https://fraxinus.cloudflareaccess.com
+ACCESS_AUD = ""         # Access application Audience (AUD) tag
+
+# CORS: the PWA origin allowed to call this backend with credentials.
+# Leave blank to disable CORS (same-origin / server-to-server only).
+ALLOWED_ORIGIN = ""     # e.g. https://app.fraxinusenviro.com
+
+# R2 S3 presigned-URL config (secrets R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY
+# go via `wrangler secret put`). R2_ACCOUNT_ID is your Cloudflare account id.
+R2_ACCOUNT_ID = ""
+R2_BUCKET_NAME = "ffm-blobs"
