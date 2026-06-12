@@ -21,30 +21,46 @@ Confirmed for this account:
 | Access policy | Allow emails ending in `@fraxinusenviro.com` |
 | `ACCESS_AUD` | filled in at step 4 (generated when the app is created) |
 
-## Deploy the Worker (needs your Cloudflare account)
+## Deploy the Worker
+
+Deploys run automatically from GitHub via
+`.github/workflows/deploy-cloudflare.yml` — **you never run `wrangler` locally.**
+"Deploy" / "redeploy" anywhere below means: **commit the change and push** to the
+default branch (or GitHub → **Actions → Deploy fieldmapper Worker to Cloudflare →
+Run workflow**).
+
+One-time setup, all in the browser:
+
+1. **Create resources** (Cloudflare dashboard): an **R2 bucket** named `ffm-blobs`
+   and a **D1 database** named `ffm`; copy the D1 **Database ID**.
+2. **Edit `cloud/wrangler.toml`** on GitHub: set `database_id` to that ID and
+   `R2_ACCOUNT_ID` to your account id (`1edcb67fc582d37374725ed3bd8dc91a`).
+3. **Add GitHub secrets** (repo → Settings → Secrets and variables → Actions):
+   `CLOUDFLARE_API_TOKEN` ("Edit Cloudflare Workers" template + D1:Edit) and
+   `CLOUDFLARE_ACCOUNT_ID`.
+4. **Trigger the workflow** (merge to the default branch, or Run workflow). CI
+   builds the PWA, applies D1 migrations, and deploys to
+   `fieldmapper.fraxinusenviro.workers.dev`.
+
+> The R2 S3 secrets (`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`) are **optional** —
+> the app moves photos through the R2 binding (`/blobs`), not the presigned routes.
+
+After the first deploy the app is live but **unprotected** (Access vars blank →
+dev mode). Create the Access app next, then push the `ACCESS_AUD` change to enforce it.
+
+<details>
+<summary>Alternative: deploy from a local clone instead of CI</summary>
 
 ```bash
-# From the repo root: build the PWA so ../dist exists for Static Assets.
-npm install
-npm run build
-
-cd cloud
-npm install
+npm install && npm run build      # repo root → builds ../dist
+cd cloud && npm install
 npx wrangler login
-
-# One-time resources
 npx wrangler r2 bucket create ffm-blobs
-npx wrangler d1 create ffm            # → paste database_id into wrangler.toml
-npm run migrate:remote                # apply schema to remote D1
-npx wrangler secret put R2_ACCESS_KEY_ID      # R2 → Manage R2 API Tokens (Object R/W)
-npx wrangler secret put R2_SECRET_ACCESS_KEY
-# Set R2_ACCOUNT_ID in wrangler.toml [vars].
-
-npx wrangler deploy   # serves PWA + API at fieldmapper.fraxinusenviro.workers.dev
+npx wrangler d1 create ffm        # → paste database_id into wrangler.toml
+npm run migrate:remote
+npx wrangler deploy
 ```
-
-At this point the app is live but **unprotected** (and Access vars are blank, so
-the Worker is in dev mode). Create the Access app next, then redeploy.
+</details>
 
 ## 1. Create the self-hosted Access application (Dashboard)
 
@@ -76,11 +92,9 @@ In the application → **Overview / Additional settings** → copy the
    ACCESS_AUD = "<the AUD tag>"
    ```
    (`TEAM_DOMAIN` is already set.)
-2. Redeploy:
-   ```bash
-   cd cloud
-   npx wrangler deploy
-   ```
+2. **Commit that edit** on GitHub to the default branch. The push triggers the
+   deploy workflow, which redeploys with Access enforced. (No local command — to
+   redeploy without a code change, use GitHub → Actions → Run workflow.)
 
 ## 5. Verify
 
