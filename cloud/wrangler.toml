@@ -20,15 +20,16 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"   # from `wrangler d1 create ffm`
 migrations_dir = "schema"
 
 [vars]
-# Cloudflare Access config. When BOTH are blank the Worker runs in DEV MODE:
-# it skips JWT verification and takes identity from an optional `X-Dev-User`
-# header (defaulting to dev@local). Set both in production to enforce Access.
-TEAM_DOMAIN = ""        # e.g. https://fraxinus.cloudflareaccess.com
-ACCESS_AUD = ""         # Access application Audience (AUD) tag
+# Cloudflare Access config. When BOTH TEAM_DOMAIN and ACCESS_AUD are set the
+# Worker enforces Access (JWT verified against the team JWKS); leaving them blank
+# is DEV MODE only. See ACCESS.md for the full setup runbook.
+TEAM_DOMAIN = "https://fraxinusenviro.cloudflareaccess.com"
+ACCESS_AUD = ""         # paste the AUD tag after creating the Access application (ACCESS.md step 3)
 
-# CORS: the PWA origin allowed to call this backend with credentials.
-# Leave blank to disable CORS (same-origin / server-to-server only).
-ALLOWED_ORIGIN = ""     # e.g. https://app.fraxinusenviro.com
+# CORS: the PWA origin allowed to call this backend with credentials. Required
+# because the PWA is hosted on a SEPARATE origin from this Worker (cross-origin).
+# Set to the exact PWA origin, e.g. https://fieldmapper.pages.dev — no trailing slash.
+ALLOWED_ORIGIN = ""     # set to the PWA origin (ACCESS.md step 4)
 
 # R2 S3 presigned-URL config (secrets R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY
 # go via `wrangler secret put`). R2_ACCOUNT_ID is your Cloudflare account id.
