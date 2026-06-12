@@ -1,7 +1,11 @@
 /**
- * Fraxinus Field Mapper — production backend Worker.
+ * Fraxinus Field Mapper — production Worker (PWA host + sync/blob API).
  *
- * Routes (all data routes require a verified Cloudflare Access identity):
+ * The Worker runs first for every request (run_worker_first). API paths are
+ * handled here; everything else is served from Workers Static Assets (the built
+ * PWA in ../dist), so the app and API share one origin behind one Access app.
+ *
+ * API routes (all require a verified Cloudflare Access identity except /health):
  *   GET  /health                 — liveness, unauthenticated
  *   POST /sync                   — push changed projects/features/presets (LWW)
  *   GET  /changes?since=&limit=  — pull changes since a rev cursor
@@ -17,23 +21,37 @@ import { handleSync, handleChanges } from './sync';
 import { signUpload, signDownload, putBlob, getBlob } from './blobs';
 import { json, bad, corsHeaders } from './http';
 
+/** True for request paths this Worker handles itself (vs. static PWA assets). */
+function isApiPath(path: string): boolean {
+  return (
+    path === '/health' ||
+    path === '/sync' ||
+    path === '/changes' ||
+    path === '/uploads/sign' ||
+    path.startsWith('/blobs/')
+  );
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const cors = corsHeaders(env, request);
+    const url = new URL(request.url);
 
+    // Non-API requests → serve the PWA (Static Assets handle SPA fallback).
+    if (!isApiPath(url.pathname)) return env.ASSETS.fetch(request);
+
+    const cors = corsHeaders(env, request);
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors });
     }
 
-    const res = await route(request, env);
+    const res = await route(request, env, url);
     // attach CORS to every real response
     for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
     return res;
   },
 };
 
-async function route(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
+async function route(request: Request, env: Env, url: URL): Promise<Response> {
   const path = url.pathname;
   const method = request.method.toUpperCase();
 

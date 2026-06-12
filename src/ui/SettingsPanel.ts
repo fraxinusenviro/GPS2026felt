@@ -165,9 +165,9 @@ export class SettingsPanel {
             </label>
             <label>Backend URL
               <input type="url" id="s-sync-url" value="${syncCfg.url}"
-                placeholder="https://ffm-backend.<subdomain>.workers.dev"
+                placeholder="leave blank if using the Cloudflare-hosted app"
                 autocomplete="off" spellcheck="false" />
-              <span class="settings-hint">Shared Cloudflare backend. Sign in via Cloudflare Access in the browser first.</span>
+              <span class="settings-hint">Leave blank when running the Cloudflare-hosted app (same origin). Set a full URL only for a separate-origin backend.</span>
             </label>
             <div class="btn-group">
               <button class="btn-outline" id="s-sync-now">Sync Now</button>

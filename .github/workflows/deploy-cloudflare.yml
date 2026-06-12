@@ -1,0 +1,51 @@
+name: Deploy fieldmapper Worker to Cloudflare
+
+# Builds the PWA and deploys the single-origin `fieldmapper` Worker (PWA + sync
+# API) to Cloudflare. Runs on push to the default branch, or on demand.
+#
+# Prerequisites (one-time — see cloud/ACCESS.md):
+#   - Resources created once: an R2 bucket `ffm-blobs` and a D1 database `ffm`
+#     (paste its database_id into cloud/wrangler.toml). The R2 *binding* is all
+#     the app needs for photos; the R2 S3 API secrets are optional (only the
+#     unused presigned-URL routes need them).
+#   - GitHub repo secrets (Settings → Secrets and variables → Actions):
+#       CLOUDFLARE_API_TOKEN  — "Edit Cloudflare Workers" template + D1:Edit.
+#       CLOUDFLARE_ACCOUNT_ID — your Cloudflare account id.
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch: {}
+
+# Avoid overlapping deploys.
+concurrency:
+  group: cloudflare-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Build the PWA → ./dist (served by the Worker via Static Assets).
+      - name: Install (root) and build PWA
+        run: |
+          npm ci
+          npm run build
+
+      # Apply D1 migrations, then deploy the Worker (which bundles ../dist).
+      - name: Migrate D1 and deploy Worker
+        working-directory: cloud
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npm ci
+          npx wrangler d1 migrations apply ffm --remote
+          npx wrangler deploy
