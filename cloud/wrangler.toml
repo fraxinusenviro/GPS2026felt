@@ -24,7 +24,7 @@ migrations_dir = "schema"
 # it skips JWT verification and takes identity from an optional `X-Dev-User`
 # header (defaulting to dev@local). Set both in production to enforce Access.
 TEAM_DOMAIN = ""        # e.g. https://fraxinus.cloudflareaccess.com
-ACCESS_AUD = ""         # Access application Audience (AUD) tag
+ACCESS_AUD = "4b471a9ec9308413b060ed3377fa1656f4b433aafdc022ddb3da4a11dce961a4"         # Access application Audience (AUD) tag
 
 # CORS: the PWA origin allowed to call this backend with credentials.
 # Leave blank to disable CORS (same-origin / server-to-server only).
