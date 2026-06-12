@@ -16,7 +16,7 @@ bucket_name = "ffm-blobs"
 [[d1_databases]]
 binding = "DB"
 database_name = "ffm"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"   # from `wrangler d1 create ffm`
+database_id = "0a87fcf2-acb9-4ccd-80cd-faeb816d8835"   # from `wrangler d1 create ffm`
 migrations_dir = "schema"
 
 [vars]
@@ -32,5 +32,5 @@ ALLOWED_ORIGIN = ""     # e.g. https://app.fraxinusenviro.com
 
 # R2 S3 presigned-URL config (secrets R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY
 # go via `wrangler secret put`). R2_ACCOUNT_ID is your Cloudflare account id.
-R2_ACCOUNT_ID = ""
+R2_ACCOUNT_ID = "1edcb67fc582d37374725ed3bd8dc91a"
 R2_BUCKET_NAME = "ffm-blobs"
