@@ -60,11 +60,14 @@ async function main() {
     layer_presets: [{ id: layerId, name: 'Trees', project_id: projectId,
       types: [{ id: typeId, label: 'Oak' }], updated_at: iso }],
     type_presets: [{ id: typeId, label: 'Oak', updated_at: iso }],
+    shared_layers: [{ id: `shared-${now}`, name: 'Aerial 2026', kind: 'raster',
+      format: 'cog', r2_key: `shared/${now}.tif`, updated_at: iso }],
   });
   const syncBody = await syncRes.json();
-  check('all four applied', syncRes.ok &&
+  check('all five kinds applied', syncRes.ok &&
     syncBody.applied.projects === 1 && syncBody.applied.features === 1 &&
-    syncBody.applied.layer_presets === 1 && syncBody.applied.type_presets === 1,
+    syncBody.applied.layer_presets === 1 && syncBody.applied.type_presets === 1 &&
+    syncBody.applied.shared_layers === 1,
     JSON.stringify(syncBody));
   check('server returned a rev cursor', typeof syncBody.rev === 'number' && syncBody.rev > 0);
 
@@ -73,6 +76,8 @@ async function main() {
   const c1 = await (await get('/changes?since=0')).json();
   const feat = (c1.features ?? []).find((f) => f.id === featId);
   const layer = (c1.layer_presets ?? []).find((l) => l.id === layerId);
+  const shared = (c1.shared_layers ?? []).find((s) => s.id === `shared-${now}`);
+  check('shared layer came back', shared && shared.r2_key === `shared/${now}.tif`, JSON.stringify(c1).slice(0, 200));
   check('feature came back', !!feat, JSON.stringify(c1).slice(0, 160));
   check('geometry survived round-trip', feat && feat.geometry.coordinates[0] === -63.57);
   check('photo_keys survived round-trip', feat && feat.photo_keys[0] === `photos/${now}.jpg`);

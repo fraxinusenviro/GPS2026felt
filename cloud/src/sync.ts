@@ -11,12 +11,7 @@ import type { Env, Identity, SyncEntity, EntityKind } from './types';
 import { ENTITY_KINDS, TABLES } from './types';
 import { json, bad } from './http';
 
-interface SyncBody {
-  projects?: SyncEntity[];
-  features?: SyncEntity[];
-  layer_presets?: SyncEntity[];
-  type_presets?: SyncEntity[];
-}
+type SyncBody = Partial<Record<EntityKind, SyncEntity[]>>;
 
 /** Reserve a contiguous block of `count` rev numbers; returns the first rev. */
 async function reserveRevs(env: Env, count: number): Promise<number> {
@@ -120,7 +115,7 @@ export async function handleChanges(url: URL, env: Env): Promise<Response> {
 }
 
 function emptyCounts(): Record<EntityKind, number> {
-  return { projects: 0, features: 0, layer_presets: 0, type_presets: 0 };
+  return { projects: 0, features: 0, layer_presets: 0, type_presets: 0, shared_layers: 0 };
 }
 
 async function currentRev(env: Env): Promise<number> {
