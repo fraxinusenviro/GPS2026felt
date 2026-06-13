@@ -126,6 +126,60 @@ async function main() {
     check('direct GET from presigned R2 url', directBody === payload, `(got "${directBody.slice(0, 40)}")`);
   }
 
+  // 7. paginated pull never skips rows (per-kind LIMIT + safe cursor) -----
+  console.log('\n[7] /changes pagination — no skipped rows across kinds');
+  {
+    const base = `pg-${now}`;
+    // Push several features and one project; the project gets the highest rev.
+    await post('/sync', {
+      features: [0, 1, 2].map((i) => ({
+        id: `${base}-f${i}`, project_id: projectId, layer_id: layerId,
+        geometry: { type: 'Point', coordinates: [0, 0] }, lat: 0, lon: 0,
+        type: 'tree', updated_at: new Date(now + 1000 + i).toISOString(),
+      })),
+    });
+    await post('/sync', { projects: [{ id: `${base}-p`, name: 'pager', updated_at: iso }] });
+
+    // Walk from a cursor just before our batch with limit=1 so kinds truncate.
+    const start = await (await get('/changes?since=0&limit=100000')).json();
+    void start;
+    const wanted = new Set([`${base}-f0`, `${base}-f1`, `${base}-f2`, `${base}-p`]);
+    const seen = new Set();
+    let cur = 0;
+    for (let i = 0; i < 5000 && seen.size < wanted.size + 1; i++) {
+      const page = await (await get(`/changes?since=${cur}&limit=1`)).json();
+      for (const k of ['projects', 'features', 'layer_presets', 'type_presets', 'shared_layers']) {
+        for (const row of page[k] ?? []) if (wanted.has(row.id)) seen.add(row.id);
+      }
+      cur = page.cursor;
+      if (!page.more) break;
+    }
+    check('all rows recovered when paginating with limit=1', [...wanted].every((id) => seen.has(id)),
+      `missing: ${[...wanted].filter((id) => !seen.has(id)).join(',')}`);
+  }
+
+  // 8. /blobs Range support ------------------------------------------------
+  console.log('\n[8] /blobs — HTTP Range');
+  {
+    const key = `static/range-${now}.bin`;
+    const payload = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const put = await fetch(`${BASE}/blobs/${encodeURIComponent(key)}`, {
+      method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream' }, body: payload,
+    });
+    check('PUT /blobs stored object', put.ok, `(got ${put.status})`);
+
+    const ranged = await fetch(`${BASE}/blobs/${encodeURIComponent(key)}`, { headers: { ...headers, range: 'bytes=5-9' } });
+    const body = await ranged.text();
+    check('Range returns 206', ranged.status === 206, `(got ${ranged.status})`);
+    check('Range returns the requested bytes', body === payload.slice(5, 10), `(got "${body}")`);
+    check('Content-Range header set', ranged.headers.get('content-range') === `bytes 5-9/${payload.length}`,
+      `(got "${ranged.headers.get('content-range')}")`);
+
+    const full = await fetch(`${BASE}/blobs/${encodeURIComponent(key)}`, { headers });
+    check('full GET advertises Accept-Ranges', full.headers.get('accept-ranges') === 'bytes',
+      `(got "${full.headers.get('accept-ranges')}")`);
+  }
+
   console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
   process.exit(fail === 0 ? 0 : 1);
 }

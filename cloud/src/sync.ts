@@ -94,7 +94,9 @@ export async function handleChanges(url: URL, env: Env): Promise<Response> {
   const limit = Math.min(Number(url.searchParams.get('limit') ?? '1000') || 1000, 5000);
 
   const out: Record<string, unknown[]> = {};
-  let cursor = since;
+  let globalMax = since;
+  let truncatedMin = Infinity; // smallest last-rev among kinds that filled the page
+  let more = false;
 
   for (const kind of ENTITY_KINDS) {
     const cfg = TABLES[kind];
@@ -104,14 +106,26 @@ export async function handleChanges(url: URL, env: Env): Promise<Response> {
       .bind(since, limit)
       .all<{ doc: string; updated_at: string; deleted: number; rev: number }>();
 
-    out[kind] = (results ?? []).map((r) => {
-      if (r.rev > cursor) cursor = r.rev;
+    const rows = results ?? [];
+    out[kind] = rows.map((r) => {
+      if (r.rev > globalMax) globalMax = r.rev;
       return { ...JSON.parse(r.doc), updated_at: r.updated_at, deleted: !!r.deleted, rev: r.rev };
     });
+
+    // A full page means this kind was truncated: there may be more rows with a
+    // higher rev. We must NOT let the cursor advance past this kind's last rev,
+    // or those rows would be skipped (another, un-truncated kind can carry the
+    // global max rev far past this one).
+    if (rows.length >= limit) {
+      more = true;
+      const lastRev = rows[rows.length - 1].rev;
+      if (lastRev < truncatedMin) truncatedMin = lastRev;
+    }
   }
 
+  const cursor = more ? truncatedMin : globalMax;
   const count = ENTITY_KINDS.reduce((n, k) => n + out[k].length, 0);
-  return json({ since, cursor, count, ...out });
+  return json({ since, cursor, count, more, ...out });
 }
 
 function emptyCounts(): Record<EntityKind, number> {
