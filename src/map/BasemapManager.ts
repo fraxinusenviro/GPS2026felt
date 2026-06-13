@@ -995,6 +995,27 @@ export class BasemapManager {
     })();
   }
 
+  /** Apply base stroke/fill colours + widths to a GeoJSON overlay (when no symbology). */
+  private applyGeojsonBaseStyle(l: StackLayer): void {
+    if (l.symbologyState) return; // data-driven symbology owns the colours
+    const map = this.mapManager.getMap();
+    const base = `bm-ov-${l.instanceId}`;
+    const line = l.vecLineColor ?? this.geojsonColor(l);
+    const fill = l.vecFillColor ?? this.geojsonColor(l);
+    const lw = l.vecLineWidth ?? 2;
+    const op = l.opacity ?? 1;
+    const fo = (l.vecFillOpacityOverride ?? 1) * op * 0.4;
+    if (map.getLayer(`${base}-line`)) {
+      map.setPaintProperty(`${base}-line`, 'line-color', line);
+      map.setPaintProperty(`${base}-line`, 'line-width', lw);
+    }
+    if (map.getLayer(`${base}-fill`)) {
+      map.setPaintProperty(`${base}-fill`, 'fill-color', fill);
+      map.setPaintProperty(`${base}-fill`, 'fill-opacity', fo);
+    }
+    if (map.getLayer(`${base}-point`)) map.setPaintProperty(`${base}-point`, 'circle-color', fill);
+  }
+
   private applyGeojsonOpacityVisibility(l: StackLayer, baseId: string): void {
     const map = this.mapManager.getMap();
     const vis = l.visible ? 'visible' : 'none';
@@ -2102,7 +2123,7 @@ export class BasemapManager {
           <label class="bm-adj-label" style="flex:1;text-align:left">Show in legend</label>
           <button class="vis-tog bm-legend-tog ${showInLegend ? 'active' : ''}" data-iid="${layer.instanceId}" title="Toggle legend entry"></button>
         </div>`;
-    const isVectorLayer = ['nsprd-vector', 'nshn-vector'].includes(ltype);
+    const isVectorLayer = ['nsprd-vector', 'nshn-vector', 'geojson'].includes(ltype);
     const cfg = isVectorLayer ? this.getVectorConfig(layer) : undefined;
     const eyeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
     const adjSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M32,80a8,8,0,0,1,8-8H77.17a28,28,0,0,1,53.66,0H216a8,8,0,0,1,0,16H130.83a28,28,0,0,1-53.66,0H40A8,8,0,0,1,32,80Zm184,88H194.83a28,28,0,0,0-53.66,0H40a8,8,0,0,0,0,16H141.17a28,28,0,0,0,53.66,0H216a8,8,0,0,0,0-16Z"/></svg>`;
@@ -2975,6 +2996,7 @@ export class BasemapManager {
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'hrdem-wcs') this.hrdemLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'cog-contour') this.cogContourLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
+        else if (ltype === 'geojson') this.applyGeojsonOpacityVisibility(layer, `bm-ov-${iid}`);
         else this.mapManager.setBasemapOverlayOpacity(iid, layer.visible ? opacity : 0);
         this.saveStack();
       });
@@ -2998,6 +3020,7 @@ export class BasemapManager {
           this.refreshLegend();
         }
         else if (ltype2 === 'cog-contour') this.cogContourLayers.get(iid)?.setVisible(layer.visible);
+        else if (ltype2 === 'geojson') this.applyGeojsonOpacityVisibility(layer, `bm-ov-${iid}`);
         else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
         this.saveStack();
       });
@@ -3598,6 +3621,7 @@ export class BasemapManager {
         const ltype = this.getLayerType(layer);
         if (ltype === 'nsprd-vector') this.nsprdLayer?.setLineWidth(w);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setLineWidth(w);
+        else if (ltype === 'geojson') this.applyGeojsonBaseStyle(layer);
         this.saveStack();
       });
     });
@@ -3622,6 +3646,8 @@ export class BasemapManager {
             nshn.setFillOpacityOverride(fo);
             nshn.setOpacity(layer.visible ? layer.opacity : 0);
           }
+        } else if (ltype === 'geojson') {
+          this.applyGeojsonBaseStyle(layer);
         }
         this.saveStack();
       });
@@ -3638,6 +3664,7 @@ export class BasemapManager {
         const ltype = this.getLayerType(layer);
         if (ltype === 'nsprd-vector') this.nsprdLayer?.setLineColor(color);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setLineColor(color);
+        else if (ltype === 'geojson') this.applyGeojsonBaseStyle(layer);
         this.saveStack();
       });
     });
@@ -3653,6 +3680,7 @@ export class BasemapManager {
         const ltype = this.getLayerType(layer);
         if (ltype === 'nsprd-vector') this.nsprdLayer?.setFillColor(color);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setFillColor(color);
+        else if (ltype === 'geojson') this.applyGeojsonBaseStyle(layer);
         this.saveStack();
       });
     });
@@ -3680,6 +3708,8 @@ export class BasemapManager {
           feats = this.nsprdLayer?.getLoadedFeatureProps() ?? [];
         } else if (ltype === 'nshn-vector') {
           feats = this.nshnLayers.get(iid)?.getLoadedFeatureProps() ?? [];
+        } else if (ltype === 'geojson') {
+          feats = this.geojsonOverlays.get(iid) ?? [];
         }
 
         this.symbologyStudio.open({
@@ -3689,7 +3719,11 @@ export class BasemapManager {
           initialState: layer.symbologyState,
           onApply: (state: SymbologyState) => {
             layer.symbologyState = state;
-            this.mapManager.setVectorOverlaySymbology(iid, state, feats, geomStr);
+            if (ltype === 'geojson') {
+              this.mapManager.setImportedLayerSymbology(`bm-ov-${iid}`, state, feats, this.geojsonColor(layer));
+            } else {
+              this.mapManager.setVectorOverlaySymbology(iid, state, feats, geomStr);
+            }
             this.saveStack();
           },
         });
