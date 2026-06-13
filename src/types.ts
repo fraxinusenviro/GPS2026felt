@@ -343,6 +343,22 @@ export interface ToastMessage {
   duration?: number;
 }
 
+// ---- Shared data library layers (org-shared uploads; synced via cloud) ----
+// Metadata/index for a vector or raster dataset whose bytes live in R2.
+export interface SharedLayer {
+  id: string;                                   // uuid
+  name: string;
+  kind: 'vector' | 'raster';
+  format: string;                               // 'geojson' | 'cog' | 'pmtiles' | …
+  r2_key: string;                               // R2 object key holding the file
+  size?: number;                                // bytes
+  bounds?: [number, number, number, number];    // [west, south, east, north]
+  style?: { color?: string; opacity?: number };
+  added_at: string;
+  added_by?: string;
+  updated_at?: string;                          // drives last-write-wins
+}
+
 // ---- Project templates (preset basemap stack + datasets for new projects) ----
 export interface StackSpec {
   defId: string;                          // BasemapDef id from the catalogue

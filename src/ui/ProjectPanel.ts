@@ -106,11 +106,12 @@ export class ProjectPanel {
   }
 
   private renderLibraryTab(projects: Project[], counts: number[]): string {
-    const masterBtn = `<button class="btn btn-outline" id="proj-master-data" style="width:100%;margin-bottom:10px">📊 Master Data — view all projects</button>`;
+    const masterBtn = `<button class="btn btn-outline" id="proj-master-data" style="width:100%;margin-bottom:8px">📊 Master Data — view all projects</button>`;
+    const sharedBtn = `<button class="btn btn-outline" id="proj-shared-library" style="width:100%;margin-bottom:10px">☁ Shared Data Library</button>`;
     if (projects.length === 0) {
-      return masterBtn + '<p class="proj-empty">No projects yet. Create one to get started.</p>';
+      return masterBtn + sharedBtn + '<p class="proj-empty">No projects yet. Create one to get started.</p>';
     }
-    return masterBtn + this.renderProjectList(projects, counts);
+    return masterBtn + sharedBtn + this.renderProjectList(projects, counts);
   }
 
   private renderProjectList(projects: Project[], counts: number[]): string {
@@ -184,6 +185,10 @@ export class ProjectPanel {
     this.panel.querySelector('#proj-master-data')?.addEventListener('click', () => {
       this.close();
       EventBus.emit('open-master-data');
+    });
+    this.panel.querySelector('#proj-shared-library')?.addEventListener('click', () => {
+      this.close();
+      EventBus.emit('open-shared-library');
     });
 
     // Activate
