@@ -164,6 +164,7 @@ export class BasemapManager {
   // fetched features per instance so symbology + identify can reuse them, and
   // track which are loaded onto the map.
   private geojsonOverlays = new Map<string, { properties: Record<string, unknown> }[]>();
+  private geojsonGeomType = new Map<string, 'point' | 'line' | 'polygon'>();
   private geojsonLoading = new Set<string>();
   private cutFillResultProvider: (() => import('../lib/cutFillEngine').CutFillResult | null) | null = null;
   private cutFillLayers = new Map<string, CutFillLayer>();
@@ -980,9 +981,10 @@ export class BasemapManager {
       try {
         const res = await fetch(l.url, { credentials: 'include' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json() as { features?: Array<{ properties?: Record<string, unknown> }> };
+        const data = await res.json() as { features?: Array<{ properties?: Record<string, unknown>; geometry?: { type?: string } }> };
         const feats = (data.features ?? []).map(f => ({ properties: (f.properties ?? {}) as Record<string, unknown> }));
         this.geojsonOverlays.set(l.instanceId, feats);
+        this.geojsonGeomType.set(l.instanceId, this.detectGeomType(data.features));
         this.mapManager.addGeoJSONLayer(baseId, data, color, l.opacity ?? 1);
         applyState();
         this.refreshLegend();
@@ -995,25 +997,15 @@ export class BasemapManager {
     })();
   }
 
-  /** Apply base stroke/fill colours + widths to a GeoJSON overlay (when no symbology). */
-  private applyGeojsonBaseStyle(l: StackLayer): void {
-    if (l.symbologyState) return; // data-driven symbology owns the colours
-    const map = this.mapManager.getMap();
-    const base = `bm-ov-${l.instanceId}`;
-    const line = l.vecLineColor ?? this.geojsonColor(l);
-    const fill = l.vecFillColor ?? this.geojsonColor(l);
-    const lw = l.vecLineWidth ?? 2;
-    const op = l.opacity ?? 1;
-    const fo = (l.vecFillOpacityOverride ?? 1) * op * 0.4;
-    if (map.getLayer(`${base}-line`)) {
-      map.setPaintProperty(`${base}-line`, 'line-color', line);
-      map.setPaintProperty(`${base}-line`, 'line-width', lw);
+  /** Dominant geometry class of a GeoJSON feature array (for the Symbology Studio). */
+  private detectGeomType(features?: Array<{ geometry?: { type?: string } }>): 'point' | 'line' | 'polygon' {
+    for (const f of features ?? []) {
+      const t = f.geometry?.type ?? '';
+      if (t.includes('Polygon')) return 'polygon';
+      if (t.includes('LineString')) return 'line';
+      if (t.includes('Point')) return 'point';
     }
-    if (map.getLayer(`${base}-fill`)) {
-      map.setPaintProperty(`${base}-fill`, 'fill-color', fill);
-      map.setPaintProperty(`${base}-fill`, 'fill-opacity', fo);
-    }
-    if (map.getLayer(`${base}-point`)) map.setPaintProperty(`${base}-point`, 'circle-color', fill);
+    return 'polygon';
   }
 
   private applyGeojsonOpacityVisibility(l: StackLayer, baseId: string): void {
@@ -1610,6 +1602,7 @@ export class BasemapManager {
       if (!activeGeojsonIds.has(iid)) {
         this.mapManager.removeGeoJSONLayer(`bm-ov-${iid}`);
         this.geojsonOverlays.delete(iid);
+        this.geojsonGeomType.delete(iid);
       }
     }
 
@@ -2147,6 +2140,7 @@ export class BasemapManager {
           <input type="range" class="bm-adj-slider bm-opacity-slider" data-iid="${layer.instanceId}" min="0" max="100" step="1" value="${Math.round(layer.opacity * 100)}" />
           <span class="bm-adj-val">${Math.round(layer.opacity * 100)}%</span>
         </div>
+        ${ltype !== 'geojson' ? `
         <div class="bm-adj-row">
           <label class="bm-adj-label">Stroke</label>
           <input type="color" class="bm-vec-color bm-vec-lc" data-iid="${layer.instanceId}" value="${currentLineHex}" title="Stroke colour" />
@@ -2162,7 +2156,7 @@ export class BasemapManager {
           <input type="range" class="bm-adj-slider bm-vec-fo" data-iid="${layer.instanceId}"
             min="0" max="100" step="5" value="${Math.round(currentFillOpacity * 100)}" title="Fill opacity" />
           <span class="bm-adj-val">${Math.round(currentFillOpacity * 100)}%</span>
-        </div>` : ''}
+        </div>` : ''}` : ''}
         <div class="bm-adj-row" style="margin-top:4px">
           <button class="bm-vec-symbology btn-outline" data-iid="${layer.instanceId}"
             style="font-size:10px;padding:4px 8px;flex:1" title="Open Symbology Studio">⊛ Symbology</button>
@@ -3621,7 +3615,6 @@ export class BasemapManager {
         const ltype = this.getLayerType(layer);
         if (ltype === 'nsprd-vector') this.nsprdLayer?.setLineWidth(w);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setLineWidth(w);
-        else if (ltype === 'geojson') this.applyGeojsonBaseStyle(layer);
         this.saveStack();
       });
     });
@@ -3646,8 +3639,6 @@ export class BasemapManager {
             nshn.setFillOpacityOverride(fo);
             nshn.setOpacity(layer.visible ? layer.opacity : 0);
           }
-        } else if (ltype === 'geojson') {
-          this.applyGeojsonBaseStyle(layer);
         }
         this.saveStack();
       });
@@ -3664,7 +3655,6 @@ export class BasemapManager {
         const ltype = this.getLayerType(layer);
         if (ltype === 'nsprd-vector') this.nsprdLayer?.setLineColor(color);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setLineColor(color);
-        else if (ltype === 'geojson') this.applyGeojsonBaseStyle(layer);
         this.saveStack();
       });
     });
@@ -3680,7 +3670,6 @@ export class BasemapManager {
         const ltype = this.getLayerType(layer);
         if (ltype === 'nsprd-vector') this.nsprdLayer?.setFillColor(color);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setFillColor(color);
-        else if (ltype === 'geojson') this.applyGeojsonBaseStyle(layer);
         this.saveStack();
       });
     });
@@ -3701,15 +3690,18 @@ export class BasemapManager {
         if (!layer) return;
         const ltype = this.getLayerType(layer);
         const cfg = this.getVectorConfig(layer);
-        const geomStr = (cfg?.geomType ?? 'polygon') as 'line' | 'polygon';
 
         let feats: { properties: Record<string, unknown> }[] = [];
+        // Static GeoJSON uses the geometry detected from the loaded file so the
+        // studio offers point/line/polygon controls correctly (not always polygon).
+        let geomStr: 'point' | 'line' | 'polygon' = (cfg?.geomType ?? 'polygon');
         if (ltype === 'nsprd-vector') {
           feats = this.nsprdLayer?.getLoadedFeatureProps() ?? [];
         } else if (ltype === 'nshn-vector') {
           feats = this.nshnLayers.get(iid)?.getLoadedFeatureProps() ?? [];
         } else if (ltype === 'geojson') {
           feats = this.geojsonOverlays.get(iid) ?? [];
+          geomStr = this.geojsonGeomType.get(iid) ?? 'polygon';
         }
 
         this.symbologyStudio.open({
@@ -3722,7 +3714,7 @@ export class BasemapManager {
             if (ltype === 'geojson') {
               this.mapManager.setImportedLayerSymbology(`bm-ov-${iid}`, state, feats, this.geojsonColor(layer));
             } else {
-              this.mapManager.setVectorOverlaySymbology(iid, state, feats, geomStr);
+              this.mapManager.setVectorOverlaySymbology(iid, state, feats, geomStr as 'line' | 'polygon');
             }
             this.saveStack();
           },
