@@ -160,6 +160,11 @@ export class BasemapManager {
   private nshnLayers = new Map<string, NSHNVectorLayer>();
   private hrdemLayers = new Map<string, HRDEMLayer>();
   private cogContourLayers = new Map<string, CogContourLayer>();
+  // Static GeoJSON overlays (shared data library, type 'geojson'): cache the
+  // fetched features per instance so symbology + identify can reuse them, and
+  // track which are loaded onto the map.
+  private geojsonOverlays = new Map<string, { properties: Record<string, unknown> }[]>();
+  private geojsonLoading = new Set<string>();
   private cutFillResultProvider: (() => import('../lib/cutFillEngine').CutFillResult | null) | null = null;
   private cutFillLayers = new Map<string, CutFillLayer>();
   private collapsedFdGroups = new Set<string>();
@@ -382,6 +387,9 @@ export class BasemapManager {
     const ids: string[] = [];
     if (this.nsprdLayer) ids.push(...this.nsprdLayer.getLayerIds());
     for (const layer of this.nshnLayers.values()) ids.push(...layer.getLayerIds());
+    for (const iid of this.geojsonOverlays.keys()) {
+      for (const suffix of ['fill', 'line', 'point']) ids.push(`bm-ov-${iid}-${suffix}`);
+    }
     return ids.filter(id => map.getLayer(id));
   }
 
@@ -409,7 +417,7 @@ export class BasemapManager {
 
     for (const feat of features) {
       const rawLayerId = feat.layer.id;
-      const iid = rawLayerId.replace(/^bm-ov-/, '').replace(/-stroke$/, '');
+      const iid = rawLayerId.replace(/^bm-ov-/, '').replace(/-(?:stroke|fill|line|point)$/, '');
       const stackLayer = this.stack.find(l => l.instanceId === iid);
 
       // Collect NSPRD OIDs for polygon highlight
@@ -432,8 +440,8 @@ export class BasemapManager {
       } else {
         const def = stackLayer ? allDefs.find(d => d.id === stackLayer.defId) : undefined;
         groupMap.set(iid, {
-          label: def?.label ?? 'Layer',
-          fieldLabels: def?.vector_config?.fieldLabels,
+          label: def?.label ?? stackLayer?.label ?? 'Layer',
+          fieldLabels: def?.vector_config?.fieldLabels ?? (stackLayer ? this.getVectorConfig(stackLayer)?.fieldLabels : undefined),
           features: [{ props, geometry }],
         });
       }
@@ -692,6 +700,11 @@ export class BasemapManager {
     this.saveStack();
   }
 
+  /** Remove every stack layer matching a defId (used when a shared layer is deleted). */
+  removeDefFromStack(defId: string): void {
+    for (const l of this.stack.filter(l => l.defId === defId)) this.removeFromStack(l.instanceId);
+  }
+
   /** Encode current stack as a compact base64 string for URL sharing. */
   getUrlStackParam(): string {
     try {
@@ -931,6 +944,92 @@ export class BasemapManager {
   private getVectorConfig(l: StackLayer): VectorLayerConfig | undefined {
     const allDefs = ALL_DEFS();
     return allDefs.find(d => d.id === l.defId)?.vector_config ?? l.vector_config;
+  }
+
+  /** The base symbology color for a static GeoJSON overlay. */
+  private geojsonColor(l: StackLayer): string {
+    const cfg = this.getVectorConfig(l);
+    if (l.vecFillColor) return l.vecFillColor;
+    if (typeof cfg?.fillColor === 'string') return cfg.fillColor;
+    if (typeof cfg?.lineColor === 'string') return cfg.lineColor;
+    return '#3388ff';
+  }
+
+  /**
+   * Render (or refresh) a static GeoJSON overlay from the shared data library.
+   * Fetches the file from R2 once, caches its features for symbology/identify,
+   * and renders as a non-editable fill/line/point overlay.
+   */
+  private renderGeojsonOverlay(l: StackLayer): void {
+    const baseId = `bm-ov-${l.instanceId}`;
+    const color = this.geojsonColor(l);
+
+    const applyState = () => {
+      if (l.symbologyState) {
+        const feats = this.geojsonOverlays.get(l.instanceId) ?? [];
+        this.mapManager.setImportedLayerSymbology(baseId, l.symbologyState, feats, color);
+      }
+      this.applyGeojsonOpacityVisibility(l, baseId);
+    };
+
+    if (this.geojsonOverlays.has(l.instanceId)) { applyState(); return; }
+    if (this.geojsonLoading.has(l.instanceId)) return;
+    this.geojsonLoading.add(l.instanceId);
+
+    void (async () => {
+      try {
+        const res = await fetch(l.url, { credentials: 'include' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as { features?: Array<{ properties?: Record<string, unknown> }> };
+        const feats = (data.features ?? []).map(f => ({ properties: (f.properties ?? {}) as Record<string, unknown> }));
+        this.geojsonOverlays.set(l.instanceId, feats);
+        this.mapManager.addGeoJSONLayer(baseId, data, color, l.opacity ?? 1);
+        applyState();
+        this.refreshLegend();
+      } catch (err) {
+        console.warn(`[BasemapManager] failed to load shared layer "${l.label}":`, err);
+        EventBus.emit('toast', { message: `Couldn't load ${l.label}`, type: 'error' });
+      } finally {
+        this.geojsonLoading.delete(l.instanceId);
+      }
+    })();
+  }
+
+  /** Apply base stroke/fill colours + widths to a GeoJSON overlay (when no symbology). */
+  private applyGeojsonBaseStyle(l: StackLayer): void {
+    if (l.symbologyState) return; // data-driven symbology owns the colours
+    const map = this.mapManager.getMap();
+    const base = `bm-ov-${l.instanceId}`;
+    const line = l.vecLineColor ?? this.geojsonColor(l);
+    const fill = l.vecFillColor ?? this.geojsonColor(l);
+    const lw = l.vecLineWidth ?? 2;
+    const op = l.opacity ?? 1;
+    const fo = (l.vecFillOpacityOverride ?? 1) * op * 0.4;
+    if (map.getLayer(`${base}-line`)) {
+      map.setPaintProperty(`${base}-line`, 'line-color', line);
+      map.setPaintProperty(`${base}-line`, 'line-width', lw);
+    }
+    if (map.getLayer(`${base}-fill`)) {
+      map.setPaintProperty(`${base}-fill`, 'fill-color', fill);
+      map.setPaintProperty(`${base}-fill`, 'fill-opacity', fo);
+    }
+    if (map.getLayer(`${base}-point`)) map.setPaintProperty(`${base}-point`, 'circle-color', fill);
+  }
+
+  private applyGeojsonOpacityVisibility(l: StackLayer, baseId: string): void {
+    const map = this.mapManager.getMap();
+    const vis = l.visible ? 'visible' : 'none';
+    const op = l.opacity ?? 1;
+    for (const suffix of ['fill', 'line', 'point'] as const) {
+      const id = `${baseId}-${suffix}`;
+      if (!map.getLayer(id)) continue;
+      map.setLayoutProperty(id, 'visibility', vis);
+      if (!l.symbologyState) {
+        if (suffix === 'fill') map.setPaintProperty(id, 'fill-opacity', op * 0.4);
+        else if (suffix === 'line') map.setPaintProperty(id, 'line-opacity', op);
+        else map.setPaintProperty(id, 'circle-opacity', op);
+      }
+    }
   }
 
   // ---- COG ramp helpers ----
@@ -1503,6 +1602,17 @@ export class BasemapManager {
       }
     }
 
+    // Remove static GeoJSON overlays no longer in the stack
+    const activeGeojsonIds = new Set(
+      overlays.filter(l => this.getLayerType(l) === 'geojson').map(e => e.instanceId)
+    );
+    for (const iid of [...this.geojsonOverlays.keys()]) {
+      if (!activeGeojsonIds.has(iid)) {
+        this.mapManager.removeGeoJSONLayer(`bm-ov-${iid}`);
+        this.geojsonOverlays.delete(iid);
+      }
+    }
+
     // Process all overlay types in unified bottom-to-top order so map layer positions
     // match the UI stack exactly (last activated ends up closest to user features)
     for (const l of overlays) {
@@ -1603,6 +1713,8 @@ export class BasemapManager {
           classifier:  (l.hrdemClassifier ?? 'Natural breaks') as ClassifierName,
           classes:     l.hrdemClassCount ?? 5,
         });
+      } else if (ltype === 'geojson') {
+        this.renderGeojsonOverlay(l);
       } else if (ltype === 'cog-contour') {
         if (!this.cogContourLayers.has(l.instanceId)) {
           this.cogContourLayers.set(l.instanceId, new CogContourLayer(this.mapManager, l.url));
@@ -2011,7 +2123,7 @@ export class BasemapManager {
           <label class="bm-adj-label" style="flex:1;text-align:left">Show in legend</label>
           <button class="vis-tog bm-legend-tog ${showInLegend ? 'active' : ''}" data-iid="${layer.instanceId}" title="Toggle legend entry"></button>
         </div>`;
-    const isVectorLayer = ['nsprd-vector', 'nshn-vector'].includes(ltype);
+    const isVectorLayer = ['nsprd-vector', 'nshn-vector', 'geojson'].includes(ltype);
     const cfg = isVectorLayer ? this.getVectorConfig(layer) : undefined;
     const eyeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
     const adjSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M32,80a8,8,0,0,1,8-8H77.17a28,28,0,0,1,53.66,0H216a8,8,0,0,1,0,16H130.83a28,28,0,0,1-53.66,0H40A8,8,0,0,1,32,80Zm184,88H194.83a28,28,0,0,0-53.66,0H40a8,8,0,0,0,0,16H141.17a28,28,0,0,0,53.66,0H216a8,8,0,0,0,0-16Z"/></svg>`;
@@ -2884,6 +2996,7 @@ export class BasemapManager {
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'hrdem-wcs') this.hrdemLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'cog-contour') this.cogContourLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
+        else if (ltype === 'geojson') this.applyGeojsonOpacityVisibility(layer, `bm-ov-${iid}`);
         else this.mapManager.setBasemapOverlayOpacity(iid, layer.visible ? opacity : 0);
         this.saveStack();
       });
@@ -2907,6 +3020,7 @@ export class BasemapManager {
           this.refreshLegend();
         }
         else if (ltype2 === 'cog-contour') this.cogContourLayers.get(iid)?.setVisible(layer.visible);
+        else if (ltype2 === 'geojson') this.applyGeojsonOpacityVisibility(layer, `bm-ov-${iid}`);
         else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
         this.saveStack();
       });
@@ -3507,6 +3621,7 @@ export class BasemapManager {
         const ltype = this.getLayerType(layer);
         if (ltype === 'nsprd-vector') this.nsprdLayer?.setLineWidth(w);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setLineWidth(w);
+        else if (ltype === 'geojson') this.applyGeojsonBaseStyle(layer);
         this.saveStack();
       });
     });
@@ -3531,6 +3646,8 @@ export class BasemapManager {
             nshn.setFillOpacityOverride(fo);
             nshn.setOpacity(layer.visible ? layer.opacity : 0);
           }
+        } else if (ltype === 'geojson') {
+          this.applyGeojsonBaseStyle(layer);
         }
         this.saveStack();
       });
@@ -3547,6 +3664,7 @@ export class BasemapManager {
         const ltype = this.getLayerType(layer);
         if (ltype === 'nsprd-vector') this.nsprdLayer?.setLineColor(color);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setLineColor(color);
+        else if (ltype === 'geojson') this.applyGeojsonBaseStyle(layer);
         this.saveStack();
       });
     });
@@ -3562,6 +3680,7 @@ export class BasemapManager {
         const ltype = this.getLayerType(layer);
         if (ltype === 'nsprd-vector') this.nsprdLayer?.setFillColor(color);
         else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setFillColor(color);
+        else if (ltype === 'geojson') this.applyGeojsonBaseStyle(layer);
         this.saveStack();
       });
     });
@@ -3589,6 +3708,8 @@ export class BasemapManager {
           feats = this.nsprdLayer?.getLoadedFeatureProps() ?? [];
         } else if (ltype === 'nshn-vector') {
           feats = this.nshnLayers.get(iid)?.getLoadedFeatureProps() ?? [];
+        } else if (ltype === 'geojson') {
+          feats = this.geojsonOverlays.get(iid) ?? [];
         }
 
         this.symbologyStudio.open({
@@ -3598,7 +3719,11 @@ export class BasemapManager {
           initialState: layer.symbologyState,
           onApply: (state: SymbologyState) => {
             layer.symbologyState = state;
-            this.mapManager.setVectorOverlaySymbology(iid, state, feats, geomStr);
+            if (ltype === 'geojson') {
+              this.mapManager.setImportedLayerSymbology(`bm-ov-${iid}`, state, feats, this.geojsonColor(layer));
+            } else {
+              this.mapManager.setVectorOverlaySymbology(iid, state, feats, geomStr);
+            }
             this.saveStack();
           },
         });

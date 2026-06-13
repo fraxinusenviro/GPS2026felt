@@ -126,6 +126,92 @@ async function main() {
     check('direct GET from presigned R2 url', directBody === payload, `(got "${directBody.slice(0, 40)}")`);
   }
 
+  // 7. paginated pull never skips rows (per-kind LIMIT + safe cursor) -----
+  console.log('\n[7] /changes pagination — no skipped rows across kinds');
+  {
+    const base = `pg-${now}`;
+    // Push several features and one project; the project gets the highest rev.
+    await post('/sync', {
+      features: [0, 1, 2].map((i) => ({
+        id: `${base}-f${i}`, project_id: projectId, layer_id: layerId,
+        geometry: { type: 'Point', coordinates: [0, 0] }, lat: 0, lon: 0,
+        type: 'tree', updated_at: new Date(now + 1000 + i).toISOString(),
+      })),
+    });
+    await post('/sync', { projects: [{ id: `${base}-p`, name: 'pager', updated_at: iso }] });
+
+    // Walk from a cursor just before our batch with limit=1 so kinds truncate.
+    const start = await (await get('/changes?since=0&limit=100000')).json();
+    void start;
+    const wanted = new Set([`${base}-f0`, `${base}-f1`, `${base}-f2`, `${base}-p`]);
+    const seen = new Set();
+    let cur = 0;
+    for (let i = 0; i < 5000 && seen.size < wanted.size + 1; i++) {
+      const page = await (await get(`/changes?since=${cur}&limit=1`)).json();
+      for (const k of ['projects', 'features', 'layer_presets', 'type_presets', 'shared_layers']) {
+        for (const row of page[k] ?? []) if (wanted.has(row.id)) seen.add(row.id);
+      }
+      cur = page.cursor;
+      if (!page.more) break;
+    }
+    check('all rows recovered when paginating with limit=1', [...wanted].every((id) => seen.has(id)),
+      `missing: ${[...wanted].filter((id) => !seen.has(id)).join(',')}`);
+  }
+
+  // 8. /blobs Range support ------------------------------------------------
+  console.log('\n[8] /blobs — HTTP Range');
+  {
+    const key = `static/range-${now}.bin`;
+    const payload = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const put = await fetch(`${BASE}/blobs/${encodeURIComponent(key)}`, {
+      method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream' }, body: payload,
+    });
+    check('PUT /blobs stored object', put.ok, `(got ${put.status})`);
+
+    const ranged = await fetch(`${BASE}/blobs/${encodeURIComponent(key)}`, { headers: { ...headers, range: 'bytes=5-9' } });
+    const body = await ranged.text();
+    check('Range returns 206', ranged.status === 206, `(got ${ranged.status})`);
+    check('Range returns the requested bytes', body === payload.slice(5, 10), `(got "${body}")`);
+    check('Content-Range header set', ranged.headers.get('content-range') === `bytes 5-9/${payload.length}`,
+      `(got "${ranged.headers.get('content-range')}")`);
+
+    const full = await fetch(`${BASE}/blobs/${encodeURIComponent(key)}`, { headers });
+    check('full GET advertises Accept-Ranges', full.headers.get('accept-ranges') === 'bytes',
+      `(got "${full.headers.get('accept-ranges')}")`);
+  }
+
+  // 9. R2 → D1 reconciler (static/ drops auto-register) -------------------
+  console.log('\n[9] POST /admin/reconcile — static/ → shared_layers');
+  {
+    const vKey = `static/Wetlands/marsh-${now}.geojson`;
+    const rKey = `static/aerial-${now}.tif`;
+    const putV = await fetch(`${BASE}/blobs/${encodeURIComponent(vKey)}`, {
+      method: 'PUT', headers, body: JSON.stringify({ type: 'FeatureCollection', features: [] }),
+    });
+    const putR = await fetch(`${BASE}/blobs/${encodeURIComponent(rKey)}`, {
+      method: 'PUT', headers: { ...headers, 'content-type': 'image/tiff' }, body: 'II*\0fake-cog',
+    });
+    check('uploaded static vector + raster', putV.ok && putR.ok);
+
+    const rec = await (await post('/admin/reconcile', {})).json();
+    check('reconcile registered the two new layers', rec.added >= 2, JSON.stringify(rec).slice(0, 160));
+
+    const ch = await (await get('/changes?since=0&limit=100000')).json();
+    const byKey = Object.fromEntries((ch.shared_layers ?? []).map((s) => [s.r2_key, s]));
+    const v = byKey[vKey];
+    const r = byKey[rKey];
+    check('vector layer inferred (kind/format/folder/name)',
+      v && v.kind === 'vector' && v.format === 'geojson' && v.folder === 'Wetlands' && v.name === `marsh-${now}`,
+      JSON.stringify(v));
+    check('raster layer inferred (kind/format, no folder)',
+      r && r.kind === 'raster' && r.format === 'cog' && !r.folder,
+      JSON.stringify(r));
+    check('reconciled layers carry a rev (so /changes ships them)', v && typeof v.rev === 'number' && v.rev > 0);
+
+    const again = await (await post('/admin/reconcile', {})).json();
+    check('reconcile is idempotent (no re-adds)', again.added === 0, JSON.stringify(again).slice(0, 120));
+  }
+
   console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
   process.exit(fail === 0 ? 0 : 1);
 }

@@ -56,11 +56,47 @@ export async function putBlob(key: string, request: Request, env: Env): Promise<
   return json({ key, etag: obj?.etag ?? null });
 }
 
-export async function getBlob(key: string, env: Env): Promise<Response> {
+/** Proxied blob download with HTTP Range support (needed for COG range reads). */
+export async function getBlob(key: string, request: Request, env: Env): Promise<Response> {
+  const rangeHeader = request.headers.get('range');
+  const m = rangeHeader ? /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim()) : null;
+
+  if (m) {
+    const head = await env.BLOBS.head(key);
+    if (!head) return bad('blob not found', 404);
+    const total = head.size;
+    const startStr = m[1];
+    const endStr = m[2];
+    let offset: number;
+    let length: number;
+    if (!startStr && endStr) {
+      // suffix range: bytes=-N → last N bytes
+      length = Math.min(parseInt(endStr, 10), total);
+      offset = total - length;
+    } else {
+      offset = startStr ? parseInt(startStr, 10) : 0;
+      const lastByte = endStr ? Math.min(parseInt(endStr, 10), total - 1) : total - 1;
+      length = lastByte - offset + 1;
+    }
+    if (offset < 0 || offset >= total || length <= 0) {
+      return new Response('range not satisfiable', { status: 416, headers: { 'content-range': `bytes */${total}` } });
+    }
+    const obj = await env.BLOBS.get(key, { range: { offset, length } });
+    if (!obj) return bad('blob not found', 404);
+    const headers = new Headers();
+    obj.writeHttpMetadata(headers);
+    headers.set('etag', obj.httpEtag);
+    headers.set('accept-ranges', 'bytes');
+    headers.set('content-range', `bytes ${offset}-${offset + length - 1}/${total}`);
+    headers.set('content-length', String(length));
+    return new Response(obj.body, { status: 206, headers });
+  }
+
   const obj = await env.BLOBS.get(key);
   if (!obj) return bad('blob not found', 404);
   const headers = new Headers();
   obj.writeHttpMetadata(headers);
   headers.set('etag', obj.httpEtag);
+  headers.set('accept-ranges', 'bytes');
   return new Response(obj.body, { headers });
 }

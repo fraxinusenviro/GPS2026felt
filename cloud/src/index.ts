@@ -19,6 +19,7 @@ import type { Env } from './types';
 import { authenticate } from './auth';
 import { handleSync, handleChanges } from './sync';
 import { signUpload, signDownload, putBlob, getBlob } from './blobs';
+import { reconcileStaticLayers } from './reconcile';
 import { json, bad, corsHeaders } from './http';
 
 /** True for request paths this Worker handles itself (vs. static PWA assets). */
@@ -28,6 +29,7 @@ function isApiPath(path: string): boolean {
     path === '/sync' ||
     path === '/changes' ||
     path === '/uploads/sign' ||
+    path === '/admin/reconcile' ||
     path.startsWith('/blobs/')
   );
 }
@@ -49,6 +51,15 @@ export default {
     for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
     return res;
   },
+
+  // Cron trigger: register any newly-dropped R2 static/ files into D1 so they
+  // sync to every client without manual SQL. See wrangler.toml [triggers].
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(reconcileStaticLayers(env).then(
+      (r) => { if (r.added) console.log(`[reconcile] registered ${r.added} static layer(s)`); },
+      (err) => console.error('[reconcile] failed:', err)
+    ));
+  },
 };
 
 async function route(request: Request, env: Env, url: URL): Promise<Response> {
@@ -68,11 +79,16 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
     if (path === '/uploads/sign' && method === 'POST') return await signUpload(request, env);
     if (path === '/uploads/sign' && method === 'GET') return await signDownload(url, env);
 
+    // Manual trigger for the R2→D1 static-layer reconciler (cron runs it too).
+    if (path === '/admin/reconcile' && method === 'POST') {
+      return json(await reconcileStaticLayers(env, who.email));
+    }
+
     if (path.startsWith('/blobs/')) {
       const key = decodeURIComponent(path.slice('/blobs/'.length));
       if (!key) return bad('missing key');
       if (method === 'PUT') return await putBlob(key, request, env);
-      if (method === 'GET') return await getBlob(key, env);
+      if (method === 'GET') return await getBlob(key, request, env);
       return bad('method not allowed', 405);
     }
 

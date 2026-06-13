@@ -23,6 +23,8 @@ export interface ChangesResponse {
   since: number;
   cursor: number;
   count: number;
+  /** True when at least one entity kind filled the page (more rows remain). */
+  more?: boolean;
   projects: Array<Project & RemoteMeta>;
   features: Array<FieldFeature & RemoteMeta & { photo_keys?: string[] }>;
   layer_presets: Array<LayerPreset & RemoteMeta>;

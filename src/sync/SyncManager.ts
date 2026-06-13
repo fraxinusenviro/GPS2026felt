@@ -224,7 +224,9 @@ export class SyncManager implements StorageSyncHook {
       }
       this.cursor = res.cursor;
       localStorage.setItem(LS_CURSOR, String(this.cursor));
-      if (res.count < PAGE_LIMIT) break;
+      // Older backends omit `more`; fall back to the page-fill heuristic.
+      const more = res.more ?? res.count >= PAGE_LIMIT;
+      if (!more) break;
     }
 
     if (applied > 0) EventBus.emit('cloud-data-changed', { count: applied });

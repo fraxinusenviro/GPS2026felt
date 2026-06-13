@@ -188,7 +188,7 @@ export class ProjectPanel {
     });
     this.panel.querySelector('#proj-shared-library')?.addEventListener('click', () => {
       this.close();
-      EventBus.emit('open-shared-library');
+      EventBus.emit('open-data-library', { group: 'Static Data' });
     });
 
     // Activate

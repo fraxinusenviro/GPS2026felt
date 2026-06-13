@@ -7165,6 +7165,79 @@ input[type=color] {
 }
 .dl-card-add.dl-card-configure:hover { background: var(--color-accent-dim, rgba(74,222,128,0.12)); }
 
+/* ── Shared static-data library: upload toolbar + delete ─────────────────── */
+.dl-shared-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.dl-shared-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: 1px solid var(--color-accent, #4ade80);
+  background: var(--color-accent-dim, rgba(74,222,128,0.1));
+  color: var(--color-accent, #4ade80);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dl-shared-upload-btn:hover { background: var(--color-accent-dim, rgba(74,222,128,0.18)); }
+.dl-shared-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--color-border, #334155);
+  border-radius: 8px;
+  background: var(--color-surface, rgba(255,255,255,0.03));
+}
+.dl-up-input {
+  flex: 1 1 160px;
+  min-width: 120px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #334155);
+  background: var(--color-bg, #0f172a);
+  color: var(--color-text, #e2e8f0);
+  font-size: 13px;
+}
+.dl-up-file { flex: 1 1 200px; color: var(--color-text-muted, #94a3b8); font-size: 12px; }
+.dl-up-submit {
+  padding: 7px 16px;
+  border-radius: 6px;
+  border: none;
+  background: var(--color-accent, #4ade80);
+  color: #06281a;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.dl-up-submit:disabled { opacity: 0.6; cursor: default; }
+.dl-card { position: relative; }
+.dl-card-del {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #334155);
+  background: rgba(0,0,0,0.45);
+  color: #f87171;
+  cursor: pointer;
+}
+.dl-card-del:hover { background: rgba(248,113,113,0.18); border-color: #f87171; }
+
 /* ── Raster Function Configure Panel ── */
 .dl-config-panel {
   padding: 24px;
