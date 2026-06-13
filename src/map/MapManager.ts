@@ -1192,6 +1192,17 @@ export class MapManager {
   ): void {
     if (!this.initialized) return;
 
+    // Labels by any attribute (lines/polygons gain labels; points get an extra
+    // attribute label distinct from the type/desc label layer).
+    const labelSrc = geomType === 'Point' ? 'collected-points'
+      : geomType === 'LineString' ? 'collected-lines' : 'collected-polygons';
+    const labelId = geomType === 'Point' ? 'collected-points-symlabels'
+      : geomType === 'LineString' ? 'collected-lines-labels' : 'collected-polygons-labels';
+    this.setLayerLabels(labelSrc, labelId, state,
+      geomType === 'LineString' ? { placement: 'line', anchor: 'center', offset: [0, 0] }
+      : geomType === 'Polygon' ? { anchor: 'center', offset: [0, 0] }
+      : undefined);
+
     if (geomType === 'Point') {
       const layerId = LAYER_IDS.COLLECTED_POINTS;
       if (!this.map.getLayer(layerId)) return;
@@ -1325,6 +1336,10 @@ export class MapManager {
     const layerId = `bm-ov-${instanceId}`;
     const strokeId = `${layerId}-stroke`;
 
+    // Labels (any attribute) — also handles removal when label_field is cleared.
+    this.setLayerLabels(`bmsrc-${instanceId}`, `${layerId}-labels`, state,
+      geomType === 'line' ? { placement: 'line', anchor: 'center', offset: [0, 0] } : { anchor: 'center', offset: [0, 0] });
+
     if (!state) return;
 
     const colorExpr = buildColorExpression(features, state);
@@ -1392,6 +1407,51 @@ export class MapManager {
         'text-size': 11, 'text-offset': [0, 1.2], 'text-anchor': 'top', 'text-max-width': 10
       },
       paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.8)', 'text-halo-width': 1.5 }
+    });
+  }
+
+  /**
+   * Create/update/remove a symbol label layer driven by SymbologyState.label_field
+   * (any source attribute). Shared by collected, imported, static, and web-vector
+   * layers. Passing no field (or null state) removes the label layer.
+   */
+  setLayerLabels(
+    sourceId: string,
+    labelLayerId: string,
+    state: SymbologyState | null,
+    opts?: { placement?: 'point' | 'line'; anchor?: string; offset?: [number, number] },
+  ): void {
+    if (!this.initialized) return;
+    const field = state?.label_field;
+    const exists = this.map.getLayer(labelLayerId);
+    if (!field) { if (exists) this.map.removeLayer(labelLayerId); return; }
+    if (!this.map.getSource(sourceId)) return;
+
+    const size = state?.label_size ?? 12;
+    const color = state?.label_color ?? '#f8fafc';
+    const textField = ['coalesce', ['to-string', ['get', field]], ''] as unknown;
+
+    if (exists) {
+      this.map.setLayoutProperty(labelLayerId, 'text-field', textField as never);
+      this.map.setLayoutProperty(labelLayerId, 'text-size', size);
+      this.map.setPaintProperty(labelLayerId, 'text-color', color);
+      return;
+    }
+    this.map.addLayer({
+      id: labelLayerId,
+      type: 'symbol',
+      source: sourceId,
+      layout: {
+        'text-field': textField as never,
+        'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+        'text-size': size,
+        'text-offset': opts?.offset ?? [0, 1.1],
+        'text-anchor': (opts?.anchor ?? 'top') as never,
+        'text-max-width': 10,
+        'symbol-placement': (opts?.placement ?? 'point') as never,
+        'text-allow-overlap': false,
+      },
+      paint: { 'text-color': color, 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.5 },
     });
   }
 

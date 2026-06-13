@@ -38,6 +38,7 @@ export class SymbologyStudio {
     const fieldInfos = detectFields(features);
     const catFields = fieldInfos.filter(f => f.kind === 'categorical').map(f => f.name);
     const numFields = fieldInfos.filter(f => f.kind === 'numeric').map(f => f.name);
+    const allFields = fieldInfos.map(f => f.name);
 
     const defaultColor = SINGLE_COLORS[0];
     const state: SymbologyState = {
@@ -58,6 +59,13 @@ export class SymbologyStudio {
       casingWidth: initialState?.casingWidth ?? 2,
       strokeColor: initialState?.strokeColor ?? '#ffffff',
       strokeOpacity: initialState?.strokeOpacity ?? 0.4,
+      label_field: initialState?.label_field ?? '',
+      label_size: initialState?.label_size ?? 12,
+      label_color: initialState?.label_color ?? '#f8fafc',
+      icon: initialState?.icon,
+      icon_color: initialState?.icon_color ?? '#ffffff',
+      icon_size: initialState?.icon_size ?? 1,
+      icon_rotation: initialState?.icon_rotation ?? 0,
     };
 
     // Set default field for initial method
@@ -172,6 +180,23 @@ export class SymbologyStudio {
             <input type="range" id="ss-so" min="0" max="1" step="0.05" value="${state.strokeOpacity ?? 0.4}" />
           </div>
           ` : ''}
+
+          <!-- Labels (any attribute) -->
+          <div class="ss-section">
+            <div class="ss-lbl">Label by field</div>
+            <select id="ss-label-field" class="ss-select">
+              <option value="">None</option>
+              ${allFields.map(f => `<option value="${f}" ${f === state.label_field ? 'selected' : ''}>${f}</option>`).join('')}
+            </select>
+            <div id="ss-label-extra" class="${state.label_field ? '' : 'ss-hidden'}">
+              <div class="ss-lbl" style="margin-top:8px">Label size <span class="ss-val" id="ss-lsz-val">${state.label_size ?? 12}px</span></div>
+              <input type="range" id="ss-label-size" min="8" max="22" step="1" value="${state.label_size ?? 12}" />
+              <div class="ss-lbl" style="margin-top:8px">Label colour</div>
+              <div class="ss-swatch-grid" id="ss-label-color-swatches">
+                ${this.swatchGrid(['#f8fafc', '#0a0d12', '#ffd166', '#ef476f', '#06d6a0', '#118ab2'], state.label_color, 'label-color')}
+              </div>
+            </div>
+          </div>
 
           <!-- Legend -->
           <div class="ss-section">
@@ -517,6 +542,27 @@ export class SymbologyStudio {
         rebuildDynamic();
       });
     }
+
+    // Labels
+    const labelSel = overlay.querySelector<HTMLSelectElement>('#ss-label-field');
+    labelSel?.addEventListener('change', () => {
+      state.label_field = labelSel.value || undefined;
+      overlay.querySelector<HTMLElement>('#ss-label-extra')?.classList.toggle('ss-hidden', !state.label_field);
+    });
+    const lszSlider = overlay.querySelector<HTMLInputElement>('#ss-label-size');
+    const lszVal = overlay.querySelector<HTMLElement>('#ss-lsz-val');
+    lszSlider?.addEventListener('input', () => {
+      state.label_size = parseFloat(lszSlider.value);
+      if (lszVal) lszVal.textContent = `${state.label_size}px`;
+    });
+    overlay.querySelectorAll<HTMLElement>('[data-label-color]').forEach(el => {
+      el.addEventListener('click', () => {
+        el.parentElement?.querySelectorAll('.ss-sw').forEach(e => e.classList.remove('on'));
+        el.classList.add('on');
+        state.label_color = el.dataset.labelColor!;
+      });
+    });
+    this.wireCustomColor(overlay, 'label-color', c => { state.label_color = c; }, () => {});
 
     // Copy expression
     overlay.querySelector('#ss-copy')?.addEventListener('click', e => {
