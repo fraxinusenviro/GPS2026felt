@@ -38,10 +38,10 @@ export interface SyncEntity {
   [key: string]: unknown;
 }
 
-/** The four entity collections a /sync request and /changes response carry. */
-export type EntityKind = 'projects' | 'features' | 'layer_presets' | 'type_presets';
+/** The entity collections a /sync request and /changes response carry. */
+export type EntityKind = 'projects' | 'features' | 'layer_presets' | 'type_presets' | 'shared_layers';
 
-export const ENTITY_KINDS: EntityKind[] = ['projects', 'features', 'layer_presets', 'type_presets'];
+export const ENTITY_KINDS: EntityKind[] = ['projects', 'features', 'layer_presets', 'type_presets', 'shared_layers'];
 
 /**
  * Per-entity table config: the SQL table and the columns promoted out of the
@@ -80,5 +80,12 @@ export const TABLES: Record<EntityKind, TableConfig> = {
     table: 'type_presets',
     extraColumns: [],
     promote: () => ({}),
+  },
+  // Org-shared data library layers (vector/raster); the file bytes live in R2,
+  // this row is just the metadata/index (name, format, r2_key, bounds, style).
+  shared_layers: {
+    table: 'shared_layers',
+    extraColumns: ['kind'],
+    promote: (e) => ({ kind: (e.kind as string) ?? null }),
   },
 };

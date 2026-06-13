@@ -1,13 +1,13 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import type {
   FieldFeature, AppSettings, TypePreset, LayerPreset,
-  SavedConnection, ImportedLayer, OnlineLayer, TileCacheRecord, Project
+  SavedConnection, ImportedLayer, OnlineLayer, TileCacheRecord, Project, SharedLayer
 } from '../types';
 import {
   DB_NAME, DB_VERSION,
   STORE_FEATURES, STORE_SETTINGS, STORE_PRESETS,
   STORE_LAYERS, STORE_CONNECTIONS, STORE_IMPORTED,
-  STORE_TILES, STORE_ONLINE_LAYERS, STORE_TILE_CACHES, STORE_PROJECTS,
+  STORE_TILES, STORE_ONLINE_LAYERS, STORE_TILE_CACHES, STORE_PROJECTS, STORE_SHARED_LAYERS,
   DEFAULT_SETTINGS, DEFAULT_LAYER_PRESETS, DEFAULT_CONNECTIONS,
   DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack
 } from '../constants';
@@ -19,7 +19,7 @@ import {
  */
 export interface StorageSyncHook {
   mark(
-    kind: 'projects' | 'features' | 'layer_presets' | 'type_presets',
+    kind: 'projects' | 'features' | 'layer_presets' | 'type_presets' | 'shared_layers',
     id: string,
     op: 'upsert' | 'delete',
     updatedAt: string
@@ -112,6 +112,13 @@ export class StorageManager {
           const importedStore = transaction.objectStore(STORE_IMPORTED);
           if (!importedStore.indexNames.contains('by_project')) {
             importedStore.createIndex('by_project', 'project_id');
+          }
+        }
+
+        if (oldVersion < 5) {
+          // Org-shared data library layers (synced; bytes in R2).
+          if (!db.objectStoreNames.contains(STORE_SHARED_LAYERS)) {
+            db.createObjectStore(STORE_SHARED_LAYERS, { keyPath: 'id' });
           }
         }
       }
@@ -432,6 +439,25 @@ export class StorageManager {
   async deleteProject(id: string): Promise<void> {
     await this.db.delete(STORE_PROJECTS, id);
     if (!this.applyingRemote) this.syncHook?.mark('projects', id, 'delete', new Date().toISOString());
+  }
+
+  // ---- Shared data library layers (org-shared; synced) ----
+  async getAllSharedLayers(): Promise<SharedLayer[]> {
+    return this.db.getAll(STORE_SHARED_LAYERS);
+  }
+
+  async getSharedLayer(id: string): Promise<SharedLayer | undefined> {
+    return this.db.get(STORE_SHARED_LAYERS, id);
+  }
+
+  async saveSharedLayer(layer: SharedLayer): Promise<void> {
+    await this.db.put(STORE_SHARED_LAYERS, layer);
+    if (!this.applyingRemote) this.syncHook?.mark('shared_layers', layer.id, 'upsert', layer.updated_at ?? new Date().toISOString());
+  }
+
+  async deleteSharedLayer(id: string): Promise<void> {
+    await this.db.delete(STORE_SHARED_LAYERS, id);
+    if (!this.applyingRemote) this.syncHook?.mark('shared_layers', id, 'delete', new Date().toISOString());
   }
 
   // ---- Export all data for backup ----

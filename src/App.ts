@@ -30,7 +30,10 @@ import { SymbolRenderer } from './ui/SymbolRenderer';
 import { LayoutMode } from './ui/LayoutMode';
 import { DataLibraryModal } from './ui/DataLibraryModal';
 import { MasterDataPanel } from './ui/MasterDataPanel';
+import { SharedLibraryPanel } from './ui/SharedLibraryPanel';
+import { BackendClient } from './sync/BackendClient';
 import { SyncManager } from './sync/SyncManager';
+import type { SharedLayer } from './types';
 import * as turf from '@turf/turf';
 
 export class App {
@@ -66,6 +69,7 @@ export class App {
   private statsPanel!: StatsPanel;
   private dataLibraryModal!: DataLibraryModal;
   private masterDataPanel!: MasterDataPanel;
+  private sharedLibraryPanel!: SharedLibraryPanel;
   private undoManager = UndoManager.getInstance();
   private symbolRenderer!: SymbolRenderer;
   private layoutMode!: LayoutMode;
@@ -189,6 +193,7 @@ export class App {
     this.statsPanel = new StatsPanel();
     this.dataLibraryModal = new DataLibraryModal();
     this.masterDataPanel = new MasterDataPanel();
+    this.sharedLibraryPanel = new SharedLibraryPanel();
 
     // Load project-scoped data
     const activeProjectId = this.settings.active_project_id || 'default';
@@ -267,6 +272,28 @@ export class App {
     this.projectLayerPresets = await this.storage.getLayersByProject(activeId);
     this.symbolRenderer.registerAll(this.presetManager.getPresets());
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+  }
+
+  /**
+   * Fetch a shared-library layer's bytes from R2 and add it to the map. Vector
+   * GeoJSON renders through the existing import pipeline; other formats (PMTiles,
+   * COG raster) are a follow-up.
+   */
+  async addSharedLayerToMap(layer: SharedLayer): Promise<void> {
+    if (layer.kind !== 'vector' || layer.format !== 'geojson') {
+      EventBus.emit('toast', { message: `Preview for ${layer.format} layers is coming soon`, type: 'info' });
+      return;
+    }
+    try {
+      EventBus.emit('toast', { message: `Loading ${layer.name}…`, type: 'info', duration: 1500 });
+      const blob = await new BackendClient(SyncManager.getConfig().url).getBlob(layer.r2_key);
+      if (!blob) throw new Error('file not found in storage');
+      const file = new File([blob], `${layer.name}.geojson`, { type: 'application/json' });
+      await this.importManager.importFile(file);
+      EventBus.emit('toast', { message: `Added ${layer.name}`, type: 'success' });
+    } catch (err) {
+      EventBus.emit('toast', { message: `Failed to add layer: ${(err as Error).message}`, type: 'error' });
+    }
   }
 
   // ============================================================
@@ -469,6 +496,10 @@ export class App {
       // Restore the active project's features on the map.
       this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     });
+
+    // Shared Data Library (Phase 3).
+    EventBus.on('open-shared-library', () => { void this.sharedLibraryPanel.open(); });
+    EventBus.on<{ layer: SharedLayer }>('shared-layer-add', ({ layer }) => { void this.addSharedLayerToMap(layer); });
 
     // Project bundle import (triggered by ImportDataPanel)
     EventBus.on<{ bundle: ProjectBundle; mode: 'new' | 'merge' }>('import-project-bundle', async ({ bundle, mode }) => {
