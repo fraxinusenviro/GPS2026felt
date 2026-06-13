@@ -309,11 +309,22 @@ export class App {
     }, 1500);
   }
 
-  /** Rebuild the synthetic BasemapDefs for shared layers from local storage. */
+  /**
+   * Rebuild the synthetic BasemapDefs for shared layers. Unions the local store
+   * with the backend's org-wide catalogue (GET /shared-layers) so every user
+   * sees every shared layer regardless of project or whether per-device sync is
+   * enabled. The backend fetch is best-effort (falls back to local when offline
+   * or not served by the Worker).
+   */
   private async reloadSharedDefs(): Promise<void> {
-    const layers = await this.storage.getAllSharedLayers();
     const base = SyncManager.getConfig().url;
-    this.sharedDefsCache = layers
+    const byId = new Map<string, SharedLayer>();
+    for (const l of await this.storage.getAllSharedLayers()) byId.set(l.id, l);
+    try {
+      const remote = await new BackendClient(base).getSharedLayers();
+      for (const l of remote) byId.set(l.id, l); // backend is authoritative for the org catalogue
+    } catch { /* offline / not behind the Worker — local catalogue only */ }
+    this.sharedDefsCache = [...byId.values()]
       .sort((a, b) => (a.folder ?? '').localeCompare(b.folder ?? '') || a.name.localeCompare(b.name))
       .map((l) => sharedLayerToDef(l, base));
   }
