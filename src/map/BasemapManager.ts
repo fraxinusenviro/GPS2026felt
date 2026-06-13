@@ -2119,21 +2119,10 @@ export class BasemapManager {
           <button class="vis-tog bm-legend-tog ${showInLegend ? 'active' : ''}" data-iid="${layer.instanceId}" title="Toggle legend entry"></button>
         </div>`;
     const isVectorLayer = ['nsprd-vector', 'nshn-vector', 'geojson'].includes(ltype);
-    const cfg = isVectorLayer ? this.getVectorConfig(layer) : undefined;
-    const eyeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
+    const eyeSvg =`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
     const adjSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M32,80a8,8,0,0,1,8-8H77.17a28,28,0,0,1,53.66,0H216a8,8,0,0,1,0,16H130.83a28,28,0,0,1-53.66,0H40A8,8,0,0,1,32,80Zm184,88H194.83a28,28,0,0,0-53.66,0H40a8,8,0,0,0,0,16H141.17a28,28,0,0,0,53.66,0H216a8,8,0,0,0,0-16Z"/></svg>`;
     const dragSvg = `<svg viewBox="0 0 10 16" fill="currentColor" width="14" height="22"><circle cx="3" cy="2" r="1.5"/><circle cx="7" cy="2" r="1.5"/><circle cx="3" cy="6" r="1.5"/><circle cx="7" cy="6" r="1.5"/><circle cx="3" cy="10" r="1.5"/><circle cx="7" cy="10" r="1.5"/><circle cx="3" cy="14" r="1.5"/><circle cx="7" cy="14" r="1.5"/></svg>`;
     const refreshSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M240,56v48a8,8,0,0,1-8,8H184a8,8,0,0,1,0-16h28.69L197.31,80.69A96.09,96.09,0,0,0,43.81,116.8a8,8,0,1,1-15.62-3.6A112.11,112.11,0,0,1,208,70.69l15.33,15.32V56a8,8,0,0,1,16,0Zm-16.19,82.8a8,8,0,0,0-10,5.39A96.09,96.09,0,0,1,58.69,175.31L71.31,162.69A8,8,0,0,0,65.82,149H16a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V176.69l15.32,15.32a112.11,112.11,0,0,0,179.81-45.21A8,8,0,0,0,223.81,138.8Z"/></svg>`;
-
-    const defaultLineWidth = typeof cfg?.lineWidth === 'number' ? cfg.lineWidth : 1;
-    const currentLineWidth = layer.vecLineWidth ?? defaultLineWidth;
-    const currentFillOpacity = layer.vecFillOpacityOverride ?? 1.0;
-    const defaultLineHex = typeof cfg?.lineColor === 'string' ? cfg.lineColor : '#888888';
-    const defaultFillHex = cfg?.fillColor
-      ? (typeof cfg.fillColor === 'string' ? cfg.fillColor : '#4488cc')
-      : defaultLineHex;
-    const currentLineHex = layer.vecLineColor ?? defaultLineHex;
-    const currentFillHex = layer.vecFillColor ?? defaultFillHex;
 
     const vecStylePanel = isVectorLayer ? `
       <div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
@@ -2142,23 +2131,6 @@ export class BasemapManager {
           <input type="range" class="bm-adj-slider bm-opacity-slider" data-iid="${layer.instanceId}" min="0" max="100" step="1" value="${Math.round(layer.opacity * 100)}" />
           <span class="bm-adj-val">${Math.round(layer.opacity * 100)}%</span>
         </div>
-        ${ltype !== 'geojson' ? `
-        <div class="bm-adj-row">
-          <label class="bm-adj-label">Stroke</label>
-          <input type="color" class="bm-vec-color bm-vec-lc" data-iid="${layer.instanceId}" value="${currentLineHex}" title="Stroke colour" />
-          ${cfg ? `
-          <input type="number" class="bm-width-num bm-vec-lw" data-iid="${layer.instanceId}"
-            min="0.5" max="8" step="0.5" value="${currentLineWidth}" title="Stroke width"
-            inputmode="decimal" style="width:44px" />` : ''}
-        </div>
-        ${cfg?.geomType === 'polygon' ? `
-        <div class="bm-adj-row">
-          <label class="bm-adj-label">Fill</label>
-          <input type="color" class="bm-vec-color bm-vec-fc" data-iid="${layer.instanceId}" value="${currentFillHex}" title="Fill colour" />
-          <input type="range" class="bm-adj-slider bm-vec-fo" data-iid="${layer.instanceId}"
-            min="0" max="100" step="5" value="${Math.round(currentFillOpacity * 100)}" title="Fill opacity" />
-          <span class="bm-adj-val">${Math.round(currentFillOpacity * 100)}%</span>
-        </div>` : ''}` : ''}
         <div class="bm-adj-row" style="margin-top:4px">
           <button class="bm-vec-symbology btn-outline" data-iid="${layer.instanceId}"
             style="font-size:10px;padding:4px 8px;flex:1" title="Open Symbology Studio">⊛ Symbology</button>
@@ -2453,7 +2425,7 @@ export class BasemapManager {
         </label>
       </div>` : '';
 
-    const hasStylePanel = isVectorLayer ? (cfg !== undefined) : true;
+    const hasStylePanel = true;
     const adjTitle = isVectorLayer ? 'Style options'
       : isHrdem ? 'Elevation style'
       : isCogContour ? 'Contour options'
@@ -3601,77 +3573,6 @@ export class BasemapManager {
           layer.cogContourFillColor   ?? '#1565c0',
           fo,
         );
-        this.saveStack();
-      });
-    });
-
-    // Vector style — line width
-    container.querySelectorAll<HTMLInputElement>('.bm-vec-lw').forEach(inp => {
-      inp.addEventListener('change', () => {
-        const iid = inp.dataset.iid!;
-        const w = parseFloat(inp.value);
-        if (!isFinite(w) || w <= 0) return;
-        const layer = this.stack.find(l => l.instanceId === iid);
-        if (!layer) return;
-        layer.vecLineWidth = w;
-        const ltype = this.getLayerType(layer);
-        if (ltype === 'nsprd-vector') this.nsprdLayer?.setLineWidth(w);
-        else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setLineWidth(w);
-        this.saveStack();
-      });
-    });
-
-    // Vector style — fill opacity
-    container.querySelectorAll<HTMLInputElement>('.bm-vec-fo').forEach(slider => {
-      slider.addEventListener('input', () => {
-        const iid = slider.dataset.iid!;
-        const fo = parseInt(slider.value) / 100;
-        const layer = this.stack.find(l => l.instanceId === iid);
-        if (!layer) return;
-        layer.vecFillOpacityOverride = fo;
-        const valEl = slider.nextElementSibling as HTMLElement;
-        if (valEl) valEl.textContent = `${Math.round(fo * 100)}%`;
-        const ltype = this.getLayerType(layer);
-        if (ltype === 'nsprd-vector' && this.nsprdLayer) {
-          this.nsprdLayer.setFillOpacity(fo);
-          this.nsprdLayer.setOpacity(layer.visible ? layer.opacity : 0);
-        } else if (ltype === 'nshn-vector') {
-          const nshn = this.nshnLayers.get(iid);
-          if (nshn) {
-            nshn.setFillOpacityOverride(fo);
-            nshn.setOpacity(layer.visible ? layer.opacity : 0);
-          }
-        }
-        this.saveStack();
-      });
-    });
-
-    // Vector style — line/stroke colour
-    container.querySelectorAll<HTMLInputElement>('.bm-vec-lc').forEach(input => {
-      input.addEventListener('input', () => {
-        const iid = input.dataset.iid!;
-        const color = input.value;
-        const layer = this.stack.find(l => l.instanceId === iid);
-        if (!layer) return;
-        layer.vecLineColor = color;
-        const ltype = this.getLayerType(layer);
-        if (ltype === 'nsprd-vector') this.nsprdLayer?.setLineColor(color);
-        else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setLineColor(color);
-        this.saveStack();
-      });
-    });
-
-    // Vector style — fill colour
-    container.querySelectorAll<HTMLInputElement>('.bm-vec-fc').forEach(input => {
-      input.addEventListener('input', () => {
-        const iid = input.dataset.iid!;
-        const color = input.value;
-        const layer = this.stack.find(l => l.instanceId === iid);
-        if (!layer) return;
-        layer.vecFillColor = color;
-        const ltype = this.getLayerType(layer);
-        if (ltype === 'nsprd-vector') this.nsprdLayer?.setFillColor(color);
-        else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setFillColor(color);
         this.saveStack();
       });
     });
