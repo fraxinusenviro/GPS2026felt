@@ -87,6 +87,15 @@ export interface SymbologyState {
   // Polygon-specific
   strokeColor?: string;
   strokeOpacity?: number;
+  // Labels (any source attribute; empty/undefined = no labels)
+  label_field?: string;
+  label_size?: number;       // text size px
+  label_color?: string;      // text colour
+  // Point icon overlay (key into ICON_PATHS; undefined = plain circle)
+  icon?: string;
+  icon_color?: string;
+  icon_size?: number;        // scale multiplier ~0.5–2.5
+  icon_rotation?: number;    // degrees 0–360
 }
 
 // ---- Raster Symbology Studio ----

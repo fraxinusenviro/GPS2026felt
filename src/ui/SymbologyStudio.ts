@@ -3,6 +3,7 @@ import {
   SEQ_RAMPS, QUAL_PALETTES, SINGLE_COLORS, OUTLINE_COLORS,
   sampleRamp, buildLegend, buildFullLayerSpec, detectFields, CLASSIFIERS,
 } from '../lib/symbologyEngine';
+import { ICON_PATHS, ICON_CATEGORIES } from './SymbolRenderer';
 
 export interface SymbologyOptions {
   title: string;
@@ -38,6 +39,7 @@ export class SymbologyStudio {
     const fieldInfos = detectFields(features);
     const catFields = fieldInfos.filter(f => f.kind === 'categorical').map(f => f.name);
     const numFields = fieldInfos.filter(f => f.kind === 'numeric').map(f => f.name);
+    const allFields = fieldInfos.map(f => f.name);
 
     const defaultColor = SINGLE_COLORS[0];
     const state: SymbologyState = {
@@ -58,6 +60,13 @@ export class SymbologyStudio {
       casingWidth: initialState?.casingWidth ?? 2,
       strokeColor: initialState?.strokeColor ?? '#ffffff',
       strokeOpacity: initialState?.strokeOpacity ?? 0.4,
+      label_field: initialState?.label_field ?? '',
+      label_size: initialState?.label_size ?? 12,
+      label_color: initialState?.label_color ?? '#f8fafc',
+      icon: initialState?.icon,
+      icon_color: initialState?.icon_color ?? '#ffffff',
+      icon_size: initialState?.icon_size ?? 1,
+      icon_rotation: initialState?.icon_rotation ?? 0,
     };
 
     // Set default field for initial method
@@ -134,6 +143,30 @@ export class SymbologyStudio {
           </div>
           ` : ''}
 
+          <!-- Point: icon overlay -->
+          ${geomType === 'point' ? `
+          <div class="ss-section">
+            <div class="ss-lbl">Icon overlay</div>
+            <div class="ss-icon-grid" id="ss-icon-grid">
+              <button class="ss-icon-btn${!state.icon ? ' on' : ''}" data-icon="" title="No icon">∅</button>
+              ${ICON_CATEGORIES.flatMap(cat => cat.icons).filter(k => ICON_PATHS[k]).map(k => `
+                <button class="ss-icon-btn${state.icon === k ? ' on' : ''}" data-icon="${k}" title="${k}">
+                  <svg viewBox="0 0 256 256" width="16" height="16" fill="currentColor"><path d="${ICON_PATHS[k]}"/></svg>
+                </button>`).join('')}
+            </div>
+            <div id="ss-icon-extra" class="${state.icon ? '' : 'ss-hidden'}">
+              <div class="ss-lbl" style="margin-top:8px">Icon colour</div>
+              <div class="ss-swatch-grid">
+                ${this.swatchGrid(['#ffffff', '#0a0d12', '#ffd166', '#ef476f', '#06d6a0', '#118ab2'], state.icon_color, 'icon-color')}
+              </div>
+              <div class="ss-lbl" style="margin-top:8px">Icon size <span class="ss-val" id="ss-isz-val">${(state.icon_size ?? 1).toFixed(1)}×</span></div>
+              <input type="range" id="ss-icon-size" min="0.5" max="2.5" step="0.1" value="${state.icon_size ?? 1}" />
+              <div class="ss-lbl" style="margin-top:8px">Icon rotation <span class="ss-val" id="ss-irot-val">${state.icon_rotation ?? 0}°</span></div>
+              <input type="range" id="ss-icon-rot" min="0" max="360" step="5" value="${state.icon_rotation ?? 0}" />
+            </div>
+          </div>
+          ` : ''}
+
           <!-- Line: end cap + casing -->
           ${geomType === 'line' ? `
           <div class="ss-section">
@@ -172,6 +205,23 @@ export class SymbologyStudio {
             <input type="range" id="ss-so" min="0" max="1" step="0.05" value="${state.strokeOpacity ?? 0.4}" />
           </div>
           ` : ''}
+
+          <!-- Labels (any attribute) -->
+          <div class="ss-section">
+            <div class="ss-lbl">Label by field</div>
+            <select id="ss-label-field" class="ss-select">
+              <option value="">None</option>
+              ${allFields.map(f => `<option value="${f}" ${f === state.label_field ? 'selected' : ''}>${f}</option>`).join('')}
+            </select>
+            <div id="ss-label-extra" class="${state.label_field ? '' : 'ss-hidden'}">
+              <div class="ss-lbl" style="margin-top:8px">Label size <span class="ss-val" id="ss-lsz-val">${state.label_size ?? 12}px</span></div>
+              <input type="range" id="ss-label-size" min="8" max="22" step="1" value="${state.label_size ?? 12}" />
+              <div class="ss-lbl" style="margin-top:8px">Label colour</div>
+              <div class="ss-swatch-grid" id="ss-label-color-swatches">
+                ${this.swatchGrid(['#f8fafc', '#0a0d12', '#ffd166', '#ef476f', '#06d6a0', '#118ab2'], state.label_color, 'label-color')}
+              </div>
+            </div>
+          </div>
 
           <!-- Legend -->
           <div class="ss-section">
@@ -243,15 +293,26 @@ export class SymbologyStudio {
     }
 
     if (m === 'categorical') {
+      // Sample sequential ramps to roughly the number of categories so the
+      // preview reflects how categories will span the continuous ramp.
+      const field = state.field ?? '';
+      const catCount = field
+        ? new Set(features.map(f => String((f.properties ?? {})[field] ?? ''))).size
+        : 5;
+      const sampleN = Math.max(2, Math.min(catCount || 5, 7));
+      const row = (nm: string, cols: string[]) => `
+        <div class="ss-ramp-item${nm === state.palette ? ' on' : ''}" data-palette="${nm}">
+          <div class="ss-ramp-chips">${cols.map(c => `<span style="background:${c}"></span>`).join('')}</div>
+          <span class="ss-ramp-nm">${nm}</span>
+        </div>`;
       return `<div class="ss-section">
-        <div class="ss-lbl">Palette</div>
+        <div class="ss-lbl">Qualitative palette</div>
         <div class="ss-ramp-rows" id="ss-palette-rows">
-          ${Object.entries(QUAL_PALETTES).map(([nm, cols]) => `
-            <div class="ss-ramp-item${nm === state.palette ? ' on' : ''}" data-palette="${nm}">
-              <div class="ss-ramp-chips">${cols.map(c => `<span style="background:${c}"></span>`).join('')}</div>
-              <span class="ss-ramp-nm">${nm}</span>
-            </div>
-          `).join('')}
+          ${Object.entries(QUAL_PALETTES).map(([nm, cols]) => row(nm, cols)).join('')}
+        </div>
+        <div class="ss-lbl" style="margin-top:10px">Continuous ramp</div>
+        <div class="ss-ramp-rows" id="ss-palette-ramp-rows">
+          ${Object.entries(SEQ_RAMPS).map(([nm, stops]) => row(nm, sampleRamp(stops, sampleN))).join('')}
         </div>
       </div>`;
     }
@@ -448,6 +509,36 @@ export class SymbologyStudio {
         if (owVal) owVal.textContent = `${state.outlineWidth}px`;
         rebuildDynamic();
       });
+
+      // Icon overlay
+      overlay.querySelectorAll<HTMLButtonElement>('[data-icon]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          overlay.querySelectorAll('[data-icon]').forEach(b => b.classList.remove('on'));
+          btn.classList.add('on');
+          state.icon = btn.dataset.icon || undefined;
+          overlay.querySelector<HTMLElement>('#ss-icon-extra')?.classList.toggle('ss-hidden', !state.icon);
+        });
+      });
+      overlay.querySelectorAll<HTMLElement>('[data-icon-color]').forEach(el => {
+        el.addEventListener('click', () => {
+          el.parentElement?.querySelectorAll('.ss-sw').forEach(e => e.classList.remove('on'));
+          el.classList.add('on');
+          state.icon_color = el.dataset.iconColor!;
+        });
+      });
+      this.wireCustomColor(overlay, 'icon-color', c => { state.icon_color = c; }, () => {});
+      const iszSlider = overlay.querySelector<HTMLInputElement>('#ss-icon-size');
+      const iszVal = overlay.querySelector<HTMLElement>('#ss-isz-val');
+      iszSlider?.addEventListener('input', () => {
+        state.icon_size = parseFloat(iszSlider.value);
+        if (iszVal) iszVal.textContent = `${state.icon_size.toFixed(1)}×`;
+      });
+      const irotSlider = overlay.querySelector<HTMLInputElement>('#ss-icon-rot');
+      const irotVal = overlay.querySelector<HTMLElement>('#ss-irot-val');
+      irotSlider?.addEventListener('input', () => {
+        state.icon_rotation = parseFloat(irotSlider.value);
+        if (irotVal) irotVal.textContent = `${state.icon_rotation}°`;
+      });
     }
 
     // Line: cap + casing
@@ -506,6 +597,27 @@ export class SymbologyStudio {
         rebuildDynamic();
       });
     }
+
+    // Labels
+    const labelSel = overlay.querySelector<HTMLSelectElement>('#ss-label-field');
+    labelSel?.addEventListener('change', () => {
+      state.label_field = labelSel.value || undefined;
+      overlay.querySelector<HTMLElement>('#ss-label-extra')?.classList.toggle('ss-hidden', !state.label_field);
+    });
+    const lszSlider = overlay.querySelector<HTMLInputElement>('#ss-label-size');
+    const lszVal = overlay.querySelector<HTMLElement>('#ss-lsz-val');
+    lszSlider?.addEventListener('input', () => {
+      state.label_size = parseFloat(lszSlider.value);
+      if (lszVal) lszVal.textContent = `${state.label_size}px`;
+    });
+    overlay.querySelectorAll<HTMLElement>('[data-label-color]').forEach(el => {
+      el.addEventListener('click', () => {
+        el.parentElement?.querySelectorAll('.ss-sw').forEach(e => e.classList.remove('on'));
+        el.classList.add('on');
+        state.label_color = el.dataset.labelColor!;
+      });
+    });
+    this.wireCustomColor(overlay, 'label-color', c => { state.label_color = c; }, () => {});
 
     // Copy expression
     overlay.querySelector('#ss-copy')?.addEventListener('click', e => {

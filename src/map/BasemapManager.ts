@@ -970,6 +970,8 @@ export class BasemapManager {
         const feats = this.geojsonOverlays.get(l.instanceId) ?? [];
         this.mapManager.setImportedLayerSymbology(baseId, l.symbologyState, feats, color);
       }
+      // Labels by any attribute (also removes the label layer when cleared).
+      this.mapManager.setLayerLabels(`src-${baseId}`, `${baseId}-labels`, l.symbologyState ?? null);
       this.applyGeojsonOpacityVisibility(l, baseId);
     };
 

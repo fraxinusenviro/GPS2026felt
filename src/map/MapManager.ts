@@ -5,7 +5,7 @@ import { LAYER_IDS, BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import { buildColorExpression, buildRadiusExpression } from '../lib/symbologyEngine';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
-import { SymbolRenderer } from '../ui/SymbolRenderer';
+import { SymbolRenderer, renderIconImageData } from '../ui/SymbolRenderer';
 import proj4 from 'proj4';
 
 // ---- Module-level COG colormap registry (mutable so ramp can be changed at runtime) ----
@@ -1176,7 +1176,7 @@ export class MapManager {
   }
 
   removeGeoJSONLayer(id: string): void {
-    [`${id}-fill`, `${id}-line`, `${id}-point`, `${id}-labels`].forEach(lid => {
+    [`${id}-fill`, `${id}-line`, `${id}-point`, `${id}-labels`, `${id}-icons`].forEach(lid => {
       if (this.map.getLayer(lid)) this.map.removeLayer(lid);
     });
     const srcId = `src-${id}`;
@@ -1191,6 +1191,18 @@ export class MapManager {
     features: { properties: Record<string, unknown> }[],
   ): void {
     if (!this.initialized) return;
+
+    // Labels by any attribute (lines/polygons gain labels; points get an extra
+    // attribute label distinct from the type/desc label layer).
+    const labelSrc = geomType === 'Point' ? 'collected-points'
+      : geomType === 'LineString' ? 'collected-lines' : 'collected-polygons';
+    const labelId = geomType === 'Point' ? 'collected-points-symlabels'
+      : geomType === 'LineString' ? 'collected-lines-labels' : 'collected-polygons-labels';
+    this.setLayerLabels(labelSrc, labelId, state,
+      geomType === 'LineString' ? { placement: 'line', anchor: 'center', offset: [0, 0] }
+      : geomType === 'Polygon' ? { anchor: 'center', offset: [0, 0] }
+      : undefined);
+    if (geomType === 'Point') this.setPointIconOverlay('collected-points', 'collected-points-icons', state);
 
     if (geomType === 'Point') {
       const layerId = LAYER_IDS.COLLECTED_POINTS;
@@ -1267,6 +1279,8 @@ export class MapManager {
     originalColor: string,
   ): void {
     if (!this.initialized) return;
+    // Optional point icon overlay (no-op for non-point features via the layer filter).
+    this.setPointIconOverlay(`src-${layerId}`, `${layerId}-icons`, state);
     const fillId = `${layerId}-fill`;
     const lineId = `${layerId}-line`;
     const pointId = `${layerId}-point`;
@@ -1324,6 +1338,10 @@ export class MapManager {
     if (!this.initialized) return;
     const layerId = `bm-ov-${instanceId}`;
     const strokeId = `${layerId}-stroke`;
+
+    // Labels (any attribute) — also handles removal when label_field is cleared.
+    this.setLayerLabels(`bmsrc-${instanceId}`, `${layerId}-labels`, state,
+      geomType === 'line' ? { placement: 'line', anchor: 'center', offset: [0, 0] } : { anchor: 'center', offset: [0, 0] });
 
     if (!state) return;
 
@@ -1392,6 +1410,92 @@ export class MapManager {
         'text-size': 11, 'text-offset': [0, 1.2], 'text-anchor': 'top', 'text-max-width': 10
       },
       paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.8)', 'text-halo-width': 1.5 }
+    });
+  }
+
+  /**
+   * Create/update/remove a symbol label layer driven by SymbologyState.label_field
+   * (any source attribute). Shared by collected, imported, static, and web-vector
+   * layers. Passing no field (or null state) removes the label layer.
+   */
+  setLayerLabels(
+    sourceId: string,
+    labelLayerId: string,
+    state: SymbologyState | null,
+    opts?: { placement?: 'point' | 'line'; anchor?: string; offset?: [number, number] },
+  ): void {
+    if (!this.initialized) return;
+    const field = state?.label_field;
+    const exists = this.map.getLayer(labelLayerId);
+    if (!field) { if (exists) this.map.removeLayer(labelLayerId); return; }
+    if (!this.map.getSource(sourceId)) return;
+
+    const size = state?.label_size ?? 12;
+    const color = state?.label_color ?? '#f8fafc';
+    const textField = ['coalesce', ['to-string', ['get', field]], ''] as unknown;
+
+    if (exists) {
+      this.map.setLayoutProperty(labelLayerId, 'text-field', textField as never);
+      this.map.setLayoutProperty(labelLayerId, 'text-size', size);
+      this.map.setPaintProperty(labelLayerId, 'text-color', color);
+      return;
+    }
+    this.map.addLayer({
+      id: labelLayerId,
+      type: 'symbol',
+      source: sourceId,
+      layout: {
+        'text-field': textField as never,
+        'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+        'text-size': size,
+        'text-offset': opts?.offset ?? [0, 1.1],
+        'text-anchor': (opts?.anchor ?? 'top') as never,
+        'text-max-width': 10,
+        'symbol-placement': (opts?.placement ?? 'point') as never,
+        'text-allow-overlap': false,
+      },
+      paint: { 'text-color': color, 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.5 },
+    });
+  }
+
+  /**
+   * Single icon overlay on a point layer (Symbology Studio). Renders the chosen
+   * icon glyph (icon_color) as a symbol layer on top of the circle so the
+   * data-driven circle colour still shows beneath. No icon → removes the layer.
+   */
+  setPointIconOverlay(sourceId: string, iconLayerId: string, state: SymbologyState | null): void {
+    if (!this.initialized) return;
+    const icon = state?.icon;
+    const exists = this.map.getLayer(iconLayerId);
+    const imgId = `ssicon-${iconLayerId}`;
+    if (!icon) { if (exists) this.map.removeLayer(iconLayerId); return; }
+    if (!this.map.getSource(sourceId)) return;
+
+    const data = renderIconImageData(icon, state?.icon_color ?? '#ffffff');
+    if (!data) { if (exists) this.map.removeLayer(iconLayerId); return; }
+    if (this.map.hasImage(imgId)) this.map.removeImage(imgId);
+    this.map.addImage(imgId, data, { pixelRatio: 2 });
+
+    const size = (state?.icon_size ?? 1) * 0.6;
+    const rotate = state?.icon_rotation ?? 0;
+    if (exists) {
+      this.map.setLayoutProperty(iconLayerId, 'icon-image', imgId);
+      this.map.setLayoutProperty(iconLayerId, 'icon-size', size);
+      this.map.setLayoutProperty(iconLayerId, 'icon-rotate', rotate);
+      return;
+    }
+    this.map.addLayer({
+      id: iconLayerId,
+      type: 'symbol',
+      source: sourceId,
+      filter: ['==', '$type', 'Point'],
+      layout: {
+        'icon-image': imgId,
+        'icon-size': size,
+        'icon-rotate': rotate,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
     });
   }
 

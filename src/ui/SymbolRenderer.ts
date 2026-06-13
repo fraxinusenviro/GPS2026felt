@@ -170,6 +170,27 @@ function renderPresetCanvas(preset: TypePreset): HTMLCanvasElement {
   return canvas;
 }
 
+/**
+ * Rasterize a single icon glyph (no shape behind it) for use as a MapLibre
+ * icon-image overlay on point layers (Symbology Studio icon overlay). Returns
+ * null for an unknown icon key.
+ */
+export function renderIconImageData(iconKey: string, color: string): ImageData | null {
+  const path = ICON_PATHS[iconKey];
+  if (!path) return null;
+  const SIZE = 64;
+  const PAD = 4;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = SIZE;
+  const ctx = canvas.getContext('2d')!;
+  const draw = SIZE - PAD * 2;
+  ctx.translate(PAD, PAD);
+  ctx.scale(draw / 256, draw / 256);
+  ctx.fillStyle = color;
+  ctx.fill(new Path2D(path), 'evenodd');
+  return ctx.getImageData(0, 0, SIZE, SIZE);
+}
+
 export class SymbolRenderer {
   private registeredIds = new Set<string>();
 

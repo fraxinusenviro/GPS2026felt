@@ -150,6 +150,7 @@ export class NSPRDVectorLayer {
       this.moveHandler = null;
     }
 
+    if (map.getLayer(`${layerId}-labels`)) map.removeLayer(`${layerId}-labels`);
     if (map.getLayer(hlStrokeId)) map.removeLayer(hlStrokeId);
     if (map.getLayer(hlLayerId)) map.removeLayer(hlLayerId);
     if (map.getLayer(strokeId)) map.removeLayer(strokeId);

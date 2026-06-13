@@ -111,6 +111,7 @@ export class NSHNVectorLayer {
       this.moveHandler = null;
     }
 
+    if (map.getLayer(`${layerId}-labels`)) map.removeLayer(`${layerId}-labels`);
     if (map.getLayer(strokeId)) map.removeLayer(strokeId);
     if (map.getLayer(layerId)) map.removeLayer(layerId);
     if (map.getSource(srcId)) map.removeSource(srcId);

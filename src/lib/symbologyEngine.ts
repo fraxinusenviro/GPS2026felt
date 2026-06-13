@@ -82,8 +82,7 @@ function rgb2hex(r: [number, number, number]): string {
   return '#' + r.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
 }
 
-export function sampleRamp(stops: string[], n: number): string[] {
-  if (n === 1) return [stops[Math.floor(stops.length / 2)]];
+export function sampleRamp(stops: string[], n: number): string[] {  if (n === 1) return [stops[Math.floor(stops.length / 2)]];
   const out: string[] = [];
   for (let i = 0; i < n; i++) {
     const t = (i / (n - 1)) * (stops.length - 1);
@@ -99,6 +98,18 @@ export function sampleRamp(stops: string[], n: number): string[] {
     ]));
   }
   return out;
+}
+
+/**
+ * Colours for categorical classes. `paletteKey` may name a qualitative palette
+ * (returned as-is, the caller cycles) OR a sequential/diverging ramp (sampled to
+ * `n` colours so categories span a continuous ramp like Viridis / RdYlGn / Coolwarm).
+ */
+export function categoricalColors(paletteKey: string | undefined, n: number): string[] {
+  const key = paletteKey ?? 'Bold';
+  if (QUAL_PALETTES[key]) return QUAL_PALETTES[key];
+  if (SEQ_RAMPS[key]) return sampleRamp(SEQ_RAMPS[key], Math.max(2, n));
+  return QUAL_PALETTES.Bold;
 }
 
 // ---- Classifiers ----
@@ -204,7 +215,7 @@ export function buildLegend(
   if (state.method === 'categorical') {
     const field = state.field ?? '';
     const cats = [...new Set(features.map(f => String((f.properties ?? {})[field] ?? '')))].sort();
-    const cols = QUAL_PALETTES[state.palette ?? 'Bold'] ?? QUAL_PALETTES.Bold;
+    const cols = categoricalColors(state.palette, cats.length);
     return cats.map((c, i) => ({ color: cols[i % cols.length], label: c, cat: c }));
   }
 
