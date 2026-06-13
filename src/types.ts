@@ -225,8 +225,8 @@ export interface VectorLayerConfig {
 export interface BasemapDef {
   id: string;
   label: string;
-  type: 'raster' | 'vector' | 'nsprd-vector' | 'nshn-vector' | 'hrdem-wcs' | 'cog-contour';
-  url: string;          // tile URL template or style URL
+  type: 'raster' | 'vector' | 'nsprd-vector' | 'nshn-vector' | 'hrdem-wcs' | 'cog-contour' | 'geojson';
+  url: string;          // tile URL template or style URL (for 'geojson': the file URL to fetch)
   attribution: string;
   description?: string; // Data Library card description (catalogue layers)
   min_zoom?: number;
@@ -348,12 +348,18 @@ export interface ToastMessage {
 export interface SharedLayer {
   id: string;                                   // uuid
   name: string;
+  folder?: string;                              // slash-nestable grouping, e.g. "Wetlands"
   kind: 'vector' | 'raster';
   format: string;                               // 'geojson' | 'cog' | 'pmtiles' | …
   r2_key: string;                               // R2 object key holding the file
   size?: number;                                // bytes
+  description?: string;                         // shown on the Data Library card
+  source?: string;                              // attribution / provenance
+  geometry_type?: 'Point' | 'LineString' | 'Polygon'; // vector hint
   bounds?: [number, number, number, number];    // [west, south, east, north]
-  style?: { color?: string; opacity?: number };
+  style?: { color?: string; opacity?: number; fillOpacity?: number; lineWidth?: number };
+  field_labels?: Record<string, string>;        // identify popup field → label
+  symbologyState?: SymbologyState;              // data-driven symbology (vector)
   added_at: string;
   added_by?: string;
   updated_at?: string;                          // drives last-write-wins

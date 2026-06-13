@@ -30,10 +30,10 @@ import { SymbolRenderer } from './ui/SymbolRenderer';
 import { LayoutMode } from './ui/LayoutMode';
 import { DataLibraryModal } from './ui/DataLibraryModal';
 import { MasterDataPanel } from './ui/MasterDataPanel';
-import { SharedLibraryPanel } from './ui/SharedLibraryPanel';
 import { BackendClient } from './sync/BackendClient';
 import { SyncManager } from './sync/SyncManager';
-import type { SharedLayer } from './types';
+import type { SharedLayer, BasemapDef } from './types';
+import { sharedLayerToDef } from './data/sharedLayerDefs';
 import * as turf from '@turf/turf';
 
 export class App {
@@ -69,7 +69,7 @@ export class App {
   private statsPanel!: StatsPanel;
   private dataLibraryModal!: DataLibraryModal;
   private masterDataPanel!: MasterDataPanel;
-  private sharedLibraryPanel!: SharedLibraryPanel;
+  private sharedDefsCache: BasemapDef[] = [];
   private undoManager = UndoManager.getInstance();
   private symbolRenderer!: SymbolRenderer;
   private layoutMode!: LayoutMode;
@@ -193,7 +193,6 @@ export class App {
     this.statsPanel = new StatsPanel();
     this.dataLibraryModal = new DataLibraryModal();
     this.masterDataPanel = new MasterDataPanel();
-    this.sharedLibraryPanel = new SharedLibraryPanel();
 
     // Load project-scoped data
     const activeProjectId = this.settings.active_project_id || 'default';
@@ -274,26 +273,61 @@ export class App {
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
   }
 
+  /** Rebuild the synthetic BasemapDefs for shared layers from local storage. */
+  private async reloadSharedDefs(): Promise<void> {
+    const layers = await this.storage.getAllSharedLayers();
+    const base = SyncManager.getConfig().url;
+    this.sharedDefsCache = layers
+      .sort((a, b) => (a.folder ?? '').localeCompare(b.folder ?? '') || a.name.localeCompare(b.name))
+      .map((l) => sharedLayerToDef(l, base));
+  }
+
+  /** Infer (kind, format, ext) from a filename for shared uploads. */
+  private classifyShared(name: string): { kind: 'vector' | 'raster'; format: string; ext: string } | null {
+    const ext = (name.split('.').pop() ?? '').toLowerCase();
+    switch (ext) {
+      case 'geojson':
+      case 'json': return { kind: 'vector', format: 'geojson', ext };
+      case 'pmtiles': return { kind: 'vector', format: 'pmtiles', ext };
+      case 'tif':
+      case 'tiff': return { kind: 'raster', format: 'cog', ext };
+      default: return null;
+    }
+  }
+
   /**
-   * Fetch a shared-library layer's bytes from R2 and add it to the map. Vector
-   * GeoJSON renders through the existing import pipeline; other formats (PMTiles,
-   * COG raster) are a follow-up.
+   * Upload a file to R2 under static/<folder>/<slug>.<ext> and register it as a
+   * SharedLayer (synced org-wide; also matched by the R2→D1 reconciler).
    */
-  async addSharedLayerToMap(layer: SharedLayer): Promise<void> {
-    if (layer.kind !== 'vector' || layer.format !== 'geojson') {
-      EventBus.emit('toast', { message: `Preview for ${layer.format} layers is coming soon`, type: 'info' });
-      return;
-    }
-    try {
-      EventBus.emit('toast', { message: `Loading ${layer.name}…`, type: 'info', duration: 1500 });
-      const blob = await new BackendClient(SyncManager.getConfig().url).getBlob(layer.r2_key);
-      if (!blob) throw new Error('file not found in storage');
-      const file = new File([blob], `${layer.name}.geojson`, { type: 'application/json' });
-      await this.importManager.importFile(file);
-      EventBus.emit('toast', { message: `Added ${layer.name}`, type: 'success' });
-    } catch (err) {
-      EventBus.emit('toast', { message: `Failed to add layer: ${(err as Error).message}`, type: 'error' });
-    }
+  private async uploadSharedLayer(data: { name: string; folder: string; file: File }): Promise<void> {
+    const { name, folder, file } = data;
+    const meta = this.classifyShared(file.name);
+    if (!meta) throw new Error('Unsupported file type (use .geojson, .pmtiles, or .tif/.tiff).');
+    const id = crypto.randomUUID();
+    const slug = (name || file.name.replace(/\.[^.]+$/, '')).replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'layer';
+    const folderPath = folder.trim().replace(/^\/+|\/+$/g, '');
+    const key = `static/${folderPath ? folderPath + '/' : ''}${slug}-${id.slice(0, 8)}.${meta.ext}`;
+
+    EventBus.emit('toast', { message: `Uploading ${name}…`, type: 'info', duration: 2000 });
+    await new BackendClient(SyncManager.getConfig().url).putBlob(key, file);
+    const now = new Date().toISOString();
+    const layer: SharedLayer = {
+      id, name: name || file.name, folder: folderPath || undefined,
+      kind: meta.kind, format: meta.format, r2_key: key, size: file.size,
+      added_by: this.settings.user_id, added_at: now, updated_at: now,
+    };
+    await this.storage.saveSharedLayer(layer); // marks dirty → syncs to the team
+    EventBus.emit('sync-now');
+    await this.reloadSharedDefs();
+    EventBus.emit('toast', { message: `Added ${layer.name} to the shared library`, type: 'success' });
+  }
+
+  /** Remove a shared layer org-wide (and from the active map stack if present). */
+  private async deleteSharedLayer(sharedId: string): Promise<void> {
+    this.basemapManager.removeDefFromStack(`shared:${sharedId}`);
+    await this.storage.deleteSharedLayer(sharedId);
+    EventBus.emit('sync-now');
+    await this.reloadSharedDefs();
   }
 
   // ============================================================
@@ -478,7 +512,11 @@ export class App {
     });
 
     // Cloud sync pulled remote changes — reload + redraw the active project.
-    EventBus.on('cloud-data-changed', () => { void this.refreshAfterSync(); });
+    EventBus.on('cloud-data-changed', () => {
+      void this.refreshAfterSync();
+      // Refresh shared static-data layers so newly-synced ones appear without a reload.
+      void this.reloadSharedDefs().then(() => this.dataLibraryModal.refreshIfOpen());
+    });
 
     // Cloud sync config/actions from the Settings panel.
     EventBus.on<{ enabled: boolean; url: string }>('sync-config-changed', ({ enabled, url }) => {
@@ -497,9 +535,6 @@ export class App {
       this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     });
 
-    // Shared Data Library (Phase 3).
-    EventBus.on('open-shared-library', () => { void this.sharedLibraryPanel.open(); });
-    EventBus.on<{ layer: SharedLayer }>('shared-layer-add', ({ layer }) => { void this.addSharedLayerToMap(layer); });
 
     // Project bundle import (triggered by ImportDataPanel)
     EventBus.on<{ bundle: ProjectBundle; mode: 'new' | 'merge' }>('import-project-bundle', async ({ bundle, mode }) => {
@@ -1019,8 +1054,15 @@ export class App {
       this.toggleWakeLock();
     });
 
-    document.getElementById('btn-data-library')?.addEventListener('click', () => {
+    document.getElementById('btn-data-library')?.addEventListener('click', () => { void this.openDataLibrary(); });
+    EventBus.on<{ group?: string }>('open-data-library', ({ group }) => { void this.openDataLibrary(group); });
+    this.setupMoreEventListeners();
+  }
+
+  /** Open the Data Library modal, optionally landing on a specific group. */
+  private async openDataLibrary(initialGroup = 'all'): Promise<void> {
       this.closeAllPanels();
+      await this.reloadSharedDefs();
       this.dataLibraryModal.open({
         onAddToMap: (def) => {
           this.basemapManager.addDefToStack(def);
@@ -1118,9 +1160,13 @@ export class App {
         onRenderImport: (container: HTMLElement) => { this.importDataPanel.renderToContainer(container); },
         onRenderExport: (container: HTMLElement) => { this.exportPanel.renderToContainer(container); },
         isInStack: (defId) => this.basemapManager.isDefInStack(defId),
-      });
-    });
+        getSharedDefs: () => this.sharedDefsCache,
+        onUploadShared: (data) => this.uploadSharedLayer(data),
+        onDeleteShared: (sharedId) => this.deleteSharedLayer(sharedId),
+      }, initialGroup);
+  }
 
+  private setupMoreEventListeners(): void {
     document.getElementById('btn-import')?.addEventListener('click', () => {
       this.closeAllPanels();
       this.importDataPanel.toggle();

@@ -1,5 +1,6 @@
 import { BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import { NS_REST_ALL_DEFS, NS_REST_ALL_GROUP } from '../data/nsRestAll';
+import { isSharedDef, isSharedGroup, sharedIdFromDef, SHARED_GROUP_ROOT } from '../data/sharedLayerDefs';
 import type { BasemapDef } from '../types';
 import { EventBus } from '../utils/EventBus';
 
@@ -215,6 +216,7 @@ function typeLabel(def: BasemapDef): string {
     case 'nshn-vector':  return 'Vector';
     case 'hrdem-wcs':    return 'Elevation (WCS)';
     case 'cog-contour':  return 'COG Contour';
+    case 'geojson':      return 'Vector (GeoJSON)';
     default:             return def.type;
   }
 }
@@ -227,6 +229,10 @@ export interface DataLibraryCallbacks {
   onRenderImport: (container: HTMLElement) => void;
   onRenderExport: (container: HTMLElement) => void;
   isInStack: (defId: string) => boolean;
+  // Shared static-data library (org-wide uploads synced via the cloud).
+  getSharedDefs: () => BasemapDef[];
+  onUploadShared: (data: { name: string; folder: string; file: File }) => Promise<void>;
+  onDeleteShared: (sharedId: string) => Promise<void>;
 }
 
 export class DataLibraryModal {
@@ -236,17 +242,20 @@ export class DataLibraryModal {
   private activeGroup = 'all';
   private activeView: 'library' | 'import' | 'export' = 'library';
   private configuringDefId: string | null = null;
+  private uploadOpen = false;
+  private uploading = false;
 
   constructor() {
     this.overlay = document.getElementById('data-library-overlay')!;
   }
 
-  open(callbacks: DataLibraryCallbacks): void {
+  open(callbacks: DataLibraryCallbacks, initialGroup = 'all'): void {
     this.callbacks = callbacks;
     this.searchQuery = '';
-    this.activeGroup = 'all';
+    this.activeGroup = initialGroup;
     this.activeView = 'library';
     this.configuringDefId = null;
+    this.uploadOpen = false;
     this.render();
     this.overlay.style.display = 'flex';
     requestAnimationFrame(() => this.overlay.classList.add('dl-open'));
@@ -257,14 +266,26 @@ export class DataLibraryModal {
     setTimeout(() => { this.overlay.style.display = 'none'; }, 250);
   }
 
+  /** Re-render in place if the modal is currently open (e.g. shared layers synced in). */
+  refreshIfOpen(): void {
+    if (this.overlay.style.display !== 'none' && this.callbacks) this.render();
+  }
+
+  private get sharedDefs(): BasemapDef[] {
+    return this.callbacks.getSharedDefs?.() ?? [];
+  }
+
   private get allDefs(): BasemapDef[] {
-    return [...BASEMAPS, ...BASEMAP_OVERLAYS, ...NS_REST_ALL_DEFS];
+    return [...BASEMAPS, ...BASEMAP_OVERLAYS, ...this.sharedDefs, ...NS_REST_ALL_DEFS];
   }
 
   private get groups(): string[] {
     const seen = new Set<string>();
     BASEMAP_OVERLAYS.forEach(d => { if (d.group) seen.add(d.group); });
-    return [...[...seen].sort(), NS_REST_ALL_GROUP];
+    // Per-folder shared groups (the bare root is a fixed nav entry, added in render).
+    const sharedGroups = new Set<string>();
+    this.sharedDefs.forEach(d => { if (d.group && d.group !== SHARED_GROUP_ROOT) sharedGroups.add(d.group); });
+    return [...[...sharedGroups].sort(), ...[...seen].sort(), NS_REST_ALL_GROUP];
   }
 
   private filteredDefs(): BasemapDef[] {
@@ -274,6 +295,8 @@ export class DataLibraryModal {
         ? [...BASEMAPS]
         : this.activeGroup === NS_REST_ALL_GROUP
         ? [...NS_REST_ALL_DEFS]
+        : isSharedGroup(this.activeGroup)
+        ? (this.activeGroup === SHARED_GROUP_ROOT ? this.sharedDefs : this.sharedDefs.filter(d => d.group === this.activeGroup))
         : BASEMAP_OVERLAYS.filter(d => d.group === this.activeGroup);
     } else if (!this.searchQuery) {
       // Browsing "All Sources" without a search: hide the 1,000+ layer NS REST
@@ -345,14 +368,38 @@ export class DataLibraryModal {
         <button class="dl-card-add${inStack && !hasParams ? ' dl-card-added' : ''}${hasParams ? ' dl-card-configure' : ''}" data-def-id="${def.id}">
           ${addBtnContent}
         </button>
+        ${isSharedDef(def) ? `<button class="dl-card-del" data-shared-id="${sharedIdFromDef(def.id)}" title="Delete from shared library" aria-label="Delete from shared library">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>` : ''}
       </div>`;
   }
 
   // Results grid markup — kept separate so the search box can refresh just this
   // region on each keystroke without rebuilding (and losing focus on) the input.
+  private uploadToolbarHtml(): string {
+    const folder = this.activeGroup.startsWith(`${SHARED_GROUP_ROOT}: `)
+      ? this.activeGroup.slice(`${SHARED_GROUP_ROOT}: `.length) : '';
+    return `
+            <div class="dl-shared-toolbar">
+              <button class="dl-shared-upload-btn" id="dl-shared-upload-toggle">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                ${this.uploadOpen ? 'Cancel' : 'Upload data'}
+              </button>
+              ${this.uploadOpen ? `
+              <div class="dl-shared-form">
+                <input type="text" id="dl-up-name" class="dl-up-input" placeholder="Layer name" autocomplete="off" />
+                <input type="text" id="dl-up-folder" class="dl-up-input" placeholder="Folder (optional)" value="${folder}" autocomplete="off" />
+                <input type="file" id="dl-up-file" class="dl-up-file" accept=".geojson,.json,.tif,.tiff,.pmtiles" />
+                <button class="dl-up-submit" id="dl-up-submit"${this.uploading ? ' disabled' : ''}>${this.uploading ? 'Uploading…' : 'Add to library'}</button>
+              </div>` : ''}
+            </div>`;
+  }
+
   private gridWrapHtml(defs: BasemapDef[]): string {
+    const toolbar = isSharedGroup(this.activeGroup) ? this.uploadToolbarHtml() : '';
     return `
           <div class="dl-grid-wrap">
+            ${toolbar}
             <div class="dl-grid-label">
               ${this.activeGroup === 'all' ? 'All Sources' : this.activeGroup === 'basemaps' ? 'Standard Basemaps' : this.activeGroup}
               <span class="dl-count">${defs.length} layer${defs.length !== 1 ? 's' : ''}</span>
@@ -426,6 +473,10 @@ export class DataLibraryModal {
             <button class="dl-nav-item${this.activeView === 'library' && this.activeGroup === 'basemaps' ? ' active' : ''}" data-group="basemaps">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/></svg>
               Standard Basemaps
+            </button>
+            <button class="dl-nav-item${this.activeView === 'library' && this.activeGroup === SHARED_GROUP_ROOT ? ' active' : ''}" data-group="${SHARED_GROUP_ROOT}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              Fraxinus – Static Data
             </button>
             ${groups.map(g => {
               const icon = g === 'Raster Functions'
@@ -549,6 +600,46 @@ export class DataLibraryModal {
         this.callbacks.onAddToMap(def);
         this.refreshResults();
       });
+    });
+
+    // Shared-library: delete a layer (org-wide)
+    this.overlay.querySelectorAll<HTMLButtonElement>('.dl-card-del').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const sid = btn.dataset.sharedId;
+        if (!sid) return;
+        if (!confirm('Delete this layer from the shared library for everyone?')) return;
+        await this.callbacks.onDeleteShared(sid);
+        this.refreshResults();
+      });
+    });
+
+    // Shared-library: toggle the upload form
+    this.overlay.querySelector('#dl-shared-upload-toggle')?.addEventListener('click', () => {
+      this.uploadOpen = !this.uploadOpen;
+      this.refreshResults();
+    });
+
+    // Shared-library: submit an upload
+    this.overlay.querySelector('#dl-up-submit')?.addEventListener('click', async () => {
+      const nameEl = this.overlay.querySelector<HTMLInputElement>('#dl-up-name');
+      const folderEl = this.overlay.querySelector<HTMLInputElement>('#dl-up-folder');
+      const fileEl = this.overlay.querySelector<HTMLInputElement>('#dl-up-file');
+      const file = fileEl?.files?.[0];
+      if (!file) { EventBus.emit('toast', { message: 'Choose a file to upload', type: 'info' }); return; }
+      const name = (nameEl?.value.trim() || file.name.replace(/\.[^.]+$/, ''));
+      const folder = folderEl?.value.trim() ?? '';
+      this.uploading = true;
+      this.refreshResults();
+      try {
+        await this.callbacks.onUploadShared({ name, folder, file });
+        this.uploadOpen = false;
+      } catch (err) {
+        EventBus.emit('toast', { message: `Upload failed: ${(err as Error).message}`, type: 'error' });
+      } finally {
+        this.uploading = false;
+        this.refreshResults();
+      }
     });
   }
 

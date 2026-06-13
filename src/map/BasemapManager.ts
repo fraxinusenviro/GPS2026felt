@@ -160,6 +160,11 @@ export class BasemapManager {
   private nshnLayers = new Map<string, NSHNVectorLayer>();
   private hrdemLayers = new Map<string, HRDEMLayer>();
   private cogContourLayers = new Map<string, CogContourLayer>();
+  // Static GeoJSON overlays (shared data library, type 'geojson'): cache the
+  // fetched features per instance so symbology + identify can reuse them, and
+  // track which are loaded onto the map.
+  private geojsonOverlays = new Map<string, { properties: Record<string, unknown> }[]>();
+  private geojsonLoading = new Set<string>();
   private cutFillResultProvider: (() => import('../lib/cutFillEngine').CutFillResult | null) | null = null;
   private cutFillLayers = new Map<string, CutFillLayer>();
   private collapsedFdGroups = new Set<string>();
@@ -382,6 +387,9 @@ export class BasemapManager {
     const ids: string[] = [];
     if (this.nsprdLayer) ids.push(...this.nsprdLayer.getLayerIds());
     for (const layer of this.nshnLayers.values()) ids.push(...layer.getLayerIds());
+    for (const iid of this.geojsonOverlays.keys()) {
+      for (const suffix of ['fill', 'line', 'point']) ids.push(`bm-ov-${iid}-${suffix}`);
+    }
     return ids.filter(id => map.getLayer(id));
   }
 
@@ -409,7 +417,7 @@ export class BasemapManager {
 
     for (const feat of features) {
       const rawLayerId = feat.layer.id;
-      const iid = rawLayerId.replace(/^bm-ov-/, '').replace(/-stroke$/, '');
+      const iid = rawLayerId.replace(/^bm-ov-/, '').replace(/-(?:stroke|fill|line|point)$/, '');
       const stackLayer = this.stack.find(l => l.instanceId === iid);
 
       // Collect NSPRD OIDs for polygon highlight
@@ -432,8 +440,8 @@ export class BasemapManager {
       } else {
         const def = stackLayer ? allDefs.find(d => d.id === stackLayer.defId) : undefined;
         groupMap.set(iid, {
-          label: def?.label ?? 'Layer',
-          fieldLabels: def?.vector_config?.fieldLabels,
+          label: def?.label ?? stackLayer?.label ?? 'Layer',
+          fieldLabels: def?.vector_config?.fieldLabels ?? (stackLayer ? this.getVectorConfig(stackLayer)?.fieldLabels : undefined),
           features: [{ props, geometry }],
         });
       }
@@ -692,6 +700,11 @@ export class BasemapManager {
     this.saveStack();
   }
 
+  /** Remove every stack layer matching a defId (used when a shared layer is deleted). */
+  removeDefFromStack(defId: string): void {
+    for (const l of this.stack.filter(l => l.defId === defId)) this.removeFromStack(l.instanceId);
+  }
+
   /** Encode current stack as a compact base64 string for URL sharing. */
   getUrlStackParam(): string {
     try {
@@ -931,6 +944,71 @@ export class BasemapManager {
   private getVectorConfig(l: StackLayer): VectorLayerConfig | undefined {
     const allDefs = ALL_DEFS();
     return allDefs.find(d => d.id === l.defId)?.vector_config ?? l.vector_config;
+  }
+
+  /** The base symbology color for a static GeoJSON overlay. */
+  private geojsonColor(l: StackLayer): string {
+    const cfg = this.getVectorConfig(l);
+    if (l.vecFillColor) return l.vecFillColor;
+    if (typeof cfg?.fillColor === 'string') return cfg.fillColor;
+    if (typeof cfg?.lineColor === 'string') return cfg.lineColor;
+    return '#3388ff';
+  }
+
+  /**
+   * Render (or refresh) a static GeoJSON overlay from the shared data library.
+   * Fetches the file from R2 once, caches its features for symbology/identify,
+   * and renders as a non-editable fill/line/point overlay.
+   */
+  private renderGeojsonOverlay(l: StackLayer): void {
+    const baseId = `bm-ov-${l.instanceId}`;
+    const color = this.geojsonColor(l);
+
+    const applyState = () => {
+      if (l.symbologyState) {
+        const feats = this.geojsonOverlays.get(l.instanceId) ?? [];
+        this.mapManager.setImportedLayerSymbology(baseId, l.symbologyState, feats, color);
+      }
+      this.applyGeojsonOpacityVisibility(l, baseId);
+    };
+
+    if (this.geojsonOverlays.has(l.instanceId)) { applyState(); return; }
+    if (this.geojsonLoading.has(l.instanceId)) return;
+    this.geojsonLoading.add(l.instanceId);
+
+    void (async () => {
+      try {
+        const res = await fetch(l.url, { credentials: 'include' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json() as { features?: Array<{ properties?: Record<string, unknown> }> };
+        const feats = (data.features ?? []).map(f => ({ properties: (f.properties ?? {}) as Record<string, unknown> }));
+        this.geojsonOverlays.set(l.instanceId, feats);
+        this.mapManager.addGeoJSONLayer(baseId, data, color, l.opacity ?? 1);
+        applyState();
+        this.refreshLegend();
+      } catch (err) {
+        console.warn(`[BasemapManager] failed to load shared layer "${l.label}":`, err);
+        EventBus.emit('toast', { message: `Couldn't load ${l.label}`, type: 'error' });
+      } finally {
+        this.geojsonLoading.delete(l.instanceId);
+      }
+    })();
+  }
+
+  private applyGeojsonOpacityVisibility(l: StackLayer, baseId: string): void {
+    const map = this.mapManager.getMap();
+    const vis = l.visible ? 'visible' : 'none';
+    const op = l.opacity ?? 1;
+    for (const suffix of ['fill', 'line', 'point'] as const) {
+      const id = `${baseId}-${suffix}`;
+      if (!map.getLayer(id)) continue;
+      map.setLayoutProperty(id, 'visibility', vis);
+      if (!l.symbologyState) {
+        if (suffix === 'fill') map.setPaintProperty(id, 'fill-opacity', op * 0.4);
+        else if (suffix === 'line') map.setPaintProperty(id, 'line-opacity', op);
+        else map.setPaintProperty(id, 'circle-opacity', op);
+      }
+    }
   }
 
   // ---- COG ramp helpers ----
@@ -1503,6 +1581,17 @@ export class BasemapManager {
       }
     }
 
+    // Remove static GeoJSON overlays no longer in the stack
+    const activeGeojsonIds = new Set(
+      overlays.filter(l => this.getLayerType(l) === 'geojson').map(e => e.instanceId)
+    );
+    for (const iid of [...this.geojsonOverlays.keys()]) {
+      if (!activeGeojsonIds.has(iid)) {
+        this.mapManager.removeGeoJSONLayer(`bm-ov-${iid}`);
+        this.geojsonOverlays.delete(iid);
+      }
+    }
+
     // Process all overlay types in unified bottom-to-top order so map layer positions
     // match the UI stack exactly (last activated ends up closest to user features)
     for (const l of overlays) {
@@ -1603,6 +1692,8 @@ export class BasemapManager {
           classifier:  (l.hrdemClassifier ?? 'Natural breaks') as ClassifierName,
           classes:     l.hrdemClassCount ?? 5,
         });
+      } else if (ltype === 'geojson') {
+        this.renderGeojsonOverlay(l);
       } else if (ltype === 'cog-contour') {
         if (!this.cogContourLayers.has(l.instanceId)) {
           this.cogContourLayers.set(l.instanceId, new CogContourLayer(this.mapManager, l.url));
