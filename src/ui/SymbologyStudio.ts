@@ -243,15 +243,26 @@ export class SymbologyStudio {
     }
 
     if (m === 'categorical') {
+      // Sample sequential ramps to roughly the number of categories so the
+      // preview reflects how categories will span the continuous ramp.
+      const field = state.field ?? '';
+      const catCount = field
+        ? new Set(features.map(f => String((f.properties ?? {})[field] ?? ''))).size
+        : 5;
+      const sampleN = Math.max(2, Math.min(catCount || 5, 7));
+      const row = (nm: string, cols: string[]) => `
+        <div class="ss-ramp-item${nm === state.palette ? ' on' : ''}" data-palette="${nm}">
+          <div class="ss-ramp-chips">${cols.map(c => `<span style="background:${c}"></span>`).join('')}</div>
+          <span class="ss-ramp-nm">${nm}</span>
+        </div>`;
       return `<div class="ss-section">
-        <div class="ss-lbl">Palette</div>
+        <div class="ss-lbl">Qualitative palette</div>
         <div class="ss-ramp-rows" id="ss-palette-rows">
-          ${Object.entries(QUAL_PALETTES).map(([nm, cols]) => `
-            <div class="ss-ramp-item${nm === state.palette ? ' on' : ''}" data-palette="${nm}">
-              <div class="ss-ramp-chips">${cols.map(c => `<span style="background:${c}"></span>`).join('')}</div>
-              <span class="ss-ramp-nm">${nm}</span>
-            </div>
-          `).join('')}
+          ${Object.entries(QUAL_PALETTES).map(([nm, cols]) => row(nm, cols)).join('')}
+        </div>
+        <div class="ss-lbl" style="margin-top:10px">Continuous ramp</div>
+        <div class="ss-ramp-rows" id="ss-palette-ramp-rows">
+          ${Object.entries(SEQ_RAMPS).map(([nm, stops]) => row(nm, sampleRamp(stops, sampleN))).join('')}
         </div>
       </div>`;
     }
