@@ -3,6 +3,7 @@ import {
   SEQ_RAMPS, QUAL_PALETTES, SINGLE_COLORS, OUTLINE_COLORS,
   sampleRamp, buildLegend, buildFullLayerSpec, detectFields, CLASSIFIERS,
 } from '../lib/symbologyEngine';
+import { ICON_PATHS, ICON_CATEGORIES } from './SymbolRenderer';
 
 export interface SymbologyOptions {
   title: string;
@@ -139,6 +140,30 @@ export class SymbologyStudio {
             </div>
             <div class="ss-lbl" style="margin-top:8px">Outline width <span class="ss-val" id="ss-ow-val">${state.outlineWidth ?? 1.5}px</span></div>
             <input type="range" id="ss-ow" min="0" max="4" step="0.5" value="${state.outlineWidth ?? 1.5}" />
+          </div>
+          ` : ''}
+
+          <!-- Point: icon overlay -->
+          ${geomType === 'point' ? `
+          <div class="ss-section">
+            <div class="ss-lbl">Icon overlay</div>
+            <div class="ss-icon-grid" id="ss-icon-grid">
+              <button class="ss-icon-btn${!state.icon ? ' on' : ''}" data-icon="" title="No icon">∅</button>
+              ${ICON_CATEGORIES.flatMap(cat => cat.icons).filter(k => ICON_PATHS[k]).map(k => `
+                <button class="ss-icon-btn${state.icon === k ? ' on' : ''}" data-icon="${k}" title="${k}">
+                  <svg viewBox="0 0 256 256" width="16" height="16" fill="currentColor"><path d="${ICON_PATHS[k]}"/></svg>
+                </button>`).join('')}
+            </div>
+            <div id="ss-icon-extra" class="${state.icon ? '' : 'ss-hidden'}">
+              <div class="ss-lbl" style="margin-top:8px">Icon colour</div>
+              <div class="ss-swatch-grid">
+                ${this.swatchGrid(['#ffffff', '#0a0d12', '#ffd166', '#ef476f', '#06d6a0', '#118ab2'], state.icon_color, 'icon-color')}
+              </div>
+              <div class="ss-lbl" style="margin-top:8px">Icon size <span class="ss-val" id="ss-isz-val">${(state.icon_size ?? 1).toFixed(1)}×</span></div>
+              <input type="range" id="ss-icon-size" min="0.5" max="2.5" step="0.1" value="${state.icon_size ?? 1}" />
+              <div class="ss-lbl" style="margin-top:8px">Icon rotation <span class="ss-val" id="ss-irot-val">${state.icon_rotation ?? 0}°</span></div>
+              <input type="range" id="ss-icon-rot" min="0" max="360" step="5" value="${state.icon_rotation ?? 0}" />
+            </div>
           </div>
           ` : ''}
 
@@ -483,6 +508,36 @@ export class SymbologyStudio {
         state.outlineWidth = parseFloat(owSlider.value);
         if (owVal) owVal.textContent = `${state.outlineWidth}px`;
         rebuildDynamic();
+      });
+
+      // Icon overlay
+      overlay.querySelectorAll<HTMLButtonElement>('[data-icon]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          overlay.querySelectorAll('[data-icon]').forEach(b => b.classList.remove('on'));
+          btn.classList.add('on');
+          state.icon = btn.dataset.icon || undefined;
+          overlay.querySelector<HTMLElement>('#ss-icon-extra')?.classList.toggle('ss-hidden', !state.icon);
+        });
+      });
+      overlay.querySelectorAll<HTMLElement>('[data-icon-color]').forEach(el => {
+        el.addEventListener('click', () => {
+          el.parentElement?.querySelectorAll('.ss-sw').forEach(e => e.classList.remove('on'));
+          el.classList.add('on');
+          state.icon_color = el.dataset.iconColor!;
+        });
+      });
+      this.wireCustomColor(overlay, 'icon-color', c => { state.icon_color = c; }, () => {});
+      const iszSlider = overlay.querySelector<HTMLInputElement>('#ss-icon-size');
+      const iszVal = overlay.querySelector<HTMLElement>('#ss-isz-val');
+      iszSlider?.addEventListener('input', () => {
+        state.icon_size = parseFloat(iszSlider.value);
+        if (iszVal) iszVal.textContent = `${state.icon_size.toFixed(1)}×`;
+      });
+      const irotSlider = overlay.querySelector<HTMLInputElement>('#ss-icon-rot');
+      const irotVal = overlay.querySelector<HTMLElement>('#ss-irot-val');
+      irotSlider?.addEventListener('input', () => {
+        state.icon_rotation = parseFloat(irotSlider.value);
+        if (irotVal) irotVal.textContent = `${state.icon_rotation}°`;
       });
     }
 

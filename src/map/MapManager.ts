@@ -5,7 +5,7 @@ import { LAYER_IDS, BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import { buildColorExpression, buildRadiusExpression } from '../lib/symbologyEngine';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
-import { SymbolRenderer } from '../ui/SymbolRenderer';
+import { SymbolRenderer, renderIconImageData } from '../ui/SymbolRenderer';
 import proj4 from 'proj4';
 
 // ---- Module-level COG colormap registry (mutable so ramp can be changed at runtime) ----
@@ -1176,7 +1176,7 @@ export class MapManager {
   }
 
   removeGeoJSONLayer(id: string): void {
-    [`${id}-fill`, `${id}-line`, `${id}-point`, `${id}-labels`].forEach(lid => {
+    [`${id}-fill`, `${id}-line`, `${id}-point`, `${id}-labels`, `${id}-icons`].forEach(lid => {
       if (this.map.getLayer(lid)) this.map.removeLayer(lid);
     });
     const srcId = `src-${id}`;
@@ -1202,6 +1202,7 @@ export class MapManager {
       geomType === 'LineString' ? { placement: 'line', anchor: 'center', offset: [0, 0] }
       : geomType === 'Polygon' ? { anchor: 'center', offset: [0, 0] }
       : undefined);
+    if (geomType === 'Point') this.setPointIconOverlay('collected-points', 'collected-points-icons', state);
 
     if (geomType === 'Point') {
       const layerId = LAYER_IDS.COLLECTED_POINTS;
@@ -1278,6 +1279,8 @@ export class MapManager {
     originalColor: string,
   ): void {
     if (!this.initialized) return;
+    // Optional point icon overlay (no-op for non-point features via the layer filter).
+    this.setPointIconOverlay(`src-${layerId}`, `${layerId}-icons`, state);
     const fillId = `${layerId}-fill`;
     const lineId = `${layerId}-line`;
     const pointId = `${layerId}-point`;
@@ -1452,6 +1455,47 @@ export class MapManager {
         'text-allow-overlap': false,
       },
       paint: { 'text-color': color, 'text-halo-color': 'rgba(0,0,0,0.85)', 'text-halo-width': 1.5 },
+    });
+  }
+
+  /**
+   * Single icon overlay on a point layer (Symbology Studio). Renders the chosen
+   * icon glyph (icon_color) as a symbol layer on top of the circle so the
+   * data-driven circle colour still shows beneath. No icon → removes the layer.
+   */
+  setPointIconOverlay(sourceId: string, iconLayerId: string, state: SymbologyState | null): void {
+    if (!this.initialized) return;
+    const icon = state?.icon;
+    const exists = this.map.getLayer(iconLayerId);
+    const imgId = `ssicon-${iconLayerId}`;
+    if (!icon) { if (exists) this.map.removeLayer(iconLayerId); return; }
+    if (!this.map.getSource(sourceId)) return;
+
+    const data = renderIconImageData(icon, state?.icon_color ?? '#ffffff');
+    if (!data) { if (exists) this.map.removeLayer(iconLayerId); return; }
+    if (this.map.hasImage(imgId)) this.map.removeImage(imgId);
+    this.map.addImage(imgId, data, { pixelRatio: 2 });
+
+    const size = (state?.icon_size ?? 1) * 0.6;
+    const rotate = state?.icon_rotation ?? 0;
+    if (exists) {
+      this.map.setLayoutProperty(iconLayerId, 'icon-image', imgId);
+      this.map.setLayoutProperty(iconLayerId, 'icon-size', size);
+      this.map.setLayoutProperty(iconLayerId, 'icon-rotate', rotate);
+      return;
+    }
+    this.map.addLayer({
+      id: iconLayerId,
+      type: 'symbol',
+      source: sourceId,
+      filter: ['==', '$type', 'Point'],
+      layout: {
+        'icon-image': imgId,
+        'icon-size': size,
+        'icon-rotate': rotate,
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
     });
   }
 
