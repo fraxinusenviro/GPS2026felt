@@ -14,7 +14,7 @@ import { json, bad } from './http';
 type SyncBody = Partial<Record<EntityKind, SyncEntity[]>>;
 
 /** Reserve a contiguous block of `count` rev numbers; returns the first rev. */
-async function reserveRevs(env: Env, count: number): Promise<number> {
+export async function reserveRevs(env: Env, count: number): Promise<number> {
   const row = await env.DB.prepare('UPDATE sync_seq SET value = value + ?1 WHERE id = 0 RETURNING value')
     .bind(count)
     .first<{ value: number }>();

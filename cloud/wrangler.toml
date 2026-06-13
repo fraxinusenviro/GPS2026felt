@@ -29,6 +29,10 @@ database_name = "ffm"
 database_id = "0a87fcf2-acb9-4ccd-80cd-faeb816d8835"   # from `wrangler d1 create ffm`
 migrations_dir = "schema"
 
+# Cron: reconcile R2 static/ drops into D1 shared_layers (also POST /admin/reconcile).
+[triggers]
+crons = ["*/5 * * * *"]
+
 [vars]
 # Cloudflare Access config. When BOTH TEAM_DOMAIN and ACCESS_AUD are set the
 # Worker enforces Access (JWT verified against the team JWKS); leaving either

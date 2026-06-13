@@ -180,6 +180,38 @@ async function main() {
       `(got "${full.headers.get('accept-ranges')}")`);
   }
 
+  // 9. R2 → D1 reconciler (static/ drops auto-register) -------------------
+  console.log('\n[9] POST /admin/reconcile — static/ → shared_layers');
+  {
+    const vKey = `static/Wetlands/marsh-${now}.geojson`;
+    const rKey = `static/aerial-${now}.tif`;
+    const putV = await fetch(`${BASE}/blobs/${encodeURIComponent(vKey)}`, {
+      method: 'PUT', headers, body: JSON.stringify({ type: 'FeatureCollection', features: [] }),
+    });
+    const putR = await fetch(`${BASE}/blobs/${encodeURIComponent(rKey)}`, {
+      method: 'PUT', headers: { ...headers, 'content-type': 'image/tiff' }, body: 'II*\0fake-cog',
+    });
+    check('uploaded static vector + raster', putV.ok && putR.ok);
+
+    const rec = await (await post('/admin/reconcile', {})).json();
+    check('reconcile registered the two new layers', rec.added >= 2, JSON.stringify(rec).slice(0, 160));
+
+    const ch = await (await get('/changes?since=0&limit=100000')).json();
+    const byKey = Object.fromEntries((ch.shared_layers ?? []).map((s) => [s.r2_key, s]));
+    const v = byKey[vKey];
+    const r = byKey[rKey];
+    check('vector layer inferred (kind/format/folder/name)',
+      v && v.kind === 'vector' && v.format === 'geojson' && v.folder === 'Wetlands' && v.name === `marsh-${now}`,
+      JSON.stringify(v));
+    check('raster layer inferred (kind/format, no folder)',
+      r && r.kind === 'raster' && r.format === 'cog' && !r.folder,
+      JSON.stringify(r));
+    check('reconciled layers carry a rev (so /changes ships them)', v && typeof v.rev === 'number' && v.rev > 0);
+
+    const again = await (await post('/admin/reconcile', {})).json();
+    check('reconcile is idempotent (no re-adds)', again.added === 0, JSON.stringify(again).slice(0, 120));
+  }
+
   console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
   process.exit(fail === 0 ? 0 : 1);
 }
