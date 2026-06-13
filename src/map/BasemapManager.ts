@@ -18,6 +18,7 @@ import { StorageManager } from '../storage/StorageManager';
 import { StylePicker } from '../ui/StylePicker';
 import { renderSwatchDataUrl, renderLineSwatchDataUrl, renderPolygonSwatchDataUrl } from '../ui/SymbolRenderer';
 import { CutFillLayer } from './CutFillLayer';
+import { sampleElevationBilinear } from '../lib/cutFillEngine';
 import { CutFillRunStore, type CutFillRun } from './CutFillRunStore';
 import { computeCutFill, computeDaylightFeatures } from '../lib/cutFillEngine';
 
@@ -188,6 +189,10 @@ export class BasemapManager {
   private identifyClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
   private identifyPopup: maplibregl.Popup | null = null;
   private identifyButton: HTMLButtonElement | null = null;
+  private rasterSampleActive = false;
+  private rasterSampleClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
+  private rasterSampleButton: HTMLButtonElement | null = null;
+  private rasterSamplePopup: maplibregl.Popup | null = null;
 
   // Active tile cache — maps defId → bmcache:// URL template
   private activeCacheId: string | null = null;
@@ -386,6 +391,8 @@ export class BasemapManager {
       map.getCanvas().style.cursor = this.identifyActive ? 'crosshair' : '';
 
       if (this.identifyActive) {
+        // Mutually exclusive with the raster-sample tool.
+        if (this.rasterSampleActive && this.rasterSampleButton) this.rasterSampleButton.click();
         this.identifyClickHandler = (e) => this.handleIdentifyClick(e);
         map.on('click', this.identifyClickHandler);
       } else {
@@ -398,6 +405,106 @@ export class BasemapManager {
         this.nsprdLayer?.clearHighlight();
       }
     });
+  }
+
+  /** INFO tool: sample raster values (COG / elevation) at a clicked point. */
+  setupRasterSample(btn: HTMLButtonElement): void {
+    this.rasterSampleButton = btn;
+    const map = this.mapManager.getMap();
+    btn.addEventListener('click', () => {
+      this.rasterSampleActive = !this.rasterSampleActive;
+      btn.classList.toggle('active', this.rasterSampleActive);
+      map.getCanvas().style.cursor = this.rasterSampleActive ? 'crosshair' : '';
+      if (this.rasterSampleActive) {
+        if (this.identifyActive && this.identifyButton) this.identifyButton.click();
+        this.rasterSampleClickHandler = (e) => { void this.handleRasterSampleClick(e); };
+        map.on('click', this.rasterSampleClickHandler);
+      } else {
+        if (this.rasterSampleClickHandler) {
+          map.off('click', this.rasterSampleClickHandler);
+          this.rasterSampleClickHandler = null;
+        }
+        this.rasterSamplePopup?.remove();
+        this.rasterSamplePopup = null;
+      }
+    });
+  }
+
+  /** Visible raster layers that can return a numeric value at a point. */
+  private getActiveRasterLayers(): Array<{ instanceId: string; label: string; kind: 'cog' | 'hrdem'; cogUrl?: string }> {
+    const out: Array<{ instanceId: string; label: string; kind: 'cog' | 'hrdem'; cogUrl?: string }> = [];
+    for (const l of this.stack) {
+      if (!l.visible) continue;
+      const t = this.getLayerType(l);
+      if (t === 'raster' && l.url.startsWith('cog://')) {
+        out.push({ instanceId: l.instanceId, label: l.label, kind: 'cog', cogUrl: BasemapManager.cogUrlFromLayer(l) });
+      } else if (t === 'hrdem-wcs') {
+        out.push({ instanceId: l.instanceId, label: l.label, kind: 'hrdem' });
+      }
+    }
+    return out;
+  }
+
+  private async handleRasterSampleClick(e: maplibregl.MapMouseEvent): Promise<void> {
+    const { lng, lat } = e.lngLat;
+    const layers = this.getActiveRasterLayers();
+    if (layers.length === 0) {
+      this.showRasterSamplePopup(e.lngLat, '<div class="rs-popup"><div class="rs-empty">No sampleable raster layers active.<br><span style="opacity:.7">Add a COG or elevation layer.</span></div></div>');
+      return;
+    }
+    this.showRasterSamplePopup(e.lngLat, '<div class="rs-popup"><div class="rs-empty">Sampling…</div></div>');
+
+    const rows: Array<{ label: string; value: number | null; unit: string }> = [];
+    for (const ly of layers) {
+      let value: number | null = null;
+      let unit = '';
+      if (ly.kind === 'cog' && ly.cogUrl) {
+        value = await this.mapManager.sampleCogAtPoint(ly.cogUrl, lng, lat);
+      } else if (ly.kind === 'hrdem') {
+        const res = this.hrdemLayers.get(ly.instanceId)?.getLastResult();
+        if (res) { value = sampleElevationBilinear(res.grid, res.width, res.height, res.bbox, res.nodata, lng, lat); unit = 'm'; }
+      }
+      rows.push({ label: ly.label, value, unit });
+    }
+
+    const popup = this.showRasterSamplePopup(e.lngLat, this.buildRasterSampleHtml(rows, lng, lat));
+    // Wire the layer filter dropdown.
+    const el = popup.getElement();
+    const sel = el?.querySelector<HTMLSelectElement>('.rs-select');
+    sel?.addEventListener('change', () => {
+      const v = sel.value;
+      el?.querySelectorAll<HTMLElement>('[data-rs-row]').forEach(r => {
+        r.style.display = (v === 'all' || r.dataset.rsRow === v) ? '' : 'none';
+      });
+    });
+  }
+
+  private buildRasterSampleHtml(
+    rows: Array<{ label: string; value: number | null; unit: string }>,
+    lng: number, lat: number,
+  ): string {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const fmt = (v: number | null, u: string) =>
+      v == null ? '<span class="rs-nd">no data</span>'
+        : `${(+v.toFixed(3)).toLocaleString()}${u ? ` ${u}` : ''}`;
+    const opts = ['<option value="all">All layers</option>',
+      ...rows.map((r, i) => `<option value="${i}">${esc(r.label)}</option>`)].join('');
+    const rowHtml = rows.map((r, i) =>
+      `<div class="rs-row" data-rs-row="${i}"><span class="rs-label">${esc(r.label)}</span><span class="rs-val">${fmt(r.value, r.unit)}</span></div>`
+    ).join('');
+    return `<div class="rs-popup">
+      <div class="rs-head">Raster values <span class="rs-coord">${lat.toFixed(5)}, ${lng.toFixed(5)}</span></div>
+      ${rows.length > 1 ? `<select class="rs-select">${opts}</select>` : ''}
+      <div class="rs-rows">${rowHtml}</div>
+    </div>`;
+  }
+
+  private showRasterSamplePopup(lngLat: maplibregl.LngLatLike, html: string): maplibregl.Popup {
+    this.rasterSamplePopup?.remove();
+    const popup = new maplibregl.Popup({ closeButton: true, maxWidth: '300px', className: 'rs-maplibre-popup' })
+      .setLngLat(lngLat).setHTML(html).addTo(this.mapManager.getMap());
+    this.rasterSamplePopup = popup;
+    return popup;
   }
 
   private getActiveVectorLayerIds(): string[] {

@@ -925,6 +925,8 @@ export class App {
     // Identify button
     const identifyBtn = document.getElementById('btn-identify') as HTMLButtonElement | null;
     if (identifyBtn) this.basemapManager.setupIdentify(identifyBtn);
+    const rasterSampleBtn = document.getElementById('btn-raster-sample') as HTMLButtonElement | null;
+    if (rasterSampleBtn) this.basemapManager.setupRasterSample(rasterSampleBtn);
 
     // Location buttons
     document.getElementById('btn-locate')?.addEventListener('click', () => {

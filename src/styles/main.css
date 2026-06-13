@@ -8669,6 +8669,27 @@ input[type=color] {
 }
 
 /* Single-color swatches */
+/* Raster sample popup */
+.rs-popup { font-size: 12px; min-width: 180px; }
+.rs-head {
+  display: flex; flex-direction: column; gap: 2px;
+  font-weight: 700; margin-bottom: 6px; color: #0a0d12;
+}
+.rs-coord { font-weight: 400; font-size: 10px; opacity: 0.6; }
+.rs-select {
+  width: 100%; margin-bottom: 6px; padding: 4px 6px;
+  border: 1px solid #cbd5e1; border-radius: 5px; font-size: 12px;
+}
+.rs-rows { display: flex; flex-direction: column; gap: 3px; }
+.rs-row {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 3px 0; border-top: 1px solid #eef2f6; color: #0a0d12;
+}
+.rs-label { opacity: 0.8; }
+.rs-val { font-weight: 700; font-variant-numeric: tabular-nums; }
+.rs-nd { font-weight: 400; opacity: 0.5; font-style: italic; }
+.rs-empty { padding: 6px 2px; color: #0a0d12; }
+
 .ss-swatch-grid {
   display: flex;
   flex-wrap: wrap;

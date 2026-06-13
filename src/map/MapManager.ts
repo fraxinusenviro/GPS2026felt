@@ -1721,6 +1721,44 @@ export class MapManager {
     }
   }
 
+  /**
+   * Read a single COG pixel value at a lng/lat (full-res image, 1×1 window).
+   * Mirrors the cog:// protocol's CRS detection so non-4326 COGs sample correctly.
+   * Returns null when outside the raster or at a nodata pixel.
+   */
+  async sampleCogAtPoint(cogUrl: string, lng: number, lat: number): Promise<number | null> {
+    try {
+      const { fromUrl } = await import('geotiff');
+      const tiff = await fromUrl(cogUrl);
+      const image = await tiff.getImage();
+      const geoKeys = image.getGeoKeys() as Record<string, number> | undefined;
+      const epsgCode = geoKeys?.ProjectedCSTypeGeoKey ?? geoKeys?.GeographicTypeGeoKey ?? 4326;
+      const cogCrs = `EPSG:${epsgCode}`;
+      if (epsgCode !== 4326 && epsgCode !== 3857) {
+        try { proj4(cogCrs, 'EPSG:4326', [0, 0]); } catch {
+          if (epsgCode === 22620) proj4.defs(cogCrs, '+proj=utm +zone=20 +ellps=GRS80 +units=m +no_defs');
+          else if (epsgCode >= 32601 && epsgCode <= 32660) proj4.defs(cogCrs, `+proj=utm +zone=${epsgCode - 32600} +datum=WGS84 +units=m +no_defs`);
+          else if (epsgCode >= 32701 && epsgCode <= 32760) proj4.defs(cogCrs, `+proj=utm +zone=${epsgCode - 32700} +south +datum=WGS84 +units=m +no_defs`);
+          else if (epsgCode >= 26901 && epsgCode <= 26960) proj4.defs(cogCrs, `+proj=utm +zone=${epsgCode - 26900} +datum=NAD83 +units=m +no_defs`);
+        }
+      }
+      const [x, y] = epsgCode === 4326 ? [lng, lat] : proj4('EPSG:4326', cogCrs, [lng, lat]);
+      const [ox, oy] = image.getOrigin();
+      const [rx, ry] = image.getResolution();
+      const px = Math.floor((x - ox) / rx);
+      const py = Math.floor((y - oy) / ry);
+      if (px < 0 || py < 0 || px >= image.getWidth() || py >= image.getHeight()) return null;
+      const rasters = await image.readRasters({ window: [px, py, px + 1, py + 1], interleave: false }) as unknown as number[][];
+      const v = rasters[0]?.[0];
+      const nodata = (image as unknown as { getGDALNoData?: () => number | null }).getGDALNoData?.() ?? null;
+      if (v == null || !isFinite(v) || v === nodata) return null;
+      return v;
+    } catch (e) {
+      console.warn('[COG] sampleCogAtPoint failed', e);
+      return null;
+    }
+  }
+
   /** Register / clear the luminance recolour LUT for a rampify:// raster layer. */
   setRasterRecolorLut(key: string, lut: Uint8ClampedArray | null): void {
     if (lut) rasterLutRegistry.set(key, lut);
