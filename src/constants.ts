@@ -1,4 +1,4 @@
-import type { BasemapDef, AppSettings, TypePreset, LayerPreset, SavedConnection } from './types';
+import type { BasemapDef, AppSettings, TypePreset, LayerPreset, SavedConnection, ProjectTemplate } from './types';
 
 // ---- Default App Settings ----
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -928,6 +928,36 @@ export function buildDefaultProjectStack(): string {
   ];
   return JSON.stringify({ stack, collapsed: [] });
 }
+
+// ---- Project templates ----
+// Declarative basemap stacks built at project-creation time via
+// BasemapManager.buildStackJson (kept as pure data here to avoid an import cycle).
+// stackSpecs order: index 0 = topmost overlay, last = base layer.
+export const PROJECT_TEMPLATES: ProjectTemplate[] = [
+  {
+    id: 'general',
+    label: 'General',
+    description: 'NS Property Registry, ESRI Imagery (50%), DTM Hillshade base.',
+    stackSpecs: [
+      { defId: 'ns-plan-nsprd', overrides: { vecFillOpacityOverride: 0, vecLineColor: '#cccccc' } },
+      { defId: 'esri-imagery', overrides: { opacity: 0.5 } },
+      { defId: 'hrdem-dtm-hillshade' },
+    ],
+  },
+  {
+    id: 'wetland',
+    label: 'Wetland-centric',
+    description: 'Wetlands (40%), NSHN watercourses & waterbodies, HRDEM 1 m contours, Depth to Water (50%), DTM Hillshade base.',
+    stackSpecs: [
+      { defId: 'ns-nshn-wetlands', overrides: { opacity: 0.4 } },
+      { defId: 'ns-nshn-watercourses' },
+      { defId: 'ns-nshn-waterbodies' },
+      { defId: 'hrdem-contours' },
+      { defId: 'wi-dtw', overrides: { opacity: 0.5 } },
+      { defId: 'hrdem-dtm-hillshade' },
+    ],
+  },
+];
 
 // ---- Session ----
 export function generateSessionId(): string {

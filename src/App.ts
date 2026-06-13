@@ -19,7 +19,7 @@ import { Toast } from './ui/Toast';
 import { Modal } from './ui/Modal';
 import { LogConsole } from './ui/LogConsole';
 import { EventBus } from './utils/EventBus';
-import { generateSessionId, DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack } from './constants';
+import { generateSessionId, DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack, PROJECT_TEMPLATES } from './constants';
 import { MeasurePanel }  from './ui/MeasurePanel';
 import { CutFillPanel }  from './ui/CutFillPanel';
 import { ProfilePanel }  from './ui/ProfilePanel';
@@ -29,6 +29,7 @@ import { UndoManager } from './utils/UndoManager';
 import { SymbolRenderer } from './ui/SymbolRenderer';
 import { LayoutMode } from './ui/LayoutMode';
 import { DataLibraryModal } from './ui/DataLibraryModal';
+import { MasterDataPanel } from './ui/MasterDataPanel';
 import { SyncManager } from './sync/SyncManager';
 import * as turf from '@turf/turf';
 
@@ -64,6 +65,7 @@ export class App {
   private featureListPanel!: FeatureListPanel;
   private statsPanel!: StatsPanel;
   private dataLibraryModal!: DataLibraryModal;
+  private masterDataPanel!: MasterDataPanel;
   private undoManager = UndoManager.getInstance();
   private symbolRenderer!: SymbolRenderer;
   private layoutMode!: LayoutMode;
@@ -151,7 +153,7 @@ export class App {
     this.cachePanel = new CachePanel(this.mapManager, this.basemapManager);
     this.projectPanel = new ProjectPanel(
       id => this.loadProject(id),
-      (name, desc) => this.createProject(name, desc),
+      (name, desc, templateId) => this.createProject(name, desc, templateId),
       id => this.deleteProject(id),
       (id, name) => this.renameProject(id, name),
     );
@@ -186,6 +188,7 @@ export class App {
     );
     this.statsPanel = new StatsPanel();
     this.dataLibraryModal = new DataLibraryModal();
+    this.masterDataPanel = new MasterDataPanel();
 
     // Load project-scoped data
     const activeProjectId = this.settings.active_project_id || 'default';
@@ -455,6 +458,17 @@ export class App {
       this.syncManager.setConfig(enabled, url);
     });
     EventBus.on('sync-now', () => { void this.syncManager.syncNow(); });
+
+    // Master Data (read-only cross-project view).
+    EventBus.on('open-master-data', () => { void this.masterDataPanel.open(); });
+    EventBus.on<{ features: FieldFeature[] }>('master-data-show', async ({ features }) => {
+      const allLayers = await this.storage.getAllLayerPresets();
+      this.mapManager.updateCollectedFeatures(features, allLayers, this.presetManager.getPresets());
+    });
+    EventBus.on('master-data-hide', () => {
+      // Restore the active project's features on the map.
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+    });
 
     // Project bundle import (triggered by ImportDataPanel)
     EventBus.on<{ bundle: ProjectBundle; mode: 'new' | 'merge' }>('import-project-bundle', async ({ bundle, mode }) => {
@@ -2069,13 +2083,19 @@ export class App {
     });
   }
 
-  async createProject(name: string, description: string): Promise<void> {
+  async createProject(name: string, description: string, templateId?: string): Promise<void> {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
     // Create default layer presets for this project
     const presets = DEFAULT_PROJECT_LAYER_PRESETS(id);
     for (const lp of presets) await this.storage.saveLayerPreset(lp);
+
+    // Pick the template's basemap stack (falls back to the General default).
+    const template = templateId ? PROJECT_TEMPLATES.find(t => t.id === templateId) : undefined;
+    const basemap_stack_json = template
+      ? BasemapManager.buildStackJson(template.stackSpecs)
+      : buildDefaultProjectStack();
 
     const project = {
       id,
@@ -2084,7 +2104,7 @@ export class App {
       created_at: now,
       updated_at: now,
       default_layer_id: presets[0].id, // Points layer
-      basemap_stack_json: buildDefaultProjectStack(),
+      basemap_stack_json,
       map_center: [-63.5, 45.0] as [number, number],
       map_zoom: 10,
     };

@@ -1,9 +1,10 @@
 import type { Project } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
+import { PROJECT_TEMPLATES } from '../constants';
 
 type OnLoadProject = (id: string) => Promise<void>;
-type OnCreateProject = (name: string, description: string) => Promise<void>;
+type OnCreateProject = (name: string, description: string, templateId?: string) => Promise<void>;
 type OnDeleteProject = (id: string) => Promise<void>;
 type OnRenameProject = (id: string, name: string) => Promise<void>;
 
@@ -105,9 +106,14 @@ export class ProjectPanel {
   }
 
   private renderLibraryTab(projects: Project[], counts: number[]): string {
+    const masterBtn = `<button class="btn btn-outline" id="proj-master-data" style="width:100%;margin-bottom:10px">📊 Master Data — view all projects</button>`;
     if (projects.length === 0) {
-      return '<p class="proj-empty">No projects yet. Create one to get started.</p>';
+      return masterBtn + '<p class="proj-empty">No projects yet. Create one to get started.</p>';
     }
+    return masterBtn + this.renderProjectList(projects, counts);
+  }
+
+  private renderProjectList(projects: Project[], counts: number[]): string {
 
     const pencilSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M224,128v80a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V48A16,16,0,0,1,48,32h80a8,8,0,0,1,0,16H48V208H208V128a8,8,0,0,1,16,0Zm5.66-58.34-96,96A8,8,0,0,1,128,168H96a8,8,0,0,1-8-8V128a8,8,0,0,1,2.34-5.66l96-96a8,8,0,0,1,11.32,0l32,32A8,8,0,0,1,229.66,69.66Zm-17-5.66L192,43.31,179.31,56,200,76.69Z"/></svg>`;
 
@@ -159,13 +165,27 @@ export class ProjectPanel {
             <textarea id="proj-desc-input" placeholder="What's this project about?" rows="3" maxlength="200"></textarea>
           </label>
         </div>
-        <p class="proj-new-hint">New projects start with ESRI Imagery, NS Property Registry, and Digital Terrain Model pre-loaded. Three feature layers (Points, Lines, Polygons) are ready for data collection.</p>
+        <div class="form-group">
+          <label>Template
+            <select id="proj-template-select">
+              ${PROJECT_TEMPLATES.map((t, i) => `<option value="${t.id}"${i === 0 ? ' selected' : ''}>${escHtml(t.label)}</option>`).join('')}
+            </select>
+          </label>
+          <p class="proj-new-hint" id="proj-template-desc" style="margin-top:4px">${escHtml(PROJECT_TEMPLATES[0]?.description ?? '')}</p>
+        </div>
+        <p class="proj-new-hint">Three feature layers (Points, Lines, Polygons) are ready for data collection.</p>
         <button class="btn btn-primary" id="proj-create-btn" style="width:100%">Create Project</button>
         <div id="proj-create-status" style="margin-top:8px;font-size:12px;color:var(--color-text-muted)"></div>
       </div>`;
   }
 
   private wireLibrary(): void {
+    // Master Data — open the cross-project read-only view.
+    this.panel.querySelector('#proj-master-data')?.addEventListener('click', () => {
+      this.close();
+      EventBus.emit('open-master-data');
+    });
+
     // Activate
     this.panel.querySelectorAll<HTMLButtonElement>('[data-activate]').forEach(btn => {
       btn.addEventListener('click', async () => {
@@ -256,6 +276,14 @@ export class ProjectPanel {
     const statusEl  = document.getElementById('proj-create-status') as HTMLElement | null;
     if (!createBtn) return;
 
+    // Update the template description as the selection changes.
+    const templateSelect = document.getElementById('proj-template-select') as HTMLSelectElement | null;
+    const templateDesc = document.getElementById('proj-template-desc') as HTMLElement | null;
+    templateSelect?.addEventListener('change', () => {
+      const t = PROJECT_TEMPLATES.find(t => t.id === templateSelect.value);
+      if (templateDesc) templateDesc.textContent = t?.description ?? '';
+    });
+
     createBtn.addEventListener('click', async () => {
       const nameInput = document.getElementById('proj-name-input') as HTMLInputElement;
       const descInput = document.getElementById('proj-desc-input') as HTMLTextAreaElement;
@@ -267,7 +295,7 @@ export class ProjectPanel {
       if (statusEl) statusEl.textContent = '';
 
       try {
-        await this.onCreate(name, descInput?.value.trim() ?? '');
+        await this.onCreate(name, descInput?.value.trim() ?? '', templateSelect?.value || undefined);
         this.activeTab = 'library';
         void this.render();
       } catch (err) {

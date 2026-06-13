@@ -573,8 +573,14 @@ export class BasemapManager {
     this.addToStack(def, params);
   }
 
-  private addToStack(def: BasemapDef, params?: Record<string, unknown>): void {
-    const instanceId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+  /**
+   * Convert a BasemapDef into a StackLayer with all type-specific defaults
+   * (COG, NSHN/NSPRD vector, HRDEM-WCS). Pure + static so it can also build a
+   * stack JSON for project templates without mutating the live stack.
+   * `overrides` are applied last (e.g. opacity, visible, vector overrides).
+   */
+  static defToStackLayer(def: BasemapDef, overrides?: Partial<StackLayer>): StackLayer {
+    const instanceId = `bm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const base: StackLayer = {
       instanceId, defId: def.id, label: def.label, url: def.url,
       type: def.type, vector_config: def.vector_config,
@@ -592,6 +598,28 @@ export class BasemapManager {
     }
     // Set per-product defaults for HRDEM layers
     if (def.type === 'hrdem-wcs') {
+      BasemapManager.applyHrdemDefaults(base, def);
+    }
+    return overrides ? { ...base, ...overrides } : base;
+  }
+
+  /**
+   * Build a serialized basemap stack from template specs (defId + overrides),
+   * resolving each id against the full catalogue. Unknown ids are skipped.
+   * Returns the same `{ stack, collapsed }` JSON shape projects persist.
+   */
+  static buildStackJson(specs: Array<{ defId: string; overrides?: Record<string, unknown> }>): string {
+    const all = ALL_DEFS();
+    const stack: StackLayer[] = [];
+    for (const spec of specs) {
+      const def = all.find(d => d.id === spec.defId);
+      if (!def) { console.warn(`[BasemapManager] template defId not found: ${spec.defId}`); continue; }
+      stack.push(BasemapManager.defToStackLayer(def, spec.overrides as Partial<StackLayer> | undefined));
+    }
+    return JSON.stringify({ stack, collapsed: [] });
+  }
+
+  private static applyHrdemDefaults(base: StackLayer, def: BasemapDef): void {
       const productMap: Record<string, string> = {
         'hrdem-slope': 'slope', 'hrdem-aspect': 'aspect',
         'hrdem-tpi': 'tpi', 'hrdem-contours': 'elevation',
@@ -623,7 +651,10 @@ export class BasemapManager {
       }
       // Slope % grade default
       if (def.id === 'raster-fn-slope-pct') base.hrdemSlopeUnit = 'percent';
-    }
+  }
+
+  private addToStack(def: BasemapDef, params?: Record<string, unknown>): void {
+    const base = BasemapManager.defToStackLayer(def);
     // Apply configure-time parameter overrides for raster functions
     if (params && def.group === 'Raster Functions') {
       const n = (k: string) => typeof params[k] === 'number' ? params[k] as number : undefined;
