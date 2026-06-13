@@ -160,12 +160,16 @@ export class BasemapManager {
   private nshnLayers = new Map<string, NSHNVectorLayer>();
   private hrdemLayers = new Map<string, HRDEMLayer>();
   private cogContourLayers = new Map<string, CogContourLayer>();
-  // Static GeoJSON overlays (shared data library, type 'geojson'): cache the
-  // fetched features per instance so symbology + identify can reuse them, and
+  // Static GeoJSON overlays (shared data library, type 'geojson'): cache the  // fetched features per instance so symbology + identify can reuse them, and
   // track which are loaded onto the map.
   private geojsonOverlays = new Map<string, { properties: Record<string, unknown> }[]>();
   private geojsonGeomType = new Map<string, 'point' | 'line' | 'polygon'>();
   private geojsonLoading = new Set<string>();
+  // Persist hook for cross-device sync: fires (debounced by the host) on
+  // user-driven stack changes with the serialized stack. Suppressed while
+  // loading a stack from a project/remote so loads don't re-mark the project dirty.
+  onStackPersist: ((stackJson: string) => void) | null = null;
+  private suppressPersist = false;
   private cutFillResultProvider: (() => import('../lib/cutFillEngine').CutFillResult | null) | null = null;
   private cutFillLayers = new Map<string, CutFillLayer>();
   private collapsedFdGroups = new Set<string>();
@@ -229,14 +233,23 @@ export class BasemapManager {
 
   // ---- State persistence ----
 
+  /**
+   * Layers worth persisting: catalogue layers (defId in ALL_DEFS) plus shared
+   * static-data layers (defId `shared:…`), which are self-describing (type, url,
+   * vector_config, symbologyState all live on the StackLayer) so they rebuild
+   * without a catalogue entry. Promoted user-import layers are excluded.
+   */
+  private persistableStack(): StackLayer[] {
+    const knownIds = new Set(ALL_DEFS().map(d => d.id));
+    return this.stack.filter(l => knownIds.has(l.defId) || l.defId.startsWith('shared:'));
+  }
+
   private saveStack(): void {
+    const data = JSON.stringify({
+      stack: this.persistableStack(),
+      collapsed: [...this.collapsedSections],
+    });
     try {
-      // Only persist layers whose defId matches a known definition (not promoted user layers)
-      const knownIds = new Set(ALL_DEFS().map(d => d.id));
-      const data = JSON.stringify({
-        stack: this.stack.filter(l => knownIds.has(l.defId)),
-        collapsed: [...this.collapsedSections],
-      });
       localStorage.setItem(BM_STACK_KEY, data);
       // Record which project this stack belongs to so reload can detect it
       if (this.currentProjectId) {
@@ -245,6 +258,8 @@ export class BasemapManager {
     } catch { /* ignore QuotaExceededError */ }
     this.refreshLegend();
     EventBus.emit('basemap-stack-changed');
+    // Persist to the active project (→ cloud sync) on user-driven changes only.
+    if (!this.suppressPersist) this.onStackPersist?.(data);
   }
 
   private restoreStack(): boolean {
@@ -311,9 +326,8 @@ export class BasemapManager {
 
   getCurrentStackJson(): string {
     try {
-      const knownIds = new Set(ALL_DEFS().map(d => d.id));
       return JSON.stringify({
-        stack: this.stack.filter(l => knownIds.has(l.defId)),
+        stack: this.persistableStack(),
         collapsed: [...this.collapsedSections],
       });
     } catch { return '{}'; }
@@ -330,7 +344,10 @@ export class BasemapManager {
           this.collapsedSections = new Set(parsed.collapsed);
         }
         this.rebuildMap();
-        this.saveStack(); // mirror to localStorage for live buffer
+        // Mirror to localStorage but don't re-persist to the project/cloud —
+        // this load IS the project/remote state.
+        this.suppressPersist = true;
+        try { this.saveStack(); } finally { this.suppressPersist = false; }
       }
     } catch { /* keep existing stack */ }
   }

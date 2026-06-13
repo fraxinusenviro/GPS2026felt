@@ -70,6 +70,7 @@ export class App {
   private dataLibraryModal!: DataLibraryModal;
   private masterDataPanel!: MasterDataPanel;
   private sharedDefsCache: BasemapDef[] = [];
+  private stackPersistTimer: ReturnType<typeof setTimeout> | null = null;
   private undoManager = UndoManager.getInstance();
   private symbolRenderer!: SymbolRenderer;
   private layoutMode!: LayoutMode;
@@ -200,6 +201,9 @@ export class App {
     // Prefer localStorage (most-recent session state) over the project's IndexedDB snapshot.
     // Falls back to the project JSON only when localStorage has no data for this project.
     this.basemapManager.initForProject(activeProjectId, activeProject?.basemap_stack_json);
+    // Persist user-driven stack changes (layers/symbology/labels) to the active
+    // project so they sync across devices.
+    this.basemapManager.onStackPersist = (stackJson) => this.persistStackToProject(stackJson);
     this.features = await this.storage.getFeaturesByProject(activeProjectId);
     this.projectLayerPresets = await this.storage.getLayersByProject(activeProjectId);
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
@@ -271,6 +275,38 @@ export class App {
     this.projectLayerPresets = await this.storage.getLayersByProject(activeId);
     this.symbolRenderer.registerAll(this.presetManager.getPresets());
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+
+    // Adopt a synced basemap stack (loaded layers/symbology/labels) if the active
+    // project's stored stack now differs from what's on the map. setActiveProjectStack
+    // suppresses re-persist, so this can't loop back into sync.
+    const project = await this.storage.getProject(activeId);
+    if (project?.basemap_stack_json && this.stackLayersDiffer(project.basemap_stack_json)) {
+      this.basemapManager.setActiveProjectStack(project.basemap_stack_json, activeId);
+    }
+  }
+
+  /** True if the incoming stack's layers differ from what's currently on the map. */
+  private stackLayersDiffer(incomingJson: string): boolean {
+    try {
+      const incoming = JSON.stringify((JSON.parse(incomingJson) as { stack?: unknown }).stack ?? []);
+      const current = JSON.stringify((JSON.parse(this.basemapManager.getCurrentStackJson()) as { stack?: unknown }).stack ?? []);
+      return incoming !== current;
+    } catch { return false; }
+  }
+
+  /** Debounced: persist the basemap stack to the active project (→ cloud sync). */
+  private persistStackToProject(stackJson: string): void {
+    if (this.stackPersistTimer) clearTimeout(this.stackPersistTimer);
+    this.stackPersistTimer = setTimeout(() => {
+      void (async () => {
+        const id = this.settings.active_project_id || 'default';
+        const project = await this.storage.getProject(id);
+        if (!project || project.basemap_stack_json === stackJson) return;
+        project.basemap_stack_json = stackJson;
+        project.updated_at = new Date().toISOString();
+        await this.storage.saveProject(project); // marks dirty → syncs (LWW)
+      })();
+    }, 1500);
   }
 
   /** Rebuild the synthetic BasemapDefs for shared layers from local storage. */
