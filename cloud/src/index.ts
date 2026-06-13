@@ -72,7 +72,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
       const key = decodeURIComponent(path.slice('/blobs/'.length));
       if (!key) return bad('missing key');
       if (method === 'PUT') return await putBlob(key, request, env);
-      if (method === 'GET') return await getBlob(key, env);
+      if (method === 'GET') return await getBlob(key, request, env);
       return bad('method not allowed', 405);
     }
 
