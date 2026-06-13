@@ -19,7 +19,7 @@ import { Toast } from './ui/Toast';
 import { Modal } from './ui/Modal';
 import { LogConsole } from './ui/LogConsole';
 import { EventBus } from './utils/EventBus';
-import { generateSessionId, DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack } from './constants';
+import { generateSessionId, DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack, PROJECT_TEMPLATES } from './constants';
 import { MeasurePanel }  from './ui/MeasurePanel';
 import { CutFillPanel }  from './ui/CutFillPanel';
 import { ProfilePanel }  from './ui/ProfilePanel';
@@ -151,7 +151,7 @@ export class App {
     this.cachePanel = new CachePanel(this.mapManager, this.basemapManager);
     this.projectPanel = new ProjectPanel(
       id => this.loadProject(id),
-      (name, desc) => this.createProject(name, desc),
+      (name, desc, templateId) => this.createProject(name, desc, templateId),
       id => this.deleteProject(id),
       (id, name) => this.renameProject(id, name),
     );
@@ -2069,13 +2069,19 @@ export class App {
     });
   }
 
-  async createProject(name: string, description: string): Promise<void> {
+  async createProject(name: string, description: string, templateId?: string): Promise<void> {
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
 
     // Create default layer presets for this project
     const presets = DEFAULT_PROJECT_LAYER_PRESETS(id);
     for (const lp of presets) await this.storage.saveLayerPreset(lp);
+
+    // Pick the template's basemap stack (falls back to the General default).
+    const template = templateId ? PROJECT_TEMPLATES.find(t => t.id === templateId) : undefined;
+    const basemap_stack_json = template
+      ? BasemapManager.buildStackJson(template.stackSpecs)
+      : buildDefaultProjectStack();
 
     const project = {
       id,
@@ -2084,7 +2090,7 @@ export class App {
       created_at: now,
       updated_at: now,
       default_layer_id: presets[0].id, // Points layer
-      basemap_stack_json: buildDefaultProjectStack(),
+      basemap_stack_json,
       map_center: [-63.5, 45.0] as [number, number],
       map_zoom: 10,
     };

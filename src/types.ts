@@ -343,6 +343,19 @@ export interface ToastMessage {
   duration?: number;
 }
 
+// ---- Project templates (preset basemap stack + datasets for new projects) ----
+export interface StackSpec {
+  defId: string;                          // BasemapDef id from the catalogue
+  overrides?: Record<string, unknown>;    // StackLayer field overrides (opacity, visible, vec*, etc.)
+}
+
+export interface ProjectTemplate {
+  id: string;
+  label: string;
+  description: string;
+  stackSpecs: StackSpec[];                // index 0 = topmost overlay, last = base layer
+}
+
 // ---- Project bundle (for P2P sync via file) ----
 export interface ProjectBundle {
   format: 'fm2026-bundle';

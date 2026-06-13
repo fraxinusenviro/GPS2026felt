@@ -1,9 +1,10 @@
 import type { Project } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
+import { PROJECT_TEMPLATES } from '../constants';
 
 type OnLoadProject = (id: string) => Promise<void>;
-type OnCreateProject = (name: string, description: string) => Promise<void>;
+type OnCreateProject = (name: string, description: string, templateId?: string) => Promise<void>;
 type OnDeleteProject = (id: string) => Promise<void>;
 type OnRenameProject = (id: string, name: string) => Promise<void>;
 
@@ -159,7 +160,15 @@ export class ProjectPanel {
             <textarea id="proj-desc-input" placeholder="What's this project about?" rows="3" maxlength="200"></textarea>
           </label>
         </div>
-        <p class="proj-new-hint">New projects start with ESRI Imagery, NS Property Registry, and Digital Terrain Model pre-loaded. Three feature layers (Points, Lines, Polygons) are ready for data collection.</p>
+        <div class="form-group">
+          <label>Template
+            <select id="proj-template-select">
+              ${PROJECT_TEMPLATES.map((t, i) => `<option value="${t.id}"${i === 0 ? ' selected' : ''}>${escHtml(t.label)}</option>`).join('')}
+            </select>
+          </label>
+          <p class="proj-new-hint" id="proj-template-desc" style="margin-top:4px">${escHtml(PROJECT_TEMPLATES[0]?.description ?? '')}</p>
+        </div>
+        <p class="proj-new-hint">Three feature layers (Points, Lines, Polygons) are ready for data collection.</p>
         <button class="btn btn-primary" id="proj-create-btn" style="width:100%">Create Project</button>
         <div id="proj-create-status" style="margin-top:8px;font-size:12px;color:var(--color-text-muted)"></div>
       </div>`;
@@ -256,6 +265,14 @@ export class ProjectPanel {
     const statusEl  = document.getElementById('proj-create-status') as HTMLElement | null;
     if (!createBtn) return;
 
+    // Update the template description as the selection changes.
+    const templateSelect = document.getElementById('proj-template-select') as HTMLSelectElement | null;
+    const templateDesc = document.getElementById('proj-template-desc') as HTMLElement | null;
+    templateSelect?.addEventListener('change', () => {
+      const t = PROJECT_TEMPLATES.find(t => t.id === templateSelect.value);
+      if (templateDesc) templateDesc.textContent = t?.description ?? '';
+    });
+
     createBtn.addEventListener('click', async () => {
       const nameInput = document.getElementById('proj-name-input') as HTMLInputElement;
       const descInput = document.getElementById('proj-desc-input') as HTMLTextAreaElement;
@@ -267,7 +284,7 @@ export class ProjectPanel {
       if (statusEl) statusEl.textContent = '';
 
       try {
-        await this.onCreate(name, descInput?.value.trim() ?? '');
+        await this.onCreate(name, descInput?.value.trim() ?? '', templateSelect?.value || undefined);
         this.activeTab = 'library';
         void this.render();
       } catch (err) {
