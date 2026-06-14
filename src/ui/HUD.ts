@@ -2,6 +2,8 @@ import type { GPSState, AppSettings } from '../types';
 import { lonLatToUTM, formatUTM, ddToDMS, copyToClipboard } from '../utils/coordinates';
 import { EventBus } from '../utils/EventBus';
 import { GPS_ACCURACY_GOOD, GPS_ACCURACY_FAIR } from '../constants';
+import { parseYumaAlmanac, type AlmanacSatellite } from '../utils/almanacParser';
+import { computeSatellitePositions } from '../utils/satellitePositions';
 
 export class HUD {
   private hudSource: 'user' | 'crosshair' = 'crosshair';
@@ -11,6 +13,8 @@ export class HUD {
   private userLon = 0;
   private gpsState: GPSState | null = null;
   private coordFormat: 'dd' | 'dms' | 'utm' = 'dd';
+  private almanacSatellites: AlmanacSatellite[] | null = null;
+  private almanacFetchedAt = 0;
 
   private latlonEl = document.getElementById('hud-latlon')!;
   private utmEl = document.getElementById('hud-utm')!;
@@ -18,6 +22,16 @@ export class HUD {
   private accuracyText = document.getElementById('gps-accuracy-text')!;
 
   constructor() {
+    // Restore cached almanac from previous session
+    try {
+      const stored = localStorage.getItem('gps-almanac-yuma');
+      const ts     = localStorage.getItem('gps-almanac-fetchedAt');
+      if (stored) {
+        this.almanacSatellites = JSON.parse(stored) as AlmanacSatellite[];
+        this.almanacFetchedAt  = ts ? Number(ts) : 0;
+      }
+    } catch { /* ignore corrupt storage */ }
+
     // GPS accuracy badge — tap to open status modal
     this.gpsBadge.style.cursor = 'pointer';
     this.gpsBadge.addEventListener('click', () => this.showGpsStatusModal());
@@ -244,10 +258,19 @@ export class HUD {
         ${fixAge !== null ? row('Fix age', fixAge + ' s') : ''}
       </div>
       ${compassSvg}
-      <p class="gsm-note">
-        Satellite constellation plots are not available via the browser GPS API —
-        the Web Geolocation spec exposes accuracy and motion only, not satellite metadata.
-      </p>
+      <div class="gsm-sky-section">
+        <div class="gsm-sky-header">
+          <span class="gsm-sky-title">Satellite Sky Plot</span>
+          <label class="gsm-alm-btn" title="Upload a Yuma GPS almanac file (.alm)">
+            <input type="file" id="gsm-alm-input" accept=".alm,.txt" style="display:none">
+            ${this.almanacSatellites ? '↺ Update Almanac' : '+ Upload Almanac'}
+          </label>
+        </div>
+        <canvas id="gps-sky-canvas" width="240" height="240" class="gsm-sky-canvas"></canvas>
+        <p class="gsm-sky-note">
+          Almanac data from NAVCEN or any Yuma-format .alm file from a field GPS receiver.
+        </p>
+      </div>
     `;
 
     EventBus.emit('show-modal', {
@@ -255,5 +278,181 @@ export class HUD {
       html,
       confirmLabel: 'Close',
     });
+
+    // DOM is synchronously written by Modal.show(); use rAF to ensure layout
+    // is ready before drawing the canvas and before triggering an auto-fetch.
+    requestAnimationFrame(() => this.attachSkyPlotHandlers());
+  }
+
+  private attachSkyPlotHandlers(): void {
+    const input = document.getElementById('gsm-alm-input') as HTMLInputElement | null;
+    if (input) {
+      input.addEventListener('change', async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        this.storeAlmanac(parseYumaAlmanac(text));
+        this.drawSkyPlotCanvas();
+      });
+    }
+
+    this.drawSkyPlotCanvas();
+
+    // Auto-fetch from the worker if almanac is absent or older than 24 hours
+    const stale = Date.now() - this.almanacFetchedAt > 24 * 3600 * 1000;
+    if (!this.almanacSatellites || stale) this.autoFetchAlmanac();
+  }
+
+  private async autoFetchAlmanac(): Promise<void> {
+    try {
+      const res = await fetch('/almanac');
+      if (!res.ok) return;
+      const text = await res.text();
+      const sats = parseYumaAlmanac(text);
+      if (sats.length === 0) return;
+      this.storeAlmanac(sats);
+      this.drawSkyPlotCanvas();
+    } catch { /* offline or worker unavailable — user can upload manually */ }
+  }
+
+  private storeAlmanac(sats: AlmanacSatellite[]): void {
+    this.almanacSatellites = sats;
+    this.almanacFetchedAt  = Date.now();
+    try {
+      localStorage.setItem('gps-almanac-yuma', JSON.stringify(sats));
+      localStorage.setItem('gps-almanac-fetchedAt', String(this.almanacFetchedAt));
+    } catch { /* quota exceeded or private browsing */ }
+  }
+
+  private drawSkyPlotCanvas(): void {
+    const canvas = document.getElementById('gps-sky-canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const cx = W / 2;
+    const cy = H / 2;
+    const PAD = 22;
+    const R = cx - PAD;
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Background
+    ctx.fillStyle = 'rgba(255,255,255,0.02)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Elevation rings at 0° / 30° / 60°
+    const ringElevs = [0, 30, 60];
+    for (const elev of ringElevs) {
+      const rr = R * (1 - elev / 90);
+      ctx.beginPath();
+      ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(148,163,184,0.25)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      if (elev > 0) {
+        ctx.fillStyle = 'rgba(148,163,184,0.5)';
+        ctx.font = '9px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${elev}°`, cx + rr + 2, cy);
+      }
+    }
+
+    // Cardinal cross-hair lines
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = 'rgba(148,163,184,0.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
+    ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Cardinal labels
+    ctx.fillStyle = 'rgba(148,163,184,0.7)';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('N', cx, cy - R - 6);
+    ctx.fillText('S', cx, cy + R + 14);
+    ctx.textAlign = 'left';
+    ctx.fillText('E', cx + R + 5, cy + 4);
+    ctx.textAlign = 'right';
+    ctx.fillText('W', cx - R - 5, cy + 4);
+
+    if (!this.almanacSatellites) {
+      this.drawCanvasPlaceholder(ctx, cx, cy, 'Upload or auto-fetch almanac\nto view satellite positions');
+      return;
+    }
+
+    if (!this.gpsState?.available) {
+      this.drawCanvasPlaceholder(ctx, cx, cy, 'Waiting for GPS fix…');
+      return;
+    }
+
+    const positions = computeSatellitePositions(
+      this.almanacSatellites,
+      this.gpsState.lat,
+      this.gpsState.lon,
+    );
+
+    const visible = positions.filter(p => p.elevation > 0);
+
+    for (const p of visible) {
+      const azR   = p.azimuth * Math.PI / 180;
+      const rPlot = R * (1 - p.elevation / 90);
+      const px    = cx + rPlot * Math.sin(azR);
+      const py    = cy - rPlot * Math.cos(azR);
+
+      const dotR = 9;
+      let color: string;
+      if (!p.healthy)      color = '#f87171';  // red — unhealthy
+      else if (p.elevation < 10) color = '#fbbf24';  // amber — low elevation
+      else                 color = '#4ade80';  // green — good
+
+      ctx.beginPath();
+      ctx.arc(px, py, dotR, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 7px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(p.prn), px, py);
+    }
+
+    // Zenith marker
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(148,163,184,0.6)';
+    ctx.fill();
+
+    // Satellite count summary
+    ctx.fillStyle = 'rgba(148,163,184,0.7)';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(`${visible.length} satellites above horizon`, cx, H - 4);
+  }
+
+  private drawCanvasPlaceholder(
+    ctx: CanvasRenderingContext2D,
+    cx: number, cy: number,
+    message: string,
+  ): void {
+    ctx.fillStyle = 'rgba(148,163,184,0.5)';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const lines = message.split('\n');
+    const lineH = 16;
+    const startY = cy - ((lines.length - 1) * lineH) / 2;
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], cx, startY + i * lineH);
+    }
   }
 }

@@ -20,12 +20,14 @@ import { authenticate } from './auth';
 import { handleSync, handleChanges, handleSharedLayers } from './sync';
 import { signUpload, signDownload, putBlob, getBlob } from './blobs';
 import { reconcileStaticLayers } from './reconcile';
+import { handleAlmanac } from './almanac';
 import { json, bad, corsHeaders } from './http';
 
 /** True for request paths this Worker handles itself (vs. static PWA assets). */
 function isApiPath(path: string): boolean {
   return (
     path === '/health' ||
+    path === '/almanac' ||
     path === '/sync' ||
     path === '/changes' ||
     path === '/uploads/sign' ||
@@ -68,6 +70,9 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   const method = request.method.toUpperCase();
 
   if (path === '/health') return json({ ok: true, ts: Date.now() });
+
+  // Public GPS almanac proxy — no auth needed (data is publicly available)
+  if (path === '/almanac' && method === 'GET') return handleAlmanac(request, env);
 
   // --- auth gate: every route below needs a verified Access identity ---
   const who = await authenticate(request, env);
