@@ -6,12 +6,15 @@ import { SyncManager } from '../sync/SyncManager';
 import type { SyncStatus } from '../sync/types';
 import type { PresetManager } from './PresetManager';
 
+const CHEVRON_SVG = `<svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="12" height="12"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg>`;
+
 export class SettingsPanel {
   private panel = document.getElementById('settings-panel')!;
   private isOpen = false;
   private settings!: AppSettings;
   private storage = StorageManager.getInstance();
   private lastSyncStatus: SyncStatus | null = null;
+  private collapsedSections = new Set<string>(['gps', 'display', 'presets', 'quick-entry', 'integrations', 'sync', 'data']);
 
   constructor(private presetManager: PresetManager) {
     document.getElementById('btn-settings')?.addEventListener('click', () => {
@@ -62,141 +65,155 @@ export class SettingsPanel {
         </div>
         <div class="panel-body settings-body">
 
-          <!-- User Identity -->
-          <div class="settings-section">
-            <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M230.93,220a8,8,0,0,1-6.93,4H32a8,8,0,0,1-6.92-12c15.23-26.33,38.7-45.21,66.09-54.16a72,72,0,1,1,73.66,0c27.39,8.95,50.86,27.83,66.09,54.16A8,8,0,0,1,230.93,220Z"/></svg>User Identity</h4>
-            <label>User ID / Initials
-              <input type="text" id="s-user-id" value="${this.settings.user_id}" maxlength="10" placeholder="e.g. IB" />
-              <span class="settings-hint">Used in feature IDs, e.g. IB_2026_05_01_1241</span>
-            </label>
+          <!-- User Identity (expanded by default) -->
+          <div class="settings-section" data-section="user-identity">
+            <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M230.93,220a8,8,0,0,1-6.93,4H32a8,8,0,0,1-6.92-12c15.23-26.33,38.7-45.21,66.09-54.16a72,72,0,1,1,73.66,0c27.39,8.95,50.86,27.83,66.09,54.16A8,8,0,0,1,230.93,220Z"/></svg>User Identity${CHEVRON_SVG}</h4>
+            <div class="settings-section-body">
+              <label>User ID / Initials
+                <input type="text" id="s-user-id" value="${this.settings.user_id}" maxlength="10" placeholder="e.g. IB" />
+                <span class="settings-hint">Used in feature IDs, e.g. IB_2026_05_01_1241</span>
+              </label>
+            </div>
           </div>
 
           <!-- GPS Capture -->
-          <div class="settings-section">
-            <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M128,16a88.1,88.1,0,0,0-88,88c0,75.3,80,132.17,83.41,134.55a8,8,0,0,0,9.18,0C136,236.17,216,179.3,216,104A88.1,88.1,0,0,0,128,16Zm0,56a32,32,0,1,1-32,32A32,32,0,0,1,128,72Z"/></svg>GPS Capture</h4>
-            <label>Distance Tolerance (m)
-              <input type="number" id="s-gps-dist" value="${this.settings.gps_distance_tolerance}" min="1" max="1000" step="1" />
-              <span class="settings-hint">Minimum distance between streaming GPS points</span>
-            </label>
-            <label>Time Tolerance (s)
-              <input type="number" id="s-gps-time" value="${this.settings.gps_time_tolerance}" min="1" max="300" step="1" />
-              <span class="settings-hint">Minimum time interval between streaming GPS points</span>
-            </label>
-            <label>Min GPS Accuracy (m)
-              <input type="number" id="s-gps-acc" value="${this.settings.gps_min_accuracy}" min="1" max="100" step="1" />
-              <span class="settings-hint">Discard GPS fixes worse than this accuracy</span>
-            </label>
+          <div class="settings-section" data-section="gps">
+            <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M128,16a88.1,88.1,0,0,0-88,88c0,75.3,80,132.17,83.41,134.55a8,8,0,0,0,9.18,0C136,236.17,216,179.3,216,104A88.1,88.1,0,0,0,128,16Zm0,56a32,32,0,1,1-32,32A32,32,0,0,1,128,72Z"/></svg>GPS Capture${CHEVRON_SVG}</h4>
+            <div class="settings-section-body">
+              <label>Distance Tolerance (m)
+                <input type="number" id="s-gps-dist" value="${this.settings.gps_distance_tolerance}" min="1" max="1000" step="1" />
+                <span class="settings-hint">Minimum distance between streaming GPS points</span>
+              </label>
+              <label>Time Tolerance (s)
+                <input type="number" id="s-gps-time" value="${this.settings.gps_time_tolerance}" min="1" max="300" step="1" />
+                <span class="settings-hint">Minimum time interval between streaming GPS points</span>
+              </label>
+              <label>Min GPS Accuracy (m)
+                <input type="number" id="s-gps-acc" value="${this.settings.gps_min_accuracy}" min="1" max="100" step="1" />
+                <span class="settings-hint">Discard GPS fixes worse than this accuracy</span>
+              </label>
+            </div>
           </div>
 
           <!-- Display -->
-          <div class="settings-section">
-            <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M232,64V176a24,24,0,0,1-24,24H48a24,24,0,0,1-24-24V64A24,24,0,0,1,48,40H208A24,24,0,0,1,232,64ZM160,216H96a8,8,0,0,0,0,16h64a8,8,0,0,0,0-16Z"/></svg>Display</h4>
-            <label>Coordinate Format
-              <select id="s-coord-fmt">
-                <option value="dd" ${this.settings.coord_format === 'dd' ? 'selected' : ''}>Decimal Degrees</option>
-                <option value="dms" ${this.settings.coord_format === 'dms' ? 'selected' : ''}>DMS</option>
-                <option value="utm" ${this.settings.coord_format === 'utm' ? 'selected' : ''}>UTM</option>
-              </select>
-            </label>
-            <label class="toggle-label">
-              <span>Show Crosshair</span>
-              <input type="checkbox" id="s-crosshair" ${this.settings.crosshair_visible ? 'checked' : ''} />
-              <span class="toggle-slider"></span>
-            </label>
-            <label class="toggle-label">
-              <span>Show Grid</span>
-              <input type="checkbox" id="s-grid" ${this.settings.grid_visible ? 'checked' : ''} />
-              <span class="toggle-slider"></span>
-            </label>
-            <label class="toggle-label">
-              <span>Follow User Location</span>
-              <input type="checkbox" id="s-follow" ${this.settings.follow_user ? 'checked' : ''} />
-              <span class="toggle-slider"></span>
-            </label>
-            <label class="toggle-label">
-              <span>Auto-save</span>
-              <input type="checkbox" id="s-autosave" ${this.settings.auto_save ? 'checked' : ''} />
-              <span class="toggle-slider"></span>
-            </label>
-            <label class="toggle-label">
-              <span>☀ Outdoor Mode</span>
-              <input type="checkbox" id="s-outdoor" ${this.settings.outdoor_mode ? 'checked' : ''} />
-              <span class="toggle-slider"></span>
-            </label>
-            <label class="toggle-label">
-              <span>☽ Light Theme</span>
-              <input type="checkbox" id="s-theme-light" ${this.settings.theme === 'light' ? 'checked' : ''} />
-              <span class="toggle-slider"></span>
-            </label>
-            <label>Font Appearance
-              <select id="s-font-family">
-                <option value="default" ${(this.settings.font_family ?? 'default') === 'default' ? 'selected' : ''}>Default (System)</option>
-                <option value="oswald" ${this.settings.font_family === 'oswald' ? 'selected' : ''}>Oswald</option>
-              </select>
-            </label>
-            <label>Accent Colour
-              <input type="color" id="s-theme-color" value="${this.settings.theme_color ?? '#4ade80'}" style="width:100%;height:32px;border-radius:4px;border:1px solid var(--color-border);background:none;cursor:pointer;padding:2px;" />
-              <span class="settings-hint">Changes the highlight colour throughout the app. Default: #4ade80</span>
-            </label>
+          <div class="settings-section" data-section="display">
+            <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M232,64V176a24,24,0,0,1-24,24H48a24,24,0,0,1-24-24V64A24,24,0,0,1,48,40H208A24,24,0,0,1,232,64ZM160,216H96a8,8,0,0,0,0,16h64a8,8,0,0,0,0-16Z"/></svg>Display${CHEVRON_SVG}</h4>
+            <div class="settings-section-body">
+              <label>Coordinate Format
+                <select id="s-coord-fmt">
+                  <option value="dd" ${this.settings.coord_format === 'dd' ? 'selected' : ''}>Decimal Degrees</option>
+                  <option value="dms" ${this.settings.coord_format === 'dms' ? 'selected' : ''}>DMS</option>
+                  <option value="utm" ${this.settings.coord_format === 'utm' ? 'selected' : ''}>UTM</option>
+                </select>
+              </label>
+              <label class="toggle-label">
+                <span>Show Crosshair</span>
+                <input type="checkbox" id="s-crosshair" ${this.settings.crosshair_visible ? 'checked' : ''} />
+                <span class="toggle-slider"></span>
+              </label>
+              <label class="toggle-label">
+                <span>Show Grid</span>
+                <input type="checkbox" id="s-grid" ${this.settings.grid_visible ? 'checked' : ''} />
+                <span class="toggle-slider"></span>
+              </label>
+              <label class="toggle-label">
+                <span>Follow User Location</span>
+                <input type="checkbox" id="s-follow" ${this.settings.follow_user ? 'checked' : ''} />
+                <span class="toggle-slider"></span>
+              </label>
+              <label class="toggle-label">
+                <span>Auto-save</span>
+                <input type="checkbox" id="s-autosave" ${this.settings.auto_save ? 'checked' : ''} />
+                <span class="toggle-slider"></span>
+              </label>
+              <label class="toggle-label">
+                <span>☀ Outdoor Mode</span>
+                <input type="checkbox" id="s-outdoor" ${this.settings.outdoor_mode ? 'checked' : ''} />
+                <span class="toggle-slider"></span>
+              </label>
+              <label class="toggle-label">
+                <span>☽ Light Theme</span>
+                <input type="checkbox" id="s-theme-light" ${this.settings.theme === 'light' ? 'checked' : ''} />
+                <span class="toggle-slider"></span>
+              </label>
+              <label>Font Appearance
+                <select id="s-font-family">
+                  <option value="default" ${(this.settings.font_family ?? 'default') === 'default' ? 'selected' : ''}>Default (System)</option>
+                  <option value="oswald" ${this.settings.font_family === 'oswald' ? 'selected' : ''}>Oswald</option>
+                </select>
+              </label>
+              <label>Accent Colour
+                <input type="color" id="s-theme-color" value="${this.settings.theme_color ?? '#4ade80'}" style="width:100%;height:32px;border-radius:4px;border:1px solid var(--color-border);background:none;cursor:pointer;padding:2px;" />
+                <span class="settings-hint">Changes the highlight colour throughout the app. Default: #4ade80</span>
+              </label>
+            </div>
           </div>
 
           <!-- Presets (rendered by PresetManager) -->
           <div id="presets-settings-container"></div>
 
           <!-- Integrations -->
-          <div class="settings-section">
-            <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M208,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM144.56,173.66l-21.45,21.45a44,44,0,0,1-62.22-62.22l21.45-21.46a8,8,0,0,1,11.32,11.31L72.2,144.2a28,28,0,0,0,39.6,39.6l21.45-21.46a8,8,0,0,1,11.31,11.32Zm-34.9-16a8,8,0,0,1-11.32-11.32l48-48a8,8,0,0,1,11.32,11.32Zm85.45-34.55-21.45,21.45a8,8,0,0,1-11.32-11.31L183.8,111.8a28,28,0,0,0-39.6-39.6L122.74,93.66a8,8,0,0,1-11.31-11.32l21.46-21.45a44,44,0,0,1,62.22,62.22Z"/></svg>Integrations</h4>
-            <label>Felt API Key
-              <input type="password" id="s-felt-key"
-                value="${localStorage.getItem('felt_key') ?? ''}"
-                placeholder="felt_pat_…"
-                autocomplete="off" spellcheck="false" />
-              <span class="settings-hint">Used for uploading to Felt. Get from Felt → Workspace Settings → Developers → Create token.</span>
-            </label>
+          <div class="settings-section" data-section="integrations">
+            <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M208,32H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM144.56,173.66l-21.45,21.45a44,44,0,0,1-62.22-62.22l21.45-21.46a8,8,0,0,1,11.32,11.31L72.2,144.2a28,28,0,0,0,39.6,39.6l21.45-21.46a8,8,0,0,1,11.31,11.32Zm-34.9-16a8,8,0,0,1-11.32-11.32l48-48a8,8,0,0,1,11.32,11.32Zm85.45-34.55-21.45,21.45a8,8,0,0,1-11.32-11.31L183.8,111.8a28,28,0,0,0-39.6-39.6L122.74,93.66a8,8,0,0,1-11.31-11.32l21.46-21.45a44,44,0,0,1,62.22,62.22Z"/></svg>Integrations${CHEVRON_SVG}</h4>
+            <div class="settings-section-body">
+              <label>Felt API Key
+                <input type="password" id="s-felt-key"
+                  value="${localStorage.getItem('felt_key') ?? ''}"
+                  placeholder="felt_pat_…"
+                  autocomplete="off" spellcheck="false" />
+                <span class="settings-hint">Used for uploading to Felt. Get from Felt → Workspace Settings → Developers → Create token.</span>
+              </label>
+            </div>
           </div>
 
           <!-- Cloud Sync -->
-          <div class="settings-section">
-            <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M160,40a88.08,88.08,0,0,0-78.71,48.68A64,64,0,1,0,72,216h88a88,88,0,0,0,0-176Z"/></svg>Cloud Sync</h4>
-            <label class="toggle-label">
-              <span>Enable team sync</span>
-              <input type="checkbox" id="s-sync-enabled" ${syncCfg.enabled ? 'checked' : ''} />
-              <span class="toggle-slider"></span>
-            </label>
-            <label>Backend URL
-              <input type="url" id="s-sync-url" value="${syncCfg.url}"
-                placeholder="leave blank if using the Cloudflare-hosted app"
-                autocomplete="off" spellcheck="false" />
-              <span class="settings-hint">Leave blank when running the Cloudflare-hosted app (same origin). Set a full URL only for a separate-origin backend.</span>
-            </label>
-            <div class="btn-group">
-              <button class="btn-outline" id="s-sync-now">Sync Now</button>
+          <div class="settings-section" data-section="sync">
+            <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M160,40a88.08,88.08,0,0,0-78.71,48.68A64,64,0,1,0,72,216h88a88,88,0,0,0,0-176Z"/></svg>Cloud Sync${CHEVRON_SVG}</h4>
+            <div class="settings-section-body">
+              <label class="toggle-label">
+                <span>Enable team sync</span>
+                <input type="checkbox" id="s-sync-enabled" ${syncCfg.enabled ? 'checked' : ''} />
+                <span class="toggle-slider"></span>
+              </label>
+              <label>Backend URL
+                <input type="url" id="s-sync-url" value="${syncCfg.url}"
+                  placeholder="leave blank if using the Cloudflare-hosted app"
+                  autocomplete="off" spellcheck="false" />
+                <span class="settings-hint">Leave blank when running the Cloudflare-hosted app (same origin). Set a full URL only for a separate-origin backend.</span>
+              </label>
+              <div class="btn-group">
+                <button class="btn-outline" id="s-sync-now">Sync Now</button>
+              </div>
+              <div id="s-sync-status" class="settings-hint"></div>
             </div>
-            <div id="s-sync-status" class="settings-hint"></div>
           </div>
 
           <!-- Data Management -->
-          <div class="settings-section">
-            <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M128,24C74.17,24,32,48.6,32,80v96c0,31.4,42.17,56,96,56s96-24.6,96-56V80C224,48.6,181.83,24,128,24Zm80,104c0,9.62-7.88,19.43-21.61,26.92C170.93,163.35,150.19,168,128,168s-42.93-4.65-58.39-13.08C55.88,147.43,48,137.62,48,128V111.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64Zm-21.61,74.92C170.93,211.35,150.19,216,128,216s-42.93-4.65-58.39-13.08C55.88,195.43,48,185.62,48,176V159.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64V176C208,185.62,200.12,195.43,186.39,202.92Z"/></svg>Data Management</h4>
-            <div class="btn-group">
-              <button class="btn-outline" id="s-export-backup">Export Full Backup</button>
-              <button class="btn-outline btn-danger" id="s-clear-data">Clear All Features</button>
+          <div class="settings-section" data-section="data">
+            <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M128,24C74.17,24,32,48.6,32,80v96c0,31.4,42.17,56,96,56s96-24.6,96-56V80C224,48.6,181.83,24,128,24Zm80,104c0,9.62-7.88,19.43-21.61,26.92C170.93,163.35,150.19,168,128,168s-42.93-4.65-58.39-13.08C55.88,147.43,48,137.62,48,128V111.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64Zm-21.61,74.92C170.93,211.35,150.19,216,128,216s-42.93-4.65-58.39-13.08C55.88,195.43,48,185.62,48,176V159.36c17.06,15,46.23,24.64,80,24.64s62.94-9.68,80-24.64V176C208,185.62,200.12,195.43,186.39,202.92Z"/></svg>Data Management${CHEVRON_SVG}</h4>
+            <div class="settings-section-body">
+              <div class="btn-group">
+                <button class="btn-outline" id="s-export-backup">Export Full Backup</button>
+                <button class="btn-outline btn-danger" id="s-clear-data">Clear All Features</button>
+              </div>
+              <div id="s-feature-count" class="settings-hint"></div>
             </div>
-            <div id="s-feature-count" class="settings-hint"></div>
           </div>
 
-          <!-- About / Version -->
-          <div class="settings-section settings-about">
-            <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm-4,48a12,12,0,1,1-12,12A12,12,0,0,1,124,72Zm12,112a16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40a8,8,0,0,1,0,16Z"/></svg>About</h4>
-            <p>Fraxinus Field Mapper v${__APP_VERSION__}</p>
-            <p>Offline-first GPS data collector PWA</p>
-            <p>Storage: IndexedDB (persistent across sessions)</p>
-            <p class="settings-hint" style="margin-top:4px;font-size:0.8em">Build: ${new Date(__APP_BUILD_DATE__).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</p>
-            <div id="s-sw-status" style="margin-top:8px">
-              ${SwUpdate.hasUpdate
-                ? `<button id="s-sw-reload" class="btn-primary" style="width:100%;background:#f59e0b;border-color:#f59e0b;color:#000">↺ Update available — tap to reload</button>`
-                : `<span style="font-size:0.8em;color:var(--color-text-muted,#6b7280)">✓ App is up to date</span>`
-              }
+          <!-- About / Version (expanded by default) -->
+          <div class="settings-section settings-about" data-section="about">
+            <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm-4,48a12,12,0,1,1-12,12A12,12,0,0,1,124,72Zm12,112a16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40a8,8,0,0,1,0,16Z"/></svg>About${CHEVRON_SVG}</h4>
+            <div class="settings-section-body">
+              <p>Fraxinus Field Mapper v${__APP_VERSION__}</p>
+              <p>Offline-first GPS data collector PWA</p>
+              <p>Storage: IndexedDB (persistent across sessions)</p>
+              <p class="settings-hint" style="margin-top:4px;font-size:0.8em">Build: ${new Date(__APP_BUILD_DATE__).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</p>
+              <div id="s-sw-status" style="margin-top:8px">
+                ${SwUpdate.hasUpdate
+                  ? `<button id="s-sw-reload" class="btn-primary" style="width:100%;background:#f59e0b;border-color:#f59e0b;color:#000">↺ Update available — tap to reload</button>`
+                  : `<span style="font-size:0.8em;color:var(--color-text-muted,#6b7280)">✓ App is up to date</span>`
+                }
+              </div>
             </div>
           </div>
 
@@ -216,6 +233,9 @@ export class SettingsPanel {
       this.settings.quick_entry_preset_id_2 = ids[1];
       this.settings.quick_entry_preset_id_3 = ids[2];
     });
+
+    // Wire collapsible sections (must run after presets are rendered)
+    this._wireCollapse();
 
     // Load feature count
     this.storage.getFeatureCount().then(count => {
@@ -257,6 +277,20 @@ export class SettingsPanel {
       statusEl.querySelector('#s-sw-reload')?.addEventListener('click', () => SwUpdate.reload());
     };
     window.addEventListener('sw-update-ready', onSwUpdate, { once: true });
+  }
+
+  private _wireCollapse(): void {
+    this.panel.querySelectorAll<HTMLElement>('.settings-section[data-section]').forEach(section => {
+      const id = section.dataset.section!;
+      if (this.collapsedSections.has(id)) section.classList.add('is-collapsed');
+      const h4 = section.querySelector<HTMLElement>('h4.section-toggle');
+      if (!h4) return;
+      h4.addEventListener('click', () => {
+        const isNowCollapsed = section.classList.toggle('is-collapsed');
+        if (isNowCollapsed) this.collapsedSections.add(id);
+        else this.collapsedSections.delete(id);
+      });
+    });
   }
 
   private async save(): Promise<void> {
