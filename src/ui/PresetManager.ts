@@ -168,23 +168,28 @@ export class PresetManager {
   // Settings UI for presets
   // ============================================================
   renderPresetsSettings(container: HTMLElement, onUpdate: () => void): void {
+    const chevron = `<svg class="section-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="12" height="12"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg>`;
     container.innerHTML = `
-      <div class="settings-section">
-        <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M243.31,136,144,36.69A15.86,15.86,0,0,0,132.69,32H40a8,8,0,0,0-8,8v92.69A15.86,15.86,0,0,0,36.69,144L136,243.31a16,16,0,0,0,22.63,0l84.68-84.68a16,16,0,0,0,0-22.63ZM84,96A12,12,0,1,1,96,84,12,12,0,0,1,84,96Z"/></svg>Type Presets</h4>
-        <p class="settings-hint">Define feature types per geometry. Click the style button (palette) to edit symbology.</p>
-        <div id="presets-list"></div>
-        <button class="btn-outline" id="btn-add-preset">+ Add Preset</button>
+      <div class="settings-section" data-section="presets">
+        <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M243.31,136,144,36.69A15.86,15.86,0,0,0,132.69,32H40a8,8,0,0,0-8,8v92.69A15.86,15.86,0,0,0,36.69,144L136,243.31a16,16,0,0,0,22.63,0l84.68-84.68a16,16,0,0,0,0-22.63ZM84,96A12,12,0,1,1,96,84,12,12,0,0,1,84,96Z"/></svg>Type Presets${chevron}</h4>
+        <div class="settings-section-body">
+          <p class="settings-hint">Define feature types per geometry. Click the style button (palette) to edit symbology.</p>
+          <div id="presets-list"></div>
+          <button class="btn-outline" id="btn-add-preset">+ Add Preset</button>
+        </div>
       </div>
-      <div class="settings-section">
-        <h4><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M213.85,125.46l-112,120a8,8,0,0,1-13.69-7l14.66-73.33L45.19,143.49a8,8,0,0,1-3-13l112-120a8,8,0,0,1,13.69,7L153.18,90.9l57.63,21.61a8,8,0,0,1,3,12.95Z"/></svg>Quick Entry Buttons</h4>
-        <p class="settings-hint">Up to 3 Quick Entry buttons add a GPS point with one tap. Only Point presets are eligible.</p>
-        ${[0, 1, 2].map(i => `
-        <label>Button ${i + 1}${i === 0 ? ' (Bottom)' : i === 1 ? ' (Middle)' : ' (Top)'}
-          <select id="quick-entry-select-${i}">
-            <option value="">-- None --</option>
-            ${this.presets.filter(p => p.geometry_type === 'Point').map(p => `<option value="${p.id}" ${p.id === this.quickEntryPresetIds[i] ? 'selected' : ''}>${p.label}</option>`).join('')}
-          </select>
-        </label>`).join('')}
+      <div class="settings-section" data-section="quick-entry">
+        <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M213.85,125.46l-112,120a8,8,0,0,1-13.69-7l14.66-73.33L45.19,143.49a8,8,0,0,1-3-13l112-120a8,8,0,0,1,13.69,7L153.18,90.9l57.63,21.61a8,8,0,0,1,3,12.95Z"/></svg>Quick Entry Buttons${chevron}</h4>
+        <div class="settings-section-body">
+          <p class="settings-hint">Up to 3 Quick Entry buttons add a GPS point with one tap. Only Point presets are eligible.</p>
+          ${[0, 1, 2].map(i => `
+          <label>Button ${i + 1}${i === 0 ? ' (Bottom)' : i === 1 ? ' (Middle)' : ' (Top)'}
+            <select id="quick-entry-select-${i}">
+              <option value="">-- None --</option>
+              ${this.presets.filter(p => p.geometry_type === 'Point').map(p => `<option value="${p.id}" ${p.id === this.quickEntryPresetIds[i] ? 'selected' : ''}>${p.label}</option>`).join('')}
+            </select>
+          </label>`).join('')}
+        </div>
       </div>
     `;
 

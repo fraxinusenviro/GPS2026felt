@@ -1826,6 +1826,34 @@ button, input, select, textarea, optgroup {
   opacity: 0.9;
 }
 
+/* Collapsible section toggle */
+.settings-section h4.section-toggle {
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.15s;
+}
+.settings-section h4.section-toggle:hover { opacity: 0.85; }
+.settings-section h4.section-toggle:active { opacity: 0.7; }
+
+.section-chevron {
+  margin-left: auto;
+  flex-shrink: 0 !important;
+  opacity: 0.6 !important;
+  transition: transform 0.2s ease;
+}
+.settings-section.is-collapsed .section-chevron {
+  transform: rotate(-90deg);
+}
+.settings-section.is-collapsed .settings-section-body {
+  display: none;
+}
+.settings-section.is-collapsed {
+  padding-bottom: 4px;
+}
+.settings-section-body {
+  /* transparent wrapper; no extra styling needed */
+}
+
 .settings-about {
   opacity: 0.7;
   font-size: 12px;
@@ -8885,3 +8913,59 @@ input[type=color] {
   transition: all 0.12s;
 }
 .fd-symbology-btn:hover { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-dim); }
+
+/* ============================================================
+   Project panel — dropdown menu (replaces side-panel behaviour)
+   ============================================================ */
+.project-dropdown {
+  position: fixed;
+  top: var(--header-height);
+  left: 0;
+  width: min(360px, 100vw);
+  height: auto;
+  max-height: calc(100dvh - var(--header-height) - 16px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(-8px);
+  opacity: 0;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  overflow: hidden;
+}
+
+.project-dropdown.open {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.project-dropdown .side-panel-inner {
+  height: auto;
+  max-height: calc(100dvh - var(--header-height) - 16px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.project-dropdown .panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.project-dropdown .panel-header {
+  border-radius: 0;
+}
+
+.project-dropdown .panel-footer {
+  padding: 10px 16px;
+}
+
+.project-dropdown .panel-done-btn {
+  padding: 9px;
+  font-size: 13px;
+}

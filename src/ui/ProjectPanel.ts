@@ -46,18 +46,29 @@ export class ProjectPanel {
     else this.open();
   }
 
+  private handleOutsideClick = (e: MouseEvent) => {
+    const target = e.target as Node;
+    if (!this.panel.contains(target) && !(target as Element).closest?.('#btn-project')) {
+      this.close();
+    }
+  };
+
   open(): void {
     this.isOpen = true;
     void this.render();
     this.panel.style.display = 'flex';
-    requestAnimationFrame(() => this.panel.classList.add('open'));
+    requestAnimationFrame(() => {
+      this.panel.classList.add('open');
+      setTimeout(() => document.addEventListener('click', this.handleOutsideClick), 50);
+    });
   }
 
   close(): void {
     this.isOpen = false;
     this.renamingId = null;
     this.panel.classList.remove('open');
-    setTimeout(() => { if (!this.isOpen) this.panel.style.display = 'none'; }, 300);
+    document.removeEventListener('click', this.handleOutsideClick);
+    setTimeout(() => { if (!this.isOpen) this.panel.style.display = 'none'; }, 250);
   }
 
   refresh(): void {
