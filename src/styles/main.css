@@ -8528,6 +8528,52 @@ input[type=color] {
   border: 1px solid var(--color-border);
 }
 
+.gsm-sky-section { margin-top: 14px; }
+.gsm-sky-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.gsm-sky-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.gsm-alm-btn {
+  display: inline-block;
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  background: transparent;
+  transition: border-color 0.15s, color 0.15s;
+  user-select: none;
+}
+.gsm-alm-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.gsm-sky-canvas {
+  display: block;
+  margin: 0 auto;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--color-border);
+}
+.gsm-sky-note {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: center;
+  line-height: 1.4;
+  opacity: 0.7;
+}
+
 /* ============================================================
    Symbology Studio overlay panel
    ============================================================ */
