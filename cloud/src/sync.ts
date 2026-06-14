@@ -128,6 +128,24 @@ export async function handleChanges(url: URL, env: Env): Promise<Response> {
   return json({ since, cursor, count, more, ...out });
 }
 
+/**
+ * The full org-shared static-data catalogue. Read directly (independent of the
+ * opt-in per-device sync cursor) so EVERY authenticated user sees every shared
+ * layer, across all projects/devices.
+ */
+export async function handleSharedLayers(env: Env): Promise<Response> {
+  const { results } = await env.DB.prepare(
+    'SELECT doc, updated_at, rev FROM shared_layers WHERE deleted = 0 ORDER BY rev ASC'
+  ).all<{ doc: string; updated_at: string; rev: number }>();
+  const layers = (results ?? [])
+    .map((r) => {
+      try { return { ...JSON.parse(r.doc), updated_at: r.updated_at, rev: r.rev }; }
+      catch { return null; }
+    })
+    .filter((l): l is Record<string, unknown> => l !== null);
+  return json({ layers });
+}
+
 function emptyCounts(): Record<EntityKind, number> {
   return { projects: 0, features: 0, layer_presets: 0, type_presets: 0, shared_layers: 0 };
 }

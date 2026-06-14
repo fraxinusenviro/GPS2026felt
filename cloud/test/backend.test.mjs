@@ -212,6 +212,16 @@ async function main() {
     check('reconcile is idempotent (no re-adds)', again.added === 0, JSON.stringify(again).slice(0, 120));
   }
 
+  // 10. GET /shared-layers — global catalogue (all users / all projects) -----
+  console.log('\n[10] GET /shared-layers — global catalogue');
+  {
+    const list = await (await get('/shared-layers')).json();
+    check('returns a layers array', Array.isArray(list.layers), JSON.stringify(list).slice(0, 120));
+    // The shared layer pushed in [1] must be present regardless of any project.
+    const found = (list.layers ?? []).some((l) => l.id === `shared-${now}`);
+    check('includes a synced shared layer', found, `ids: ${(list.layers ?? []).map((l) => l.id).slice(0, 5).join(',')}`);
+  }
+
   console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} passed, ${fail} failed\n`);
   process.exit(fail === 0 ? 0 : 1);
 }

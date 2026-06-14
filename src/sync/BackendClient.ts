@@ -7,6 +7,7 @@
  */
 
 import type { ChangesResponse, SyncPushResult, SyncKind } from './types';
+import type { SharedLayer } from '../types';
 
 export class BackendClient {
   private base: string;
@@ -46,6 +47,14 @@ export class BackendClient {
     });
     if (!r.ok) throw new Error(`GET /changes failed: ${r.status} ${await safeText(r)}`);
     return r.json() as Promise<ChangesResponse>;
+  }
+
+  /** The full org-shared static-data catalogue (all users, all projects). */
+  async getSharedLayers(): Promise<SharedLayer[]> {
+    const r = await fetch(`${this.base}/shared-layers`, { credentials: 'include' });
+    if (!r.ok) throw new Error(`GET /shared-layers failed: ${r.status}`);
+    const j = await r.json() as { layers?: SharedLayer[] };
+    return j.layers ?? [];
   }
 
   /** Proxied blob upload (bytes flow through the Worker, behind Access). */

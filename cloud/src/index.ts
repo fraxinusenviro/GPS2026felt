@@ -17,7 +17,7 @@
 
 import type { Env } from './types';
 import { authenticate } from './auth';
-import { handleSync, handleChanges } from './sync';
+import { handleSync, handleChanges, handleSharedLayers } from './sync';
 import { signUpload, signDownload, putBlob, getBlob } from './blobs';
 import { reconcileStaticLayers } from './reconcile';
 import { json, bad, corsHeaders } from './http';
@@ -30,6 +30,7 @@ function isApiPath(path: string): boolean {
     path === '/changes' ||
     path === '/uploads/sign' ||
     path === '/admin/reconcile' ||
+    path === '/shared-layers' ||
     path.startsWith('/blobs/')
   );
 }
@@ -75,6 +76,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   try {
     if (path === '/sync' && method === 'POST') return await handleSync(request, env, who);
     if (path === '/changes' && method === 'GET') return await handleChanges(url, env);
+    if (path === '/shared-layers' && method === 'GET') return await handleSharedLayers(env);
 
     if (path === '/uploads/sign' && method === 'POST') return await signUpload(request, env);
     if (path === '/uploads/sign' && method === 'GET') return await signDownload(url, env);
