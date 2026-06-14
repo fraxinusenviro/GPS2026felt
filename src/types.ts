@@ -286,6 +286,7 @@ export interface ImportedLayer {
   color: string;
   added_at: string;
   label_field?: string;          // field to use for map labels (vector layers)
+  source_crs?: string;           // original CRS of imported data (EPSG code); data stored as WGS84
   bounds?: [number, number, number, number]; // [west,south,east,north] for mbtiles/geopdf zoom
   image_data_url?: string;       // JPEG data URL for georeferenced geopdf overlay
   project_id?: string;           // owning project ID (undefined = legacy)

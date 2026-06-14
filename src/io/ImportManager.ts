@@ -5,6 +5,7 @@ import type { ImportedLayer, GeoJSONFeatureCollection } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import type { MapManager } from '../map/MapManager';
+import { WGS84, detectGeoJSONCrs, getCrsDef, looksLikeGeographic, reprojectToWGS84 } from '../utils/crs';
 
 export class ImportManager {
   private storage = StorageManager.getInstance();
@@ -14,7 +15,7 @@ export class ImportManager {
   // ============================================================
   // Main entry: handle file input
   // ============================================================
-  async importFile(file: File): Promise<ImportedLayer | null> {
+  async importFile(file: File, sourceCrs?: string): Promise<ImportedLayer | null> {
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
     EventBus.emit('toast', { message: `Importing ${file.name}...`, type: 'info' });
 
@@ -22,20 +23,20 @@ export class ImportManager {
       let layer: ImportedLayer | null = null;
 
       if (ext === 'geojson' || ext === 'json') {
-        layer = await this.importGeoJSON(file);
+        layer = await this.importGeoJSON(file, sourceCrs);
       } else if (ext === 'kml') {
-        layer = await this.importKML(file);
+        layer = await this.importKML(file, sourceCrs);
       } else if (ext === 'shp') {
-        layer = await this.importSHP(file);
+        layer = await this.importSHP(file, sourceCrs);
       } else if (ext === 'zip') {
         // Could be a zipped shapefile
-        layer = await this.importZippedSHP(file);
+        layer = await this.importZippedSHP(file, sourceCrs);
       } else if (ext === 'mbtiles') {
         layer = await this.importMBTiles(file);
       } else if (ext === 'pdf') {
         layer = await this.importGeoPDF(file);
       } else if (ext === 'gpx') {
-        layer = await this.importGPX(file);
+        layer = await this.importGPX(file, sourceCrs);
       } else {
         EventBus.emit('toast', { message: `Unsupported format: .${ext}`, type: 'error' });
         return null;
@@ -56,9 +57,49 @@ export class ImportManager {
   }
 
   // ============================================================
+  // CRS handling
+  // ============================================================
+  /**
+   * Reproject a freshly-parsed FeatureCollection to WGS84 (in place) and
+   * return the effective source CRS that was applied (for record-keeping),
+   * or undefined when no reprojection was needed.
+   *
+   * Source CRS is resolved in priority order:
+   *   1. an explicit `sourceCrs` the user picked in the import dialog
+   *   2. a GeoJSON legacy `crs` member embedded in the file
+   *   3. assume WGS84 (no-op)
+   *
+   * A geographic-bounds guard prevents double-reprojection of data a parser
+   * has already converted to lon/lat (e.g. shpjs reading a .prj sidecar).
+   */
+  private applyCrs(fc: GeoJSONFeatureCollection, sourceCrs?: string): string | undefined {
+    let from: string | null = null;
+    if (sourceCrs && sourceCrs !== 'auto' && sourceCrs.toUpperCase() !== WGS84) {
+      from = sourceCrs;
+    } else if (!sourceCrs || sourceCrs === 'auto') {
+      from = detectGeoJSONCrs(fc);
+    }
+    if (!from) return undefined;
+
+    // If the source CRS is projected (metres) but the coordinates already look
+    // like lon/lat, a parser reprojected them for us — don't transform twice.
+    const def = getCrsDef(from);
+    const isProjected = def ? !/\+proj=longlat/.test(def.proj) : true;
+    if (isProjected && looksLikeGeographic(fc)) return undefined;
+
+    try {
+      reprojectToWGS84(fc, from);
+    } catch (err) {
+      EventBus.emit('toast', { message: (err as Error).message, type: 'error', duration: 6000 });
+      return undefined;
+    }
+    return from;
+  }
+
+  // ============================================================
   // Format-specific importers
   // ============================================================
-  private async importGeoJSON(file: File): Promise<ImportedLayer> {
+  private async importGeoJSON(file: File, sourceCrs?: string): Promise<ImportedLayer> {
     const text = await file.text();
     const data = JSON.parse(text) as GeoJSONFeatureCollection;
 
@@ -66,6 +107,10 @@ export class ImportManager {
     const fc: GeoJSONFeatureCollection = data.type === 'FeatureCollection'
       ? data
       : { type: 'FeatureCollection', features: data.type === 'Feature' ? [data as never] : [] };
+    if (data.type === 'FeatureCollection' && (data as { crs?: unknown }).crs) {
+      (fc as { crs?: unknown }).crs = (data as { crs?: unknown }).crs;
+    }
+    const source_crs = this.applyCrs(fc, sourceCrs);
 
     return {
       id: uuidv4(),
@@ -75,15 +120,17 @@ export class ImportManager {
       visible: true,
       opacity: 0.8,
       color: this.randomColor(),
-      added_at: new Date().toISOString()
+      added_at: new Date().toISOString(),
+      source_crs
     };
   }
 
-  private async importKML(file: File): Promise<ImportedLayer> {
+  private async importKML(file: File, sourceCrs?: string): Promise<ImportedLayer> {
     const text = await file.text();
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(text, 'text/xml');
     const converted = toGeoJSONKML(xmlDoc) as GeoJSONFeatureCollection;
+    const source_crs = this.applyCrs(converted, sourceCrs);
 
     return {
       id: uuidv4(),
@@ -93,16 +140,18 @@ export class ImportManager {
       visible: true,
       opacity: 0.8,
       color: this.randomColor(),
-      added_at: new Date().toISOString()
+      added_at: new Date().toISOString(),
+      source_crs
     };
   }
 
-  private async importGPX(file: File): Promise<ImportedLayer> {
+  private async importGPX(file: File, sourceCrs?: string): Promise<ImportedLayer> {
     const text = await file.text();
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(text, 'application/xml');
     const { gpx: toGeoJSONGPX } = await import('@tmcw/togeojson');
     const converted = toGeoJSONGPX(xmlDoc) as GeoJSONFeatureCollection;
+    const source_crs = this.applyCrs(converted, sourceCrs);
 
     return {
       id: uuidv4(),
@@ -112,16 +161,18 @@ export class ImportManager {
       visible: true,
       opacity: 0.8,
       color: this.randomColor(),
-      added_at: new Date().toISOString()
+      added_at: new Date().toISOString(),
+      source_crs
     };
   }
 
-  private async importSHP(file: File): Promise<ImportedLayer> {
+  private async importSHP(file: File, sourceCrs?: string): Promise<ImportedLayer> {
     const buffer = await file.arrayBuffer();
     const geojson = await shpjs(buffer) as GeoJSONFeatureCollection | GeoJSONFeatureCollection[];
     const fc: GeoJSONFeatureCollection = Array.isArray(geojson)
       ? { type: 'FeatureCollection', features: geojson.flatMap(g => g.features) }
       : geojson;
+    const source_crs = this.applyCrs(fc, sourceCrs);
 
     return {
       id: uuidv4(),
@@ -131,16 +182,18 @@ export class ImportManager {
       visible: true,
       opacity: 0.8,
       color: this.randomColor(),
-      added_at: new Date().toISOString()
+      added_at: new Date().toISOString(),
+      source_crs
     };
   }
 
-  private async importZippedSHP(file: File): Promise<ImportedLayer> {
+  private async importZippedSHP(file: File, sourceCrs?: string): Promise<ImportedLayer> {
     const buffer = await file.arrayBuffer();
     const geojson = await shpjs(buffer) as GeoJSONFeatureCollection | GeoJSONFeatureCollection[];
     const fc: GeoJSONFeatureCollection = Array.isArray(geojson)
       ? { type: 'FeatureCollection', features: geojson.flatMap(g => g.features) }
       : geojson;
+    const source_crs = this.applyCrs(fc, sourceCrs);
 
     return {
       id: uuidv4(),
@@ -150,7 +203,8 @@ export class ImportManager {
       visible: true,
       opacity: 0.8,
       color: this.randomColor(),
-      added_at: new Date().toISOString()
+      added_at: new Date().toISOString(),
+      source_crs
     };
   }
 
