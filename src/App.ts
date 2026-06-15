@@ -33,7 +33,7 @@ import { MasterDataPanel } from './ui/MasterDataPanel';
 import { BackendClient } from './sync/BackendClient';
 import { SyncManager } from './sync/SyncManager';
 import { WetlandsManager } from './wetlands/WetlandsManager';
-import type { SharedLayer, BasemapDef } from './types';
+import type { SharedLayer, BasemapDef, ImportedLayer } from './types';
 import { sharedLayerToDef } from './data/sharedLayerDefs';
 import * as turf from '@turf/turf';
 
@@ -347,6 +347,21 @@ export class App {
     this.sharedDefsCache = [...byId.values()]
       .sort((a, b) => (a.folder ?? '').localeCompare(b.folder ?? '') || a.name.localeCompare(b.name))
       .map((l) => sharedLayerToDef(l, base));
+  }
+
+  /**
+   * Imported layers for the Table of Contents: project-scoped layers plus any
+   * offline MBTiles maps, which are saved globally (no project_id) and so are
+   * shown in every project's TOC.
+   */
+  private async loadTocImported(projectId: string): Promise<ImportedLayer[]> {
+    const [scoped, all] = await Promise.all([
+      this.storage.getImportedLayersByProject(projectId),
+      this.storage.getAllImportedLayers(),
+    ]);
+    const seen = new Set(scoped.map(l => l.id));
+    const globalMbtiles = all.filter(l => l.file_type === 'mbtiles' && !seen.has(l.id));
+    return [...scoped, ...globalMbtiles];
   }
 
   /** Infer (kind, format, ext) from a filename for shared uploads. */
@@ -1008,7 +1023,7 @@ export class App {
         basemapPanel.style.display = 'block';
         const activeProjectId = this.settings.active_project_id || 'default';
         const [imported, online] = await Promise.all([
-          this.storage.getImportedLayersByProject(activeProjectId),
+          this.loadTocImported(activeProjectId),
           this.storage.getAllOnlineLayers(),
         ]);
 
@@ -1142,7 +1157,7 @@ export class App {
             void (async () => {
               const activeProjectId = this.settings.active_project_id || 'default';
               const [imported, online] = await Promise.all([
-                this.storage.getImportedLayersByProject(activeProjectId),
+                this.loadTocImported(activeProjectId),
                 this.storage.getAllOnlineLayers(),
               ]);
               const pdfLayers = imported
@@ -1188,7 +1203,7 @@ export class App {
             void (async () => {
               const activeProjectId = this.settings.active_project_id || 'default';
               const [imported, online] = await Promise.all([
-                this.storage.getImportedLayersByProject(activeProjectId),
+                this.loadTocImported(activeProjectId),
                 this.storage.getAllOnlineLayers(),
               ]);
               const pdfLayers = imported

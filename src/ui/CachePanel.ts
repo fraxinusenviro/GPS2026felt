@@ -87,6 +87,10 @@ export class CachePanel {
             <label>Map name
               <input type="text" id="cache-name" value="Offline – ${new Date().toISOString().slice(0, 10)}" />
             </label>
+            <label class="cache-check-row">
+              <input type="checkbox" id="cache-download" checked />
+              <span>Download .mbtiles file</span>
+            </label>
           </div>
           <div id="cache-progress-wrap" style="display:none">
             <div class="cache-progress-bar"><div class="cache-progress-fill" id="cache-progress-fill"></div></div>
@@ -226,12 +230,18 @@ export class CachePanel {
         this.abortController,
       );
 
-      // 1) Save to device
-      this.downloadBlob(blob, `${name}.mbtiles`);
+      // 1) Save to device (optional)
+      const doDownload = (document.getElementById('cache-download') as HTMLInputElement | null)?.checked ?? true;
+      if (doDownload) this.downloadBlob(blob, `${name}.mbtiles`);
 
       // 2) Save in-app: feed the same blob through the existing MBTiles import
       //    path so it persists and shows up as an offline layer.
-      EventBus.emit('toast', { message: `Exported ${tileCount.toLocaleString()} tiles — adding offline layer…`, type: 'success' });
+      EventBus.emit('toast', {
+        message: doDownload
+          ? `Exported ${tileCount.toLocaleString()} tiles — downloaded & adding offline layer…`
+          : `Exported ${tileCount.toLocaleString()} tiles — adding offline layer…`,
+        type: 'success',
+      });
       const file = new File([blob], `${name}.mbtiles`, { type: 'application/x-sqlite3' });
       await this.importManager.importFile(file);
 
