@@ -21,6 +21,7 @@ import { CutFillLayer } from './CutFillLayer';
 import { sampleElevationBilinear } from '../lib/cutFillEngine';
 import { CutFillRunStore, type CutFillRun } from './CutFillRunStore';
 import { computeCutFill, computeDaylightFeatures } from '../lib/cutFillEngine';
+import { CanvasTileLayer } from './CanvasTileLayer';
 
 const BM_STACK_KEY = 'fm2026_bm_stack';
 const BM_STACK_PROJECT_KEY = 'fm2026_bm_stack_project';
@@ -36,10 +37,7 @@ interface StackLayer {
   maxZoom: number;
   opacity: number;
   visible: boolean;
-  hueRotate: number;
-  saturation: number;
-  contrast: number;
-  brightness: number;
+  blendMode?: string;
   vecLineWidth?: number;
   vecFillOpacityOverride?: number;
   vecLineColor?: string;
@@ -161,6 +159,7 @@ export class BasemapManager {
   private nshnLayers = new Map<string, NSHNVectorLayer>();
   private hrdemLayers = new Map<string, HRDEMLayer>();
   private cogContourLayers = new Map<string, CogContourLayer>();
+  private canvasTileLayers = new Map<string, CanvasTileLayer>();
   // Static GeoJSON overlays (shared data library, type 'geojson'): cache the  // fetched features per instance so symbology + identify can reuse them, and
   // track which are loaded onto the map.
   private geojsonOverlays = new Map<string, { properties: Record<string, unknown> }[]>();
@@ -377,7 +376,6 @@ export class BasemapManager {
       maxZoom: def.max_zoom ?? 19,
       opacity: 1,
       visible: true,
-      hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
     }];
   }
 
@@ -719,7 +717,6 @@ export class BasemapManager {
       type: def.type, vector_config: def.vector_config,
       tileSize: def.tile_size ?? 256, maxZoom: def.max_zoom ?? 19,
       opacity: 1.0, visible: true,
-      hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
     };
     // Set defaults for COG contour layers
     if (def.type === 'cog-contour') {
@@ -841,11 +838,8 @@ export class BasemapManager {
           // Core
           if (Math.round(l.opacity * 100) !== 100) e.o = Math.round(l.opacity * 100);
           if (!l.visible) e.v = 0;
-          // Raster colour adjustments
-          if (l.hueRotate) e.hr = l.hueRotate;
-          if (l.saturation) e.sa = l.saturation;
-          if (l.contrast) e.co = l.contrast;
-          if (l.brightness !== undefined && l.brightness !== 1) e.br = l.brightness;
+          // Blend mode
+          if (l.blendMode && l.blendMode !== 'normal') e.bm = l.blendMode;
           // Vector colour/stroke overrides
           if (l.vecLineColor) e.vlc = l.vecLineColor;
           if (l.vecLineWidth !== undefined) e.vlw = l.vecLineWidth;
@@ -938,11 +932,8 @@ export class BasemapManager {
           defId, label: def.label, url: def.url,
           type: def.type, tileSize: def.tile_size ?? 256, maxZoom: def.max_zoom ?? 22,
           opacity, visible,
-          hueRotate:  typeof e['hr']  === 'number' ? e['hr']  as number : 0,
-          saturation: typeof e['sa']  === 'number' ? e['sa']  as number : 0,
-          contrast:   typeof e['co']  === 'number' ? e['co']  as number : 0,
-          brightness: typeof e['br']  === 'number' ? e['br']  as number : 1,
         };
+        if (e['bm'] && typeof e['bm'] === 'string') layer.blendMode = e['bm'] as string;
         // Vector colours
         if (e['vlc']) layer.vecLineColor = e['vlc'] as string;
         if (typeof e['vlw'] === 'number') layer.vecLineWidth = e['vlw'] as number;
@@ -1026,7 +1017,6 @@ export class BasemapManager {
       instanceId, defId: ul.id, label: ul.name, url: ul.tileUrl,
       tileSize: 256, maxZoom: 22,
       opacity: ul.opacity, visible: ul.visible,
-      hueRotate: 0, saturation: 0, contrast: 0, brightness: 1,
     });
     // Remove the original standalone map entry
     try { this.mapManager.removeLayer(ul.mapLayerId); } catch { /* ignore */ }
@@ -1549,7 +1539,6 @@ export class BasemapManager {
           instanceId: l.instanceId,
           url: this.resolveRasterUrl(l),
           opacity: l.opacity, visible: l.visible,
-          hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
         });
       } else if (ltype === 'nsprd-vector') {
         this.nsprdLayer?.activate(l.instanceId, l.opacity, l.visible);
@@ -1672,16 +1661,23 @@ export class BasemapManager {
       this.mapManager.setBasemap(baseDef);
     }
     this.mapManager.setBasemapOpacity(baseLayer.visible ? (baseLayer.opacity ?? 1) : 0);
-    this.mapManager.setBasemapPaint('raster-hue-rotate', baseLayer.hueRotate ?? 0);
-    this.mapManager.setBasemapPaint('raster-saturation', baseLayer.saturation ?? 0);
-    this.mapManager.setBasemapPaint('raster-contrast', baseLayer.contrast ?? 0);
-    this.mapManager.setBasemapPaint('raster-brightness-max', baseLayer.brightness ?? 1);
 
     // overlays ordered bottom-to-top (index 0 = lowest in UI stack, last = highest)
     const overlays = this.stack.slice(0, this.stack.length - 1).reverse();
 
     // Clear all raster overlays so they can be re-inserted in the correct unified order
     this.mapManager.clearAllRasterOverlays();
+
+    // Deactivate canvas blend layers no longer in the stack
+    const activeRasterIds = new Set(
+      overlays.filter(l => this.getLayerType(l) === 'raster').map(l => l.instanceId)
+    );
+    for (const [iid, cbl] of this.canvasTileLayers) {
+      if (!activeRasterIds.has(iid)) {
+        cbl.deactivate();
+        this.canvasTileLayers.delete(iid);
+      }
+    }
 
     // Deactivate NSHN layers that are no longer in the stack
     const activeNshnIds = new Set(
@@ -1737,12 +1733,39 @@ export class BasemapManager {
     for (const l of overlays) {
       const ltype = this.getLayerType(l);
       if (ltype === 'raster') {
-        this.mapManager.addSingleRasterOverlay({
-          instanceId: l.instanceId,
-          url: this.resolveRasterUrl(l),
-          opacity: l.opacity, visible: l.visible,
-          hueRotate: l.hueRotate, saturation: l.saturation, contrast: l.contrast, brightness: l.brightness,
-        });
+        const blendMode = l.blendMode ?? 'normal';
+        const resolvedUrl = this.resolveRasterUrl(l);
+        const isTiledHttpUrl = !resolvedUrl.startsWith('cog://') && !resolvedUrl.startsWith('mbtiles://') && !resolvedUrl.startsWith('bmcache://')
+          && (resolvedUrl.includes('{x}') || resolvedUrl.includes('{bbox-epsg-3857}'));
+
+        if (blendMode !== 'normal' && isTiledHttpUrl) {
+          // Use a CSS canvas overlay so CSS mix-blend-mode can composite correctly
+          if (this.canvasTileLayers.has(l.instanceId)) {
+            const cbl = this.canvasTileLayers.get(l.instanceId)!;
+            cbl.setBlendMode(blendMode);
+            cbl.setOpacityAndVisible(l.opacity, l.visible);
+          } else {
+            this.canvasTileLayers.set(l.instanceId, new CanvasTileLayer(
+              this.mapManager.getMapContainer(),
+              this.mapManager.getMap(),
+              resolvedUrl,
+              blendMode,
+              l.opacity,
+              l.visible,
+            ));
+          }
+        } else {
+          // Deactivate any leftover canvas blend layer for this slot
+          if (this.canvasTileLayers.has(l.instanceId)) {
+            this.canvasTileLayers.get(l.instanceId)!.deactivate();
+            this.canvasTileLayers.delete(l.instanceId);
+          }
+          this.mapManager.addSingleRasterOverlay({
+            instanceId: l.instanceId,
+            url: resolvedUrl,
+            opacity: l.opacity, visible: l.visible,
+          });
+        }
         // Re-apply COG ramp / invert / smooth overrides (needed after page reload or project switch)
         if (l.url.startsWith('cog://')) {
           if (l.cogRampId || l.cogRampInvert || l.cogClasses || l.cogMin !== undefined || l.cogMax !== undefined) this.applyCogRamp(l);
@@ -2574,26 +2597,14 @@ export class BasemapManager {
             <span class="bm-adj-val">${Math.round(layer.opacity * 100)}%</span>
           </div>
           ${cogRampRow}
-          <div class="bm-adj-row">
-            <label class="bm-adj-label">Hue</label>
-            <input type="range" class="bm-adj-slider bm-hue" data-iid="${layer.instanceId}" min="-180" max="180" step="1" value="${layer.hueRotate}" />
-            <span class="bm-adj-val">${layer.hueRotate}°</span>
-          </div>
-          <div class="bm-adj-row">
-            <label class="bm-adj-label">Sat</label>
-            <input type="range" class="bm-adj-slider bm-sat" data-iid="${layer.instanceId}" min="-100" max="100" step="1" value="${Math.round(layer.saturation * 100)}" />
-            <span class="bm-adj-val">${Math.round(layer.saturation * 100)}</span>
-          </div>
-          <div class="bm-adj-row">
-            <label class="bm-adj-label">Con</label>
-            <input type="range" class="bm-adj-slider bm-con" data-iid="${layer.instanceId}" min="-100" max="100" step="1" value="${Math.round(layer.contrast * 100)}" />
-            <span class="bm-adj-val">${Math.round(layer.contrast * 100)}</span>
-          </div>
-          <div class="bm-adj-row">
-            <label class="bm-adj-label">Bri</label>
-            <input type="range" class="bm-adj-slider bm-bri" data-iid="${layer.instanceId}" min="0" max="200" step="5" value="${Math.round(layer.brightness * 100)}" />
-            <span class="bm-adj-val">${Math.round(layer.brightness * 100)}%</span>
-          </div>
+          ${!isBase ? `<div class="bm-adj-row">
+            <label class="bm-adj-label">Blend</label>
+            <select class="bm-blend-select" data-iid="${layer.instanceId}" style="flex:1;font-size:11px;background:var(--color-bg-2,#1a2a1a);color:var(--color-text,#ccc);border:1px solid var(--color-border);border-radius:3px;padding:2px 4px">
+              ${['normal','multiply','screen','overlay','darken','lighten','hard-light','soft-light','difference'].map(m =>
+                `<option value="${m}"${(layer.blendMode ?? 'normal') === m ? ' selected' : ''}>${m.charAt(0).toUpperCase() + m.slice(1)}</option>`
+              ).join('')}
+            </select>
+          </div>` : ''}
           ${ltype === 'raster' && !layer.url.startsWith('mbtiles://') ? `
           <div class="bm-adj-row" style="margin-top:4px">
             <button class="bm-raster-symbology btn-outline" data-iid="${layer.instanceId}"
@@ -3089,6 +3100,7 @@ export class BasemapManager {
         else if (ltype === 'hrdem-wcs') this.hrdemLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'cog-contour') this.cogContourLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'geojson') this.applyGeojsonOpacityVisibility(layer, `bm-ov-${iid}`);
+        else if (this.canvasTileLayers.has(iid)) this.canvasTileLayers.get(iid)!.setOpacityAndVisible(opacity, layer.visible);
         else this.mapManager.setBasemapOverlayOpacity(iid, layer.visible ? opacity : 0);
         this.saveStack();
       });
@@ -3113,6 +3125,7 @@ export class BasemapManager {
         }
         else if (ltype2 === 'cog-contour') this.cogContourLayers.get(iid)?.setVisible(layer.visible);
         else if (ltype2 === 'geojson') this.applyGeojsonOpacityVisibility(layer, `bm-ov-${iid}`);
+        else if (this.canvasTileLayers.has(iid)) this.canvasTileLayers.get(iid)!.setOpacityAndVisible(layer.opacity, layer.visible);
         else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
         this.saveStack();
       });
@@ -3162,37 +3175,15 @@ export class BasemapManager {
       });
     });
 
-    // Adjustment sliders
-    container.querySelectorAll<HTMLInputElement>('.bm-adj-slider').forEach(slider => {
-      slider.addEventListener('input', () => {
-        const iid = slider.dataset.iid!;
+    // Blend mode selector
+    container.querySelectorAll<HTMLSelectElement>('.bm-blend-select').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const iid = sel.dataset.iid!;
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
-        const val = parseInt(slider.value);
-        const valEl = slider.nextElementSibling as HTMLElement;
-        const isBase = iid === this.stack[this.stack.length - 1]?.instanceId;
-
-        if (slider.classList.contains('bm-hue')) {
-          layer.hueRotate = val;
-          if (valEl) valEl.textContent = `${val}°`;
-          if (isBase) this.mapManager.setBasemapPaint('raster-hue-rotate', val);
-          else this.mapManager.setBasemapOverlayPaint(iid, 'raster-hue-rotate', val);
-        } else if (slider.classList.contains('bm-sat')) {
-          layer.saturation = val / 100;
-          if (valEl) valEl.textContent = `${val}`;
-          if (isBase) this.mapManager.setBasemapPaint('raster-saturation', val / 100);
-          else this.mapManager.setBasemapOverlayPaint(iid, 'raster-saturation', val / 100);
-        } else if (slider.classList.contains('bm-con')) {
-          layer.contrast = val / 100;
-          if (valEl) valEl.textContent = `${val}`;
-          if (isBase) this.mapManager.setBasemapPaint('raster-contrast', val / 100);
-          else this.mapManager.setBasemapOverlayPaint(iid, 'raster-contrast', val / 100);
-        } else if (slider.classList.contains('bm-bri')) {
-          layer.brightness = val / 100;
-          if (valEl) valEl.textContent = `${val}%`;
-          if (isBase) this.mapManager.setBasemapPaint('raster-brightness-max', val / 100);
-          else this.mapManager.setBasemapOverlayPaint(iid, 'raster-brightness-max', val / 100);
-        }
+        layer.blendMode = sel.value;
+        // Rebuild the raster layer in the correct mode (normal ↔ canvas blend)
+        this.rebuildMap();
         this.saveStack();
       });
     });

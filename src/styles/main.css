@@ -3408,6 +3408,20 @@ input[type=color] {
   text-align: right;
   flex-shrink: 0;
 }
+.bm-blend-select {
+  flex: 1;
+  font-size: 11px;
+  background: var(--color-surface-2, #1a2a1a);
+  color: var(--color-text, #ccc);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 2px 4px;
+  cursor: pointer;
+  height: 22px;
+}
+.bm-blend-select option {
+  background: var(--color-surface-2, #1a2a1a);
+}
 .bm-adj-toggle {
   background: none;
   border: 1px solid var(--color-border);
