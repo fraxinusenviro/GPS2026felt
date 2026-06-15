@@ -1,12 +1,11 @@
 import maplibregl from 'maplibre-gl';
 import { BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import { NS_REST_ALL_DEFS } from '../data/nsRestAll';
-import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, TileCacheLayerDef, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature, SymbologyState, RasterSymbologyState, RasterStretchMode, ClassifierName } from '../types';
+import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature, SymbologyState, RasterSymbologyState, RasterStretchMode, ClassifierName } from '../types';
 import { SymbologyStudio } from '../ui/SymbologyStudio';
 import { RasterSymbologyStudio } from '../ui/RasterSymbologyStudio';
 import { RASTER_RAMPS, EXTENDED_COLOR_RAMPS, buildRgbLut, buildCogColormap, computeClassBreaks } from '../lib/rasterRamps';
 import { equalIntervalClasses, breaksToClasses, classifiedRowsHtml } from '../lib/rasterLegend';
-import type { HrdemContourLayerInfo } from '../io/VectorTileRenderer';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
@@ -192,10 +191,6 @@ export class BasemapManager {
   private rasterSampleClickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
   private rasterSampleButton: HTMLButtonElement | null = null;
   private rasterSamplePopup: maplibregl.Popup | null = null;
-
-  // Active tile cache — maps defId → bmcache:// URL template
-  private activeCacheId: string | null = null;
-  private activeCacheLayers: Map<string, string> = new Map();
 
   // Feature layer presets for the basemap TOC
   private featureLayerPresets: LayerPreset[] = [];
@@ -1200,10 +1195,10 @@ export class BasemapManager {
    * (or clears) the layer's luminance LUT with the MapManager.
    */
   private resolveRasterUrl(layer: StackLayer): string {
-    const baseUrl = this.activeCacheLayers.get(layer.defId) ?? layer.url;
+    const baseUrl = layer.url;
     const sym = layer.rasterSymbology;
     const unsupported = baseUrl.startsWith('cog://') || baseUrl.startsWith('mbtiles://')
-      || baseUrl.startsWith('bmcache://') || baseUrl.startsWith('rampify://');
+      || baseUrl.startsWith('rampify://');
     if (!sym || sym.rampId === 'original' || unsupported) {
       this.mapManager.setRasterRecolorLut(layer.instanceId, null);
       return baseUrl;
@@ -1548,89 +1543,6 @@ export class BasemapManager {
     }
   }
 
-  // ---- Tile Cache activation ----
-
-  getCacheableLayers(): TileCacheLayerDef[] {
-    return this.stack
-      .filter(l => {
-        const type = this.getLayerType(l);
-        return type === 'raster' && !l.url.startsWith('cog://') && !l.url.startsWith('mbtiles://') && !l.url.startsWith('bmcache://');
-      })
-      .map(l => {
-        const isWms = l.url.includes('{bbox-epsg-3857}');
-        return {
-          defId: l.defId,
-          label: l.label,
-          urlTemplate: l.url,
-          type: isWms ? 'wms' : 'xyz',
-        } satisfies TileCacheLayerDef;
-      });
-  }
-
-  activateCache(cacheId: string, layers: TileCacheLayerDef[]): void {
-    this.activeCacheId = cacheId;
-    this.activeCacheLayers.clear();
-    for (const layer of layers) {
-      // bmcache://cacheId/defId/{z}/{x}/{y}
-      this.activeCacheLayers.set(layer.defId, `bmcache://${cacheId}/${layer.defId}/{z}/{x}/{y}`);
-    }
-    this.refreshRasterOverlays();
-  }
-
-  deactivateCache(): void {
-    this.activeCacheId = null;
-    this.activeCacheLayers.clear();
-    this.refreshRasterOverlays();
-  }
-
-  getVisibleRasterLayers(): { url: string; opacity: number }[] {
-    return [...this.stack]
-      .reverse()
-      .filter(l => l.visible && this.getLayerType(l) === 'raster')
-      .map(l => ({
-        url: this.activeCacheLayers.get(l.defId) ?? l.url,
-        opacity: l.opacity,
-      }));
-  }
-
-  getVisibleVectorLayers(): Array<{
-    opacity: number;
-    config: VectorLayerConfig;
-    lineColorOverride?: string;
-    fillColorOverride?: string;
-    lineWidthOverride?: number;
-    fillOpacityOverride?: number;
-  }> {
-    return [...this.stack]
-      .reverse()
-      .filter(l => {
-        if (!l.visible || !l.vector_config) return false;
-        const t = this.getLayerType(l);
-        return t === 'nsprd-vector' || t === 'nshn-vector';
-      })
-      .map(l => ({
-        opacity: l.opacity,
-        config: l.vector_config!,
-        lineColorOverride: l.vecLineColor,
-        fillColorOverride: l.vecFillColor,
-        lineWidthOverride: l.vecLineWidth,
-        fillOpacityOverride: l.vecFillOpacityOverride,
-      }));
-  }
-
-  getVisibleHrdemContourLayers(): HrdemContourLayerInfo[] {
-    return [...this.stack]
-      .reverse()
-      .filter(l => l.visible && this.getLayerType(l) === 'hrdem-wcs' && l.hrdemContourEnabled)
-      .map(l => ({
-        opacity: l.opacity,
-        surface: (l.hrdemSurface ?? 'dtm') as 'dtm' | 'dsm',
-        contourInterval: l.hrdemContourInterval ?? 10,
-        contourColor: l.hrdemContourColor ?? '#ffffff',
-        contourWidth: l.hrdemContourWidth ?? 1.2,
-      }));
-  }
-
   // ---- PID Search ----
 
   async searchPID(pid: string): Promise<void> {
@@ -1726,7 +1638,7 @@ export class BasemapManager {
       if (ltype === 'raster') {
         const blendMode = l.blendMode ?? 'normal';
         const resolvedUrl = this.resolveRasterUrl(l);
-        const isTiledHttpUrl = !resolvedUrl.startsWith('cog://') && !resolvedUrl.startsWith('mbtiles://') && !resolvedUrl.startsWith('bmcache://')
+        const isTiledHttpUrl = !resolvedUrl.startsWith('cog://') && !resolvedUrl.startsWith('mbtiles://')
           && (resolvedUrl.includes('{x}') || resolvedUrl.includes('{bbox-epsg-3857}'));
 
         if (blendMode !== 'normal' && isTiledHttpUrl) {
