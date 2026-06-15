@@ -10,7 +10,7 @@ import type { Env } from './types';
 
 // Official NAVCEN (US Coast Guard Navigation Center) GPS almanac URL.
 // Published daily; valid for ~7 days. Update this if NAVCEN changes their path.
-const NAVCEN_URL = 'https://www.navcen.uscg.gov/gps/almanacs/current.alm';
+const NAVCEN_URL = 'https://www.navcen.uscg.gov/sites/default/files/gps/almanac/current_yuma.alm';
 const CACHE_KEY  = 'almanac/current.alm';
 const CACHE_TTL  = 12 * 3600 * 1000; // 12 hours in ms
 
