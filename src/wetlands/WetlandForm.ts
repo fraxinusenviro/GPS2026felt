@@ -478,18 +478,19 @@ function injectStyles(): void {
   const style = document.createElement('style');
   style.id = 'wetland-form-styles';
   style.textContent = `
-  .wf-panel { position: fixed; inset: 0; z-index: var(--z-modal, 200); background: var(--color-bg); color: var(--color-text);
-    font-family: var(--font); opacity: 0; transition: opacity .2s ease; overflow: hidden; }
+  .wf-panel { position: fixed; inset: 0; z-index: var(--z-modal, 200); background: rgba(0,0,0,0.55); color: var(--color-text);
+    font-family: var(--font); display: flex; align-items: center; justify-content: center; padding: 18px; opacity: 0; transition: opacity .2s ease; }
   .wf-panel.open { opacity: 1; }
-  .wf-inner { display: flex; flex-direction: column; height: 100%; }
-  .wf-header { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--color-border); background: var(--color-surface); }
+  .wf-inner { display: flex; flex-direction: column; width: 100%; max-width: 760px; max-height: 94vh;
+    background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden; }
+  .wf-header { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--color-border); background: var(--color-surface-2); }
   .wf-header-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .wf-title { font-weight: 700; font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .wf-plotid { color: var(--color-accent); }
-  .wf-close { flex-shrink: 0; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; line-height: 1; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface-2); color: var(--color-text); cursor: pointer; }
+  .wf-close { flex-shrink: 0; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; line-height: 1; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface-3); color: var(--color-text); cursor: pointer; }
   .wf-close:hover { background: var(--color-danger-dim); border-color: var(--color-danger); color: var(--color-danger); }
   .wf-tabs { display: flex; gap: 6px; }
-  .wf-tab { flex: 1; padding: 9px 10px; border: 1px solid var(--color-border); border-bottom: 3px solid var(--tab-color, var(--color-border)); background: transparent; color: var(--color-text); border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; font-weight: 600; font-family: inherit; }
+  .wf-tab { flex: 1; padding: 9px 8px; border: 1px solid var(--color-border); border-bottom: 3px solid var(--tab-color, var(--color-border)); background: transparent; color: var(--color-text); border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; font-weight: 600; font-family: inherit; }
   .wf-tab.active { color: #04140d; font-weight: 700; background: var(--tab-color, var(--color-accent)); border-color: var(--tab-color, var(--color-accent)); }
   .wf-tab-metadata { --tab-color: #38bdf8; }
   .wf-tab-vegetation { --tab-color: #4ade80; }
@@ -503,66 +504,68 @@ function injectStyles(): void {
   .wf-veg-tree { --wf-accent: #4ade80; }
   .wf-veg-shrub { --wf-accent: #c084fc; }
   .wf-veg-herb { --wf-accent: #60a5fa; }
-  .wf-chevron { width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; line-height: 1; font-weight: 700;
+  .wf-chevron { width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; font-size: 24px; line-height: 1; font-weight: 700;
     border: 1px solid var(--wf-accent, var(--color-accent)); background: color-mix(in srgb, var(--wf-accent, var(--color-accent)) 18%, transparent);
     color: var(--wf-accent, var(--color-accent)); border-radius: var(--radius-sm); cursor: pointer; transition: transform .15s ease; }
   .wf-chevron.collapsed { transform: rotate(-90deg); }
-  .wf-body { flex: 1; overflow-y: auto; padding: 16px; max-width: 1100px; width: 100%; margin: 0 auto; }
-  .wf-footer { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--color-border); background: var(--color-surface); }
+  .wf-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+  .wf-footer { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--color-border); background: var(--color-surface-2); }
   .wf-status { color: var(--color-accent); font-size: 13px; }
   .wf-foot-actions { margin-left: auto; display: flex; gap: 8px; }
-  .wf-btn { padding: 10px 18px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text); border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; font-family: inherit; }
+  .wf-btn { padding: 11px 18px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text); border-radius: var(--radius-sm); cursor: pointer; font-size: 15px; font-family: inherit; }
   .wf-btn:hover { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-dim); }
   .wf-btn.wf-primary { background: var(--color-accent); border-color: var(--color-accent); color: #04140d; font-weight: 700; }
   .wf-btn.wf-primary:hover { opacity: 0.9; color: #04140d; background: var(--color-accent); }
-  .wf-mini { width: 34px; height: 34px; border: 1px solid var(--color-border); background: var(--color-surface-2); color: var(--color-text); border-radius: var(--radius-sm); cursor: pointer; font-size: 16px; }
-  .wf-card { background: var(--color-surface); border: 1px solid var(--color-border); border-left: 5px solid var(--wf-accent, var(--color-accent)); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; }
-  .wf-card h4 { margin: 0 0 12px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--wf-accent, var(--color-accent)); }
+  .wf-mini { width: 38px; height: 38px; border: 1px solid var(--color-border); background: var(--color-surface-3); color: var(--color-text); border-radius: var(--radius-sm); cursor: pointer; font-size: 18px; }
+  .wf-card { background: var(--color-surface-2); border: 1px solid var(--color-border); border-left: 5px solid var(--wf-accent, var(--color-accent)); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
+  .wf-card h4 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--wf-accent, var(--color-accent)); }
   /* Condensed inline rows: label + field on one line (Metadata / Hydrology) */
-  .wf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px 20px; }
-  .wf-field { display: flex; align-items: center; gap: 12px; min-height: 44px; }
-  .wf-field > label { flex: 0 0 42%; font-size: 15px; font-weight: 500; color: var(--color-text-dim); line-height: 1.25; }
+  .wf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 8px 18px; }
+  .wf-field { display: flex; align-items: center; gap: 12px; min-height: 50px; }
+  .wf-field > label { flex: 0 0 46%; font-size: 16px; font-weight: 500; color: var(--color-text-dim); line-height: 1.2; }
   .wf-field input, .wf-field select, .wf-field textarea, .wf-soil-cell input, .wf-soil-cell select {
-    flex: 1 1 auto; min-width: 0; width: 100%; padding: 10px 12px; border: 1px solid var(--color-border);
-    background: var(--color-input-bg); color: var(--color-text); border-radius: var(--radius-sm); font-size: 15px; font-family: inherit; }
+    flex: 1 1 auto; min-width: 0; width: 100%; padding: 12px 13px; border: 1px solid var(--color-border);
+    background: var(--color-input-bg); color: var(--color-text); border-radius: var(--radius-sm); font-size: 17px; font-family: inherit; }
   .wf-field input:focus-visible, .wf-field select:focus-visible, .wf-field textarea:focus-visible,
   .wf-soil-cell input:focus-visible, .wf-soil-cell select:focus-visible { border-color: var(--color-accent); outline: none; }
   .wf-field.wf-field-block { flex-direction: column; align-items: stretch; gap: 6px; }
   .wf-field.wf-field-block > label { flex: none; }
-  .wf-field textarea { min-height: 80px; resize: vertical; }
+  .wf-field textarea { min-height: 84px; resize: vertical; }
   .wf-veg-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
   .wf-veg-head h4 { margin: 0; }
   .wf-veg-controls { display: flex; align-items: center; gap: 8px; }
-  .wf-count { min-width: 24px; text-align: center; font-weight: 700; font-size: 15px; }
+  .wf-count { min-width: 24px; text-align: center; font-weight: 700; font-size: 16px; }
   .wf-veg-table { display: flex; flex-direction: column; gap: 6px; }
-  .wf-veg-row { display: grid; grid-template-columns: 26px 1fr 88px 36px; gap: 8px; align-items: center; }
+  .wf-veg-row { display: grid; grid-template-columns: 24px 1fr 84px 34px; gap: 8px; align-items: center; }
   .wf-veg-header { font-size: 13px; font-weight: 600; color: var(--color-text-dim); }
-  .wf-veg-row input[type=text], .wf-veg-row input[type=number] { padding: 9px 10px; border: 1px solid var(--color-border); background: var(--color-input-bg); color: var(--color-text); border-radius: var(--radius-sm); font-size: 15px; font-family: inherit; width: 100%; }
+  .wf-veg-row input[type=text], .wf-veg-row input[type=number] { padding: 11px 10px; border: 1px solid var(--color-border); background: var(--color-input-bg); color: var(--color-text); border-radius: var(--radius-sm); font-size: 16px; font-family: inherit; width: 100%; }
   .wf-veg-idx { text-align: center; color: var(--color-text-muted); font-weight: 600; }
   .wf-indices { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 14px; }
   .wf-muted { color: var(--color-text-muted); font-size: 13px; margin: 8px 0 0; }
-  .wf-check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
-  .wf-check { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; line-height: 1.35; }
-  .wf-check input { margin-top: 2px; width: 18px; height: 18px; flex-shrink: 0; }
-  .wf-restrictive { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--color-text-dim); }
-  .wf-soil-table { display: flex; flex-direction: column; gap: 10px; }
-  .wf-soil-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
-  .wf-soil-cell { display: flex; align-items: center; gap: 12px; min-height: 44px; }
-  .wf-soil-cell > label { flex: 0 0 42%; font-size: 15px; font-weight: 500; color: var(--color-text-dim); line-height: 1.25; }
+  /* Checkbox lists: one per line, checkbox immediately beside its label */
+  .wf-check-grid { display: grid; grid-template-columns: 1fr; gap: 4px; }
+  .wf-check { display: flex; gap: 10px; align-items: center; font-size: 16px; line-height: 1.3; padding: 4px 2px; }
+  .wf-check input { width: 22px; height: 22px; flex-shrink: 0; }
+  .wf-restrictive { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--color-text-dim); }
+  .wf-restrictive input { width: 20px; height: 20px; }
+  .wf-soil-table { display: flex; flex-direction: column; gap: 8px; }
+  .wf-soil-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .wf-soil-cell { display: flex; align-items: center; gap: 12px; min-height: 50px; }
+  .wf-soil-cell > label { flex: 0 0 46%; font-size: 16px; font-weight: 500; color: var(--color-text-dim); line-height: 1.2; }
   .wf-photo-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .wf-photo-item { position: relative; }
   .wf-photo-item img { width: 96px; height: 96px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--color-border); }
   .wf-photo-item button { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: none; background: var(--color-danger); color: #fff; cursor: pointer; }
   @media (max-width: 640px) {
+    .wf-panel { padding: 0; }
+    .wf-inner { max-width: none; max-height: none; height: 100%; border: none; border-radius: 0; }
     .wf-header { padding: 10px 12px; gap: 8px; }
     .wf-title { font-size: 15px; }
     .wf-tab { text-align: center; padding: 9px 4px; font-size: 13px; }
     .wf-body { padding: 12px; }
-    .wf-grid, .wf-check-grid { grid-template-columns: 1fr; }
-    .wf-indices { grid-template-columns: 1fr; }
-    .wf-soil-row { grid-template-columns: 1fr; gap: 8px; }
-    .wf-field > label, .wf-soil-cell > label { flex-basis: 44%; font-size: 16px; }
-    .wf-field input, .wf-field select, .wf-soil-cell input, .wf-soil-cell select, .wf-veg-row input { font-size: 16px; padding: 11px 12px; }
+    .wf-grid, .wf-indices, .wf-soil-row { grid-template-columns: 1fr; }
+    .wf-field > label, .wf-soil-cell > label { flex-basis: 44%; font-size: 17px; }
+    .wf-field input, .wf-field select, .wf-soil-cell input, .wf-soil-cell select, .wf-veg-row input { font-size: 17px; padding: 13px 12px; }
     .wf-foot-actions { width: 100%; }
     .wf-foot-actions .wf-btn { flex: 1; }
     #wf-prev, #wf-next { display: none; }
