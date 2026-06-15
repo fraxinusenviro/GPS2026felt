@@ -6,6 +6,7 @@ import { buildColorExpression, buildRadiusExpression } from '../lib/symbologyEng
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
 import { SymbolRenderer, renderIconImageData } from '../ui/SymbolRenderer';
+import { wetlandPlotColor } from '../wetlands/wetlandSurvey';
 import proj4 from 'proj4';
 
 // ---- Module-level COG colormap registry (mutable so ramp can be changed at runtime) ----
@@ -813,7 +814,7 @@ export class MapManager {
       if (tp && tp.visible === false) continue;
 
       // TypePreset color takes priority; features without any matched preset render grey
-      const color       = tp?.color        ?? '#888888';
+      let color         = tp?.color        ?? '#888888';
       const strokeColor = tp?.stroke_color ?? '#aaaaaa';
       const strokeWidth = tp?.stroke_width ?? 2;
       const fillOpacity = tp?.fill_opacity ?? (f.geometry_type === 'Polygon' ? 0.4 : 1.0);
@@ -828,7 +829,19 @@ export class MapManager {
       const useSymbol = (shape !== 'circle') || (icon !== '');
 
       // label_text: type name, falling back to note/desc; empty when show_labels explicitly false
-      const labelText = (!tp || tp.show_labels !== false) ? (f.type || f.desc || '') : '';
+      let labelText = (!tp || tp.show_labels !== false) ? (f.type || f.desc || '') : '';
+
+      // Wetland plots render in their own layer: colour differentially by Upland vs
+      // Wetland plot type and label by PLOT ID (falling back to the point id).
+      const isWetlandPlot = f.layer_id.endsWith('-wetlands') || !!f.wetland_data;
+      let plotId = '';
+      let plotType = '';
+      if (isWetlandPlot) {
+        plotType = String(f.wetland_data?.PLOT_TYPE ?? '');
+        plotId = String(f.wetland_data?.PLOT_ID ?? '') || f.point_id;
+        color = wetlandPlotColor(plotType);
+        labelText = plotId;
+      }
 
       const geoFeature = {
         type: 'Feature',
@@ -840,6 +853,8 @@ export class MapManager {
           type: f.type,
           desc: f.desc,
           label_text: labelText,
+          PLOT_ID: plotId,
+          PLOT_TYPE: plotType,
           color,
           stroke_color: strokeColor,
           stroke_width: strokeWidth,

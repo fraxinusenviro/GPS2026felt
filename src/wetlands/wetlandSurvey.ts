@@ -42,6 +42,15 @@ export const hydrologyFields: FieldDef[] = [
 
 export const VEG_GROUPS: Array<[string, number]> = [['Tree', 6], ['Shrub', 6], ['Herb', 10]];
 
+// Differential plot symbology: Wetland plots vs Upland (control) plots.
+export const WETLAND_PLOT_COLOR = '#0b6b50'; // teal
+export const UPLAND_PLOT_COLOR = '#b45309';  // amber/brown
+
+/** Colour for a plot given its PLOT_TYPE ("Upland Control Plot" → amber). */
+export function wetlandPlotColor(plotType: unknown): string {
+  return String(plotType || '').toLowerCase().includes('upland') ? UPLAND_PLOT_COLOR : WETLAND_PLOT_COLOR;
+}
+
 export function makeId(): string {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   return `id_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;

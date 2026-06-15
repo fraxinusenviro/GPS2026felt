@@ -1,17 +1,24 @@
 /**
  * Orchestrates the Wetlands module: dropping plots, editing the survey form,
- * and generating the per-plot PDF report. A wetland plot is a point FieldFeature
- * in the dedicated per-project `{projectId}-wetlands` layer, carrying the full
- * delineation survey in its wetland_data field (persisted locally + synced).
+ * generating per-plot PDF reports, and surfacing the plots in the map legend.
+ *
+ * A wetland plot is a point FieldFeature in the per-project `{projectId}-wetlands`
+ * layer, carrying the full delineation survey in its wetland_data field. Every
+ * plot is also part of a cross-project "master" set (all wetland features across
+ * projects), with each plot tagged by its Project — this backs the Edit Plot
+ * list, the Report picker, and the master export.
  */
-import type { AppSettings, FieldFeature } from '../types';
+import type { AppSettings, FieldFeature, Project } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import type { MapManager } from '../map/MapManager';
 import type { CaptureManager } from '../capture/CaptureManager';
 import { EventBus } from '../utils/EventBus';
 import { WetlandForm } from './WetlandForm';
 import { exportRecordPdf, reportBaseName } from './WetlandReport';
-import { defaultWetlandSurvey, str } from './wetlandSurvey';
+import {
+  defaultWetlandSurvey, str, dateStamp, displayLabel,
+  WETLAND_PLOT_COLOR, UPLAND_PLOT_COLOR,
+} from './wetlandSurvey';
 
 export class WetlandsManager {
   private storage = StorageManager.getInstance();
@@ -28,10 +35,10 @@ export class WetlandsManager {
       await this.storage.saveFeature(feature);
       EventBus.emit('feature-updated', { feature });
       EventBus.emit('toast', { message: 'Wetland plot saved', type: 'success', duration: 1800 });
+      void this.renderLegend();
     });
 
-    // Intercept selection of wetland plots: open the survey form instead of the
-    // generic feature editor (which we hide so two panels don't stack).
+    // Open the survey form (not the generic editor) when a wetland plot is selected.
     EventBus.on<{ feature: FieldFeature }>('feature-selected', ({ feature }) => {
       if (!this.isWetlandPlot(feature)) { this.selectedPlot = null; return; }
       this.selectedPlot = feature;
@@ -39,10 +46,16 @@ export class WetlandsManager {
       void this.form.open(feature);
     });
     EventBus.on('feature-deselected', () => { this.selectedPlot = null; });
-    EventBus.on<{ id: string }>('feature-deleted', ({ id }) => { if (this.selectedPlot?.id === id) this.selectedPlot = null; });
+    EventBus.on<{ id: string }>('feature-deleted', ({ id }) => {
+      if (this.selectedPlot?.id === id) this.selectedPlot = null;
+      void this.renderLegend();
+    });
+    EventBus.on('feature-added', () => void this.renderLegend());
+    EventBus.on('feature-updated', () => void this.renderLegend());
   }
 
   private activeProjectId(): string { return this.getSettings().active_project_id || 'default'; }
+  private wetlandsLayerId(projectId = this.activeProjectId()): string { return `${projectId}-wetlands`; }
 
   private isWetlandPlot(f: FieldFeature): boolean {
     return f.layer_id.endsWith('-wetlands') || !!f.wetland_data;
@@ -50,11 +63,11 @@ export class WetlandsManager {
 
   /** Ensure the active project has its `{projectId}-wetlands` LayerPreset. */
   async ensureWetlandsLayer(projectId: string): Promise<string> {
-    const layerId = `${projectId}-wetlands`;
+    const layerId = this.wetlandsLayerId(projectId);
     if (!(await this.storage.getLayerPreset(layerId))) {
       await this.storage.saveLayerPreset({
         id: layerId, name: 'Wetland Plots', geometry_type: 'Point',
-        color: '#0b6b50', stroke_color: '#ffffff', stroke_width: 2, fill_opacity: 0.9,
+        color: WETLAND_PLOT_COLOR, stroke_color: '#ffffff', stroke_width: 2, fill_opacity: 0.9,
         types: [], project_id: projectId, visible: true,
       });
       await this.refreshProjectLayers();
@@ -68,6 +81,24 @@ export class WetlandsManager {
     const p = (n: number) => String(n).padStart(2, '0');
     return `${userId}_${now.getFullYear()}_${p(now.getMonth() + 1)}_${p(now.getDate())}_${p(now.getHours())}${p(now.getMinutes())}`;
   }
+
+  // ---- master data (all wetland plots across all projects) ----
+
+  private async projectNameMap(): Promise<Map<string, string>> {
+    const projects: Project[] = await this.storage.getAllProjects();
+    const m = new Map<string, string>();
+    projects.forEach(p => m.set(p.id, p.name));
+    return m;
+  }
+
+  /** Every wetland plot across all projects, newest first. */
+  private async getAllPlots(): Promise<FieldFeature[]> {
+    const all = await this.storage.getAllFeatures();
+    return all.filter(f => this.isWetlandPlot(f))
+      .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+  }
+
+  // ---- add ----
 
   /** Drop a new wetland plot (at GPS fix or map centre) and open the form. */
   async startAddPlot(): Promise<void> {
@@ -92,6 +123,7 @@ export class WetlandsManager {
     const survey = defaultWetlandSurvey();
     survey.latitude = lat;
     survey.longitude = lon;
+    survey.Project = (await this.storage.getProject(projectId))?.name ?? projectId;
 
     const feature: FieldFeature = {
       id: crypto.randomUUID(),
@@ -119,35 +151,83 @@ export class WetlandsManager {
     await this.form.open(feature);
   }
 
-  /** Report button: PDF for the selected plot, or pick from the project's plots. */
-  async openReportPicker(): Promise<void> {
-    if (this.selectedPlot && this.isWetlandPlot(this.selectedPlot)) {
-      await this.generateReport(this.selectedPlot);
-      return;
-    }
-    const plots = (await this.storage.getFeaturesByLayer(`${this.activeProjectId()}-wetlands`))
-      .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
-    if (plots.length === 0) {
-      EventBus.emit('toast', { message: 'No wetland plots in this project yet', type: 'warning' });
-      return;
-    }
-    if (plots.length === 1) { await this.generateReport(plots[0]); return; }
+  // ---- edit list (all submitted plots) ----
 
-    const options = plots.map(p => {
-      const d = p.wetland_data;
-      const label = `${str(d?.SiteID) || 'Untitled'} · ${str(d?.PLOT_ID) || p.point_id}`;
-      return `<option value="${p.id}">${escapeHtml(label)}</option>`;
-    }).join('');
+  async openEditList(): Promise<void> {
+    const plots = await this.getAllPlots();
+    if (plots.length === 0) {
+      EventBus.emit('toast', { message: 'No wetland plots collected yet', type: 'warning' });
+      return;
+    }
+    const names = await this.projectNameMap();
+    const rows = plots.map(p => this.plotRowHtml(p, names.get(p.project_id) ?? p.project_id, 'Edit')).join('');
     EventBus.emit('show-modal', {
-      title: 'Wetland Plot Report',
-      html: `<div class="form-group"><label>Select a plot<select id="wl-report-select" style="width:100%">${options}</select></label></div>`,
-      confirmLabel: 'Generate PDF',
-      onConfirm: () => {
-        const id = (document.getElementById('wl-report-select') as HTMLSelectElement | null)?.value;
-        const plot = plots.find(p => p.id === id);
-        if (plot) void this.generateReport(plot);
-      },
-      onCancel: () => {},
+      title: `Wetland Plots — Master (${plots.length})`,
+      html: `
+        <div class="wl-list-toolbar">
+          <button class="btn-outline btn-sm" id="wl-export-master">Export Master GeoJSON</button>
+        </div>
+        <div class="wl-list">${rows}</div>`,
+      confirmLabel: 'Close',
+    });
+    this.wirePlotList(plots, (plot) => {
+      this.selectedPlot = plot;
+      hideFeatureEditorPanel();
+      if (plot.lat != null && plot.lon != null) this.mapManager.flyTo(plot.lat, plot.lon);
+      void this.form.open(plot);
+    });
+    requestAnimationFrame(() => {
+      document.getElementById('wl-export-master')?.addEventListener('click', () => void this.exportMaster());
+    });
+  }
+
+  // ---- report (always presents the list of available plots) ----
+
+  async openReportPicker(): Promise<void> {
+    const plots = await this.getAllPlots();
+    if (plots.length === 0) {
+      EventBus.emit('toast', { message: 'No wetland plots available for export', type: 'warning' });
+      return;
+    }
+    const names = await this.projectNameMap();
+    const rows = plots.map(p => this.plotRowHtml(p, names.get(p.project_id) ?? p.project_id, 'PDF')).join('');
+    EventBus.emit('show-modal', {
+      title: 'Wetland Plot Report — select a plot',
+      html: `<div class="wl-list">${rows}</div>`,
+      confirmLabel: 'Close',
+    });
+    this.wirePlotList(plots, (plot) => void this.generateReport(plot));
+  }
+
+  private plotRowHtml(f: FieldFeature, projectName: string, action: string): string {
+    const d = f.wetland_data;
+    const site = str(d?.SiteID) || 'Untitled Site';
+    const plotId = str(d?.PLOT_ID) || f.point_id;
+    const ptype = str(d?.PLOT_TYPE) || '—';
+    const isUpland = ptype.toLowerCase().includes('upland');
+    const dot = isUpland ? UPLAND_PLOT_COLOR : WETLAND_PLOT_COLOR;
+    const when = f.updated_at ? new Date(f.updated_at).toLocaleDateString('en-CA') : '';
+    return `
+      <div class="wl-list-row">
+        <span class="wl-dot" style="background:${dot}" title="${escapeHtml(ptype)}"></span>
+        <div class="wl-list-info">
+          <strong>${escapeHtml(site)}</strong>
+          <span class="wl-list-meta">${escapeHtml(projectName)} · ${escapeHtml(plotId)} · ${escapeHtml(ptype)}${when ? ' · ' + when : ''}</span>
+        </div>
+        <button class="btn-sm wl-list-act" data-id="${f.id}">${action}</button>
+      </div>`;
+  }
+
+  private wirePlotList(plots: FieldFeature[], onPick: (f: FieldFeature) => void): void {
+    requestAnimationFrame(() => {
+      document.querySelectorAll<HTMLButtonElement>('.wl-list-act').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const plot = plots.find(p => p.id === btn.dataset.id);
+          if (!plot) return;
+          (document.getElementById('modal-close') as HTMLButtonElement | null)?.click();
+          onPick(plot);
+        });
+      });
     });
   }
 
@@ -161,11 +241,81 @@ export class WetlandsManager {
       EventBus.emit('toast', { message: 'PDF export failed in this browser', type: 'error' });
     }
   }
+
+  /** Export every wetland plot (all projects) as one master GeoJSON file. */
+  private async exportMaster(): Promise<void> {
+    const plots = await this.getAllPlots();
+    const names = await this.projectNameMap();
+    const features = plots.map(f => {
+      const d = f.wetland_data ?? defaultWetlandSurvey();
+      const props: Record<string, unknown> = { Project: names.get(f.project_id) ?? f.project_id, project_id: f.project_id, point_id: f.point_id };
+      for (const [k, v] of Object.entries(d)) {
+        if (k === 'photos') { props.photo_count = Array.isArray(v) ? v.length : 0; continue; }
+        props[k] = Array.isArray(v) ? v.join('; ') : v;
+      }
+      return { type: 'Feature', geometry: f.geometry, properties: props };
+    });
+    const fc = { type: 'FeatureCollection', features };
+    downloadText(JSON.stringify(fc, null, 2), `Wetland_Master_${dateStamp()}.geojson`, 'application/geo+json');
+    EventBus.emit('toast', { message: `Master export: ${plots.length} plot(s)`, type: 'success', duration: 2000 });
+  }
+
+  // ---- map legend "User Data" section ----
+
+  /** Render the Wetland Plots item into the legend drawer's User Data section. */
+  async renderLegend(): Promise<void> {
+    const root = document.getElementById('user-data-legend');
+    if (!root) return;
+    const projectId = this.activeProjectId();
+    const layer = await this.storage.getLayerPreset(this.wetlandsLayerId(projectId));
+    if (!layer) { root.innerHTML = ''; return; }
+    const plots = await this.storage.getFeaturesByLayer(this.wetlandsLayerId(projectId));
+    const upland = plots.filter(p => str(p.wetland_data?.PLOT_TYPE).toLowerCase().includes('upland')).length;
+    const wetland = plots.length - upland;
+    const visible = layer.visible !== false;
+
+    root.innerHTML = `
+      <div class="ud-section-title">User Data</div>
+      <div class="ud-item">
+        <div class="ud-head">
+          <button class="ud-vis ${visible ? 'active' : ''}" id="ud-wetlands-vis" title="Toggle Wetland Plots">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+          <span class="ud-name">Wetland Plots</span>
+          <span class="ud-count">${plots.length}</span>
+        </div>
+        <div class="ud-legend">
+          <div class="ud-legend-row"><span class="ud-swatch" style="background:${WETLAND_PLOT_COLOR}"></span>Wetland Plot (${wetland})</div>
+          <div class="ud-legend-row"><span class="ud-swatch" style="background:${UPLAND_PLOT_COLOR}"></span>Upland Plot (${upland})</div>
+        </div>
+        <div class="ud-note">Labelled by ${displayLabel('PLOT_ID')}</div>
+      </div>`;
+
+    document.getElementById('ud-wetlands-vis')?.addEventListener('click', () => void this.toggleWetlandsVisibility());
+  }
+
+  private async toggleWetlandsVisibility(): Promise<void> {
+    const layer = await this.storage.getLayerPreset(this.wetlandsLayerId());
+    if (!layer) return;
+    layer.visible = layer.visible === false;
+    await this.storage.saveLayerPreset(layer);
+    await this.refreshProjectLayers();
+    await this.renderLegend();
+  }
 }
 
 function hideFeatureEditorPanel(): void {
   const fe = document.getElementById('feature-editor-panel');
   if (fe) { fe.classList.remove('open'); fe.style.display = 'none'; }
+}
+
+function downloadText(content: string, filename: string, mime: string): void {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 function escapeHtml(s: string): string {

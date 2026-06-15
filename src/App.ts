@@ -218,6 +218,7 @@ export class App {
     this.projectLayerPresets = await this.storage.getLayersByProject(activeProjectId);
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     this.projectPanel.setActiveProjectId(activeProjectId);
+    void this.wetlandsManager.renderLegend();
 
     this.applySettings(this.settings);
     this.captureManager.startGPSWatch();
@@ -301,6 +302,7 @@ export class App {
     const activeId = this.settings.active_project_id || 'default';
     this.projectLayerPresets = await this.storage.getLayersByProject(activeId);
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+    void this.wetlandsManager.renderLegend();
   }
 
   /** True if the incoming stack's layers differ from what's currently on the map. */
@@ -1247,6 +1249,9 @@ export class App {
     // WETLANDS group (left toolbar)
     document.getElementById('btn-wetlands-add-plot')?.addEventListener('click', () => {
       void this.wetlandsManager.startAddPlot();
+    });
+    document.getElementById('btn-wetlands-edit-plot')?.addEventListener('click', () => {
+      void this.wetlandsManager.openEditList();
     });
     document.getElementById('btn-wetlands-report')?.addEventListener('click', () => {
       void this.wetlandsManager.openReportPicker();
@@ -2209,6 +2214,7 @@ export class App {
     this.features = await this.storage.getFeaturesByProject(id);
     this.projectLayerPresets = await this.storage.getLayersByProject(id);
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+    void this.wetlandsManager.renderLegend();
 
     // Update UI
     this.captureManager.setSettings(this.settings);
