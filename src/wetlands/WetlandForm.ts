@@ -72,9 +72,11 @@ export class WetlandForm {
     this.panel.innerHTML = `
       <div class="wf-inner">
         <div class="wf-header">
-          <div class="wf-title">Wetland Plot · <span class="wf-plotid">${escapeHtml(str(this.survey.PLOT_ID) || this.feature?.point_id || 'New Plot')}</span></div>
+          <div class="wf-header-top">
+            <div class="wf-title">Wetland Plot · <span class="wf-plotid">${escapeHtml(str(this.survey.PLOT_ID) || this.feature?.point_id || 'New Plot')}</span></div>
+            <button class="wf-close" id="wf-close" title="Close without saving" aria-label="Close">✕</button>
+          </div>
           <div class="wf-tabs" id="wf-tabs"></div>
-          <button class="wf-close" id="wf-close" title="Close without saving">✕</button>
         </div>
         <div class="wf-body" id="wf-body"></div>
         <div class="wf-footer">
@@ -92,7 +94,7 @@ export class WetlandForm {
     PAGES.forEach((p, i) => {
       const b = document.createElement('button');
       b.textContent = p[0].toUpperCase() + p.slice(1);
-      b.className = 'wf-tab' + (i === this.activeTab ? ' active' : '');
+      b.className = `wf-tab wf-tab-${p}` + (i === this.activeTab ? ' active' : '');
       b.onclick = () => this.setActiveTab(i);
       tabs.appendChild(b);
     });
@@ -115,6 +117,7 @@ export class WetlandForm {
   private renderActivePage(): void {
     const body = this.panel.querySelector('#wf-body') as HTMLElement;
     if (!body) return;
+    body.className = `wf-body wf-page-${this.page}`;
     body.innerHTML = '';
     if (this.page === 'metadata') this.renderMetadata(body);
     else if (this.page === 'vegetation') this.renderVegetation(body);
@@ -219,11 +222,11 @@ export class WetlandForm {
       head.innerHTML = `<h4>${g} Species</h4>`;
       const controls = document.createElement('div');
       controls.className = 'wf-veg-controls';
-      const minus = btn('−'); const count = document.createElement('span'); count.className = 'wf-count'; count.textContent = String(this.vegUi[g].count); const plus = btn('+'); const chev = btn(this.vegUi[g].collapsed ? '▸' : '▾');
+      const minus = btn('−'); const count = document.createElement('span'); count.className = 'wf-count'; count.textContent = String(this.vegUi[g].count); const plus = btn('+'); const chevBtn = chev(this.vegUi[g].collapsed);
       minus.onclick = () => { this.vegUi[g].count = Math.max(1, this.vegUi[g].count - 1); this.renderActivePage(); };
       plus.onclick = () => { this.vegUi[g].count = Math.min(this.vegUi[g].max, this.vegUi[g].count + 1); this.renderActivePage(); };
-      chev.onclick = () => { this.vegUi[g].collapsed = !this.vegUi[g].collapsed; this.renderActivePage(); };
-      controls.append(minus, count, plus, chev);
+      chevBtn.onclick = () => { this.vegUi[g].collapsed = !this.vegUi[g].collapsed; this.renderActivePage(); };
+      controls.append(minus, count, plus, chevBtn);
       head.appendChild(controls);
       c.appendChild(head);
 
@@ -341,9 +344,9 @@ export class WetlandForm {
       const rcb = document.createElement('input'); rcb.type = 'checkbox'; rcb.checked = isRestrictiveHorizon(this.survey, h);
       rcb.onchange = () => { this.survey[`SoilH${h}RestrictiveYN`] = rcb.checked ? 'Yes' : 'No'; syncHorizonDepthLinks(this.survey, this.soilUi.horizonCount); this.renderActivePage(); };
       restLbl.append(rcb, document.createTextNode(' Restrictive layer / pit end'));
-      const chev = btn(this.soilUi.horizons[h]?.collapsed ? '▸' : '▾');
-      chev.onclick = () => { this.soilUi.horizons[h].collapsed = !this.soilUi.horizons[h].collapsed; this.renderActivePage(); };
-      ctr.append(restLbl, chev);
+      const chevBtn = chev(this.soilUi.horizons[h]?.collapsed);
+      chevBtn.onclick = () => { this.soilUi.horizons[h].collapsed = !this.soilUi.horizons[h].collapsed; this.renderActivePage(); };
+      ctr.append(restLbl, chevBtn);
       hh.appendChild(ctr);
       c.appendChild(hh);
 
@@ -449,6 +452,14 @@ function btn(text: string): HTMLButtonElement {
   b.type = 'button'; b.className = 'wf-mini'; b.textContent = text;
   return b;
 }
+function chev(collapsed: boolean): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'wf-chevron' + (collapsed ? ' collapsed' : '');
+  b.textContent = '▾';
+  b.setAttribute('aria-label', collapsed ? 'Expand section' : 'Collapse section');
+  return b;
+}
 function card(title: string, child: HTMLElement): HTMLElement {
   const c = document.createElement('div');
   c.className = 'wf-card';
@@ -471,14 +482,31 @@ function injectStyles(): void {
     font-family: var(--font); opacity: 0; transition: opacity .2s ease; overflow: hidden; }
   .wf-panel.open { opacity: 1; }
   .wf-inner { display: flex; flex-direction: column; height: 100%; }
-  .wf-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--color-border); background: var(--color-surface); flex-wrap: wrap; }
-  .wf-title { font-weight: 700; font-size: 16px; }
+  .wf-header { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--color-border); background: var(--color-surface); }
+  .wf-header-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .wf-title { font-weight: 700; font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .wf-plotid { color: var(--color-accent); }
-  .wf-tabs { display: flex; gap: 6px; margin-left: auto; }
-  .wf-tab { padding: 8px 16px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text); border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; font-family: inherit; }
-  .wf-tab.active { background: var(--color-accent); border-color: var(--color-accent); color: #04140d; font-weight: 700; }
-  .wf-close { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12); color: var(--color-text); font-size: 16px; cursor: pointer; padding: 6px 10px; border-radius: var(--radius-sm); }
-  .wf-close:hover { background: rgba(255,255,255,0.15); }
+  .wf-close { flex-shrink: 0; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; line-height: 1; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface-2); color: var(--color-text); cursor: pointer; }
+  .wf-close:hover { background: var(--color-danger-dim); border-color: var(--color-danger); color: var(--color-danger); }
+  .wf-tabs { display: flex; gap: 6px; }
+  .wf-tab { flex: 1; padding: 9px 10px; border: 1px solid var(--color-border); border-bottom: 3px solid var(--tab-color, var(--color-border)); background: transparent; color: var(--color-text); border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; font-weight: 600; font-family: inherit; }
+  .wf-tab.active { color: #04140d; font-weight: 700; background: var(--tab-color, var(--color-accent)); border-color: var(--tab-color, var(--color-accent)); }
+  .wf-tab-metadata { --tab-color: #38bdf8; }
+  .wf-tab-vegetation { --tab-color: #4ade80; }
+  .wf-tab-hydrology { --tab-color: #60a5fa; }
+  .wf-tab-soils { --tab-color: #f59e0b; }
+  /* Per-tab subsection theming */
+  .wf-page-metadata { --wf-accent: #38bdf8; }
+  .wf-page-vegetation { --wf-accent: #4ade80; }
+  .wf-page-hydrology { --wf-accent: #60a5fa; }
+  .wf-page-soils { --wf-accent: #f59e0b; }
+  .wf-veg-tree { --wf-accent: #4ade80; }
+  .wf-veg-shrub { --wf-accent: #c084fc; }
+  .wf-veg-herb { --wf-accent: #60a5fa; }
+  .wf-chevron { width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; line-height: 1; font-weight: 700;
+    border: 1px solid var(--wf-accent, var(--color-accent)); background: color-mix(in srgb, var(--wf-accent, var(--color-accent)) 18%, transparent);
+    color: var(--wf-accent, var(--color-accent)); border-radius: var(--radius-sm); cursor: pointer; transition: transform .15s ease; }
+  .wf-chevron.collapsed { transform: rotate(-90deg); }
   .wf-body { flex: 1; overflow-y: auto; padding: 14px 16px; max-width: 1100px; width: 100%; margin: 0 auto; }
   .wf-footer { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--color-border); background: var(--color-surface); }
   .wf-status { color: var(--color-accent); font-size: 13px; }
@@ -488,8 +516,8 @@ function injectStyles(): void {
   .wf-btn.wf-primary { background: var(--color-accent); border-color: var(--color-accent); color: #04140d; font-weight: 700; }
   .wf-btn.wf-primary:hover { opacity: 0.9; color: #04140d; background: var(--color-accent); }
   .wf-mini { width: 34px; height: 34px; border: 1px solid var(--color-border); background: var(--color-surface-2); color: var(--color-text); border-radius: var(--radius-sm); cursor: pointer; font-size: 16px; }
-  .wf-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
-  .wf-card h4 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--color-accent); }
+  .wf-card { background: var(--color-surface); border: 1px solid var(--color-border); border-left: 5px solid var(--wf-accent, var(--color-accent)); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
+  .wf-card h4 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--wf-accent, var(--color-accent)); }
   /* Condensed inline rows: label + field on one line (Metadata / Hydrology) */
   .wf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px 16px; }
   .wf-field { display: flex; align-items: center; gap: 10px; min-height: 38px; }
@@ -527,9 +555,8 @@ function injectStyles(): void {
   .wf-photo-item button { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: none; background: var(--color-danger); color: #fff; cursor: pointer; }
   @media (max-width: 640px) {
     .wf-header { padding: 10px 12px; gap: 8px; }
-    .wf-title { font-size: 15px; width: 100%; }
-    .wf-tabs { width: 100%; order: 3; }
-    .wf-tab { flex: 1; text-align: center; padding: 9px 6px; }
+    .wf-title { font-size: 15px; }
+    .wf-tab { text-align: center; padding: 9px 4px; font-size: 13px; }
     .wf-body { padding: 12px; }
     .wf-grid, .wf-check-grid { grid-template-columns: 1fr; }
     .wf-indices { grid-template-columns: 1fr; }

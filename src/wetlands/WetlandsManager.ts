@@ -20,6 +20,8 @@ import {
   WETLAND_PLOT_COLOR, UPLAND_PLOT_COLOR,
 } from './wetlandSurvey';
 
+interface PlotAction { act: string; label: string; cls?: string; }
+
 export class WetlandsManager {
   private storage = StorageManager.getInstance();
   private form: WetlandForm;
@@ -160,7 +162,12 @@ export class WetlandsManager {
       return;
     }
     const names = await this.projectNameMap();
-    const rows = plots.map(p => this.plotRowHtml(p, names.get(p.project_id) ?? p.project_id, 'Edit')).join('');
+    const actions: PlotAction[] = [
+      { act: 'edit', label: 'Edit' },
+      { act: 'zoom', label: 'Zoom' },
+      { act: 'delete', label: 'Delete', cls: 'btn-danger' },
+    ];
+    const rows = plots.map(p => this.plotRowHtml(p, names.get(p.project_id) ?? p.project_id, actions)).join('');
     EventBus.emit('show-modal', {
       title: `Wetland Plots — Master (${plots.length})`,
       html: `
@@ -170,15 +177,33 @@ export class WetlandsManager {
         <div class="wl-list">${rows}</div>`,
       confirmLabel: 'Close',
     });
-    this.wirePlotList(plots, (plot) => {
-      this.selectedPlot = plot;
-      hideFeatureEditorPanel();
-      if (plot.lat != null && plot.lon != null) this.mapManager.flyTo(plot.lat, plot.lon);
-      void this.form.open(plot);
-    });
+    this.wirePlotActions(plots, (act, plot) => void this.handleListAction(act, plot));
     requestAnimationFrame(() => {
       document.getElementById('wl-export-master')?.addEventListener('click', () => void this.exportMaster());
     });
+  }
+
+  private async handleListAction(act: string, plot: FieldFeature): Promise<void> {
+    if (act === 'edit') {
+      closeActiveModal();
+      this.selectedPlot = plot;
+      hideFeatureEditorPanel();
+      if (plot.lat != null && plot.lon != null) this.mapManager.flyTo(plot.lat, plot.lon);
+      await this.form.open(plot);
+    } else if (act === 'zoom') {
+      closeActiveModal();
+      if (plot.lat != null && plot.lon != null) this.mapManager.flyTo(plot.lat, plot.lon, 17);
+      else EventBus.emit('toast', { message: 'Plot has no location', type: 'warning' });
+    } else if (act === 'delete') {
+      const d = plot.wetland_data;
+      const label = str(d?.SiteID) || str(d?.PLOT_ID) || plot.point_id;
+      if (!confirm(`Delete wetland plot "${label}"? This cannot be undone.`)) return;
+      await this.storage.deleteFeature(plot.id);
+      EventBus.emit('feature-deleted', { id: plot.id });
+      if (this.selectedPlot?.id === plot.id) this.selectedPlot = null;
+      EventBus.emit('toast', { message: 'Wetland plot deleted', type: 'warning', duration: 1800 });
+      void this.openEditList(); // refresh the list in place
+    }
   }
 
   // ---- report (always presents the list of available plots) ----
@@ -190,16 +215,16 @@ export class WetlandsManager {
       return;
     }
     const names = await this.projectNameMap();
-    const rows = plots.map(p => this.plotRowHtml(p, names.get(p.project_id) ?? p.project_id, 'PDF')).join('');
+    const rows = plots.map(p => this.plotRowHtml(p, names.get(p.project_id) ?? p.project_id, [{ act: 'pdf', label: 'PDF' }])).join('');
     EventBus.emit('show-modal', {
       title: 'Wetland Plot Report — select a plot',
       html: `<div class="wl-list">${rows}</div>`,
       confirmLabel: 'Close',
     });
-    this.wirePlotList(plots, (plot) => void this.generateReport(plot));
+    this.wirePlotActions(plots, (_act, plot) => { closeActiveModal(); void this.generateReport(plot); });
   }
 
-  private plotRowHtml(f: FieldFeature, projectName: string, action: string): string {
+  private plotRowHtml(f: FieldFeature, projectName: string, actions: PlotAction[]): string {
     const d = f.wetland_data;
     const site = str(d?.SiteID) || 'Untitled Site';
     const plotId = str(d?.PLOT_ID) || f.point_id;
@@ -207,6 +232,7 @@ export class WetlandsManager {
     const isUpland = ptype.toLowerCase().includes('upland');
     const dot = isUpland ? UPLAND_PLOT_COLOR : WETLAND_PLOT_COLOR;
     const when = f.updated_at ? new Date(f.updated_at).toLocaleDateString('en-CA') : '';
+    const btns = actions.map(a => `<button class="btn-sm wl-list-act ${a.cls ?? ''}" data-act="${a.act}" data-id="${f.id}">${a.label}</button>`).join('');
     return `
       <div class="wl-list-row">
         <span class="wl-dot" style="background:${dot}" title="${escapeHtml(ptype)}"></span>
@@ -214,18 +240,17 @@ export class WetlandsManager {
           <strong>${escapeHtml(site)}</strong>
           <span class="wl-list-meta">${escapeHtml(projectName)} · ${escapeHtml(plotId)} · ${escapeHtml(ptype)}${when ? ' · ' + when : ''}</span>
         </div>
-        <button class="btn-sm wl-list-act" data-id="${f.id}">${action}</button>
+        <div class="wl-list-actions">${btns}</div>
       </div>`;
   }
 
-  private wirePlotList(plots: FieldFeature[], onPick: (f: FieldFeature) => void): void {
+  private wirePlotActions(plots: FieldFeature[], handler: (act: string, f: FieldFeature) => void): void {
     requestAnimationFrame(() => {
       document.querySelectorAll<HTMLButtonElement>('.wl-list-act').forEach(btn => {
         btn.addEventListener('click', () => {
           const plot = plots.find(p => p.id === btn.dataset.id);
           if (!plot) return;
-          (document.getElementById('modal-close') as HTMLButtonElement | null)?.click();
-          onPick(plot);
+          handler(btn.dataset.act ?? '', plot);
         });
       });
     });
@@ -307,6 +332,10 @@ export class WetlandsManager {
 function hideFeatureEditorPanel(): void {
   const fe = document.getElementById('feature-editor-panel');
   if (fe) { fe.classList.remove('open'); fe.style.display = 'none'; }
+}
+
+function closeActiveModal(): void {
+  (document.getElementById('modal-close') as HTMLButtonElement | null)?.click();
 }
 
 function downloadText(content: string, filename: string, mime: string): void {
