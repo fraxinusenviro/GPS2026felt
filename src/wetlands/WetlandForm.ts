@@ -54,7 +54,7 @@ export class WetlandForm {
     if (this.survey.longitude === '' && feature.lon != null) this.survey.longitude = feature.lon;
     this.activeTab = 0;
     this.renderShell();
-    this.panel.style.display = 'block';
+    this.panel.style.display = 'flex';
     requestAnimationFrame(() => this.panel.classList.add('open'));
     await loadWetlandReferenceData();
     buildReferenceDatalists();
@@ -520,11 +520,12 @@ function injectStyles(): void {
   .wf-card { background: var(--color-surface-2); border: 1px solid var(--color-border); border-left: 5px solid var(--wf-accent, var(--color-accent)); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
   .wf-card h4 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--wf-accent, var(--color-accent)); }
   /* Condensed inline rows: label + field on one line (Metadata / Hydrology) */
-  .wf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px 18px; }
+  .wf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 6px 18px; }
   .wf-page-metadata .wf-grid { grid-template-columns: 1fr; }
   .wf-page-metadata .wf-field > label { flex-basis: 38%; }
-  .wf-field { display: flex; align-items: center; gap: 12px; min-height: 50px; }
-  .wf-field > label { flex: 0 0 44%; font-size: 18px; font-weight: 600; color: var(--color-text-dim); line-height: 1.2; }
+  .wf-field { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+  /* font-size/margin marked !important to defeat the app's specificity-boosted global label{} rule */
+  .wf-field > label { flex: 0 0 44%; font-size: 18px !important; font-weight: 600; color: var(--color-text-dim); line-height: 1.2; margin: 0 !important; }
   .wf-field input, .wf-field select, .wf-field textarea, .wf-soil-cell input, .wf-soil-cell select {
     flex: 1 1 auto; min-width: 0; width: 100%; padding: 12px 13px; border: 1px solid var(--color-border);
     background: var(--color-input-bg); color: var(--color-text); border-radius: var(--radius-sm); font-size: 17px; font-family: inherit; }
@@ -546,14 +547,14 @@ function injectStyles(): void {
   .wf-muted { color: var(--color-text-muted); font-size: 13px; margin: 8px 0 0; }
   /* Checkbox lists: one per line, checkbox immediately beside its label (left-aligned) */
   .wf-check-grid { display: flex; flex-direction: column; gap: 2px; }
-  .wf-check { display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: 12px; width: 100%; text-align: left; font-size: 17px; line-height: 1.25; padding: 6px 2px; cursor: pointer; }
+  .wf-check { display: flex !important; flex-direction: row !important; justify-content: flex-start; align-items: center !important; gap: 12px !important; width: 100%; text-align: left; font-size: 17px !important; line-height: 1.25; padding: 6px 2px; margin: 0 !important; cursor: pointer; }
   .wf-check input { width: 22px; height: 22px; flex-shrink: 0; margin: 0; }
-  .wf-restrictive { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--color-text-dim); }
+  .wf-restrictive { display: flex !important; flex-direction: row !important; align-items: center !important; gap: 8px !important; font-size: 15px !important; color: var(--color-text-dim); margin: 0 !important; }
   .wf-restrictive input { width: 20px; height: 20px; }
   .wf-soil-table { display: flex; flex-direction: column; gap: 8px; }
-  .wf-soil-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 18px; }
-  .wf-soil-cell { display: flex; align-items: center; gap: 12px; min-height: 50px; }
-  .wf-soil-cell > label { flex: 0 0 44%; font-size: 18px; font-weight: 600; color: var(--color-text-dim); line-height: 1.2; }
+  .wf-soil-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 18px; }
+  .wf-soil-cell { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+  .wf-soil-cell > label { flex: 0 0 44%; font-size: 18px !important; font-weight: 600; color: var(--color-text-dim); line-height: 1.2; margin: 0 !important; }
   .wf-photo-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .wf-photo-item { position: relative; }
   .wf-photo-item img { width: 96px; height: 96px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--color-border); }
@@ -566,9 +567,9 @@ function injectStyles(): void {
     .wf-tab { text-align: center; padding: 9px 4px; font-size: 13px; }
     .wf-body { padding: 12px; }
     .wf-grid, .wf-indices, .wf-soil-row { grid-template-columns: 1fr; }
-    .wf-field > label, .wf-soil-cell > label { flex-basis: 42%; font-size: 19px; }
+    .wf-field > label, .wf-soil-cell > label { flex-basis: 42%; font-size: 19px !important; }
     .wf-field input, .wf-field select, .wf-soil-cell input, .wf-soil-cell select, .wf-veg-row input { font-size: 17px; padding: 13px 12px; }
-    .wf-check { font-size: 18px; }
+    .wf-check { font-size: 18px !important; }
     .wf-foot-actions { width: 100%; }
     .wf-foot-actions .wf-btn { flex: 1; }
     #wf-prev, #wf-next { display: none; }
