@@ -7,7 +7,8 @@ export type CaptureMethod = 'gps' | 'sketch';
 export type ToolMode =
   | 'gps-point' | 'gps-point-stream' | 'gps-line' | 'gps-polygon'
   | 'sketch-point' | 'sketch-line' | 'sketch-polygon' | 'sketch-freehand'
-  | 'select' | 'edit-attrs' | 'delete' | 'edit-geometry' | 'lasso-select' | 'measure' | 'none';
+  | 'select' | 'edit-attrs' | 'delete' | 'edit-geometry' | 'lasso-select' | 'measure'
+  | 'wetlands-plot' | 'none';
 
 // ---- Feature Data Model ----
 export interface FieldFeature {
@@ -29,6 +30,46 @@ export interface FieldFeature {
   notes: string;                // Additional notes
   photos: string[];             // base64 photo data URLs
   project_id: string;           // owning project ID
+  wetland_data?: WetlandSurvey; // Wetland delineation survey (only on wetland-plot features)
+}
+
+// ---- Wetland delineation survey (ported from the WETLANDS app) ----
+// Stored inside a point FieldFeature in the dedicated per-project "Wetland Plots"
+// layer. Field names mirror the WETLANDS schema verbatim so the ported PDF report
+// consumes the survey unchanged. The whole object rides through local IndexedDB
+// and cloud sync inside the feature's JSON doc (no backend change required).
+export interface WetlandPhoto {
+  name: string;
+  type?: string;
+  size?: number;
+  dataUrl: string;   // base64 data URL (resized JPEG)
+  ts?: string;       // ISO timestamp
+}
+
+export interface WetlandSurvey {
+  id: string;
+  timestamp: string;
+  // Metadata
+  SiteID: string; LocaleName: string; Province: string; date: string; time: string; observer: string;
+  PLOT_ID: string; WetlandID: string; PLOT_TYPE: string; latitude: string | number; longitude: string | number;
+  LocalRelief: string; PercentSlope: string | number; Landform: string;
+  // Disturbance & problematic conditions
+  DistSoilYN: string; DistVegYN: string; DistHydroYN: string;
+  ProbSoilYN: string; ProbVegYN: string; ProbHydroYN: string;
+  ClimHydroNormalYN: string; CircNormalYN: string;
+  // Summary determinations
+  SummaryHydroVegYN: string; SummaryHydricSoilYN: string; SummaryHydrologyYN: string; SummaryInWetlandYN: string;
+  notes: string;
+  // Hydrology
+  RestrictiveLayer: string; RestrictiveLayerDepthCM: string | number;
+  SurfaceWaterYN: string; SurfaceWaterDepthCM: string | number;
+  WaterTableYN: string; WaterTableDepthCM: string | number;
+  SaturationYN: string; SaturationDepthCM: string | number;
+  HydricSoilIndicators: string[]; HydrologyPrimary: string[]; HydrologySecondary: string[];
+  photos: WetlandPhoto[];
+  // Dynamic keys: vegetation (TreeSp1..6 / ShrubSp1..6 / HerbSp1..10 + Cov/Status/Dom)
+  // and soil horizons (SoilH1..4 + Restrictive/Depth/Texture/Matrix/Redox fields).
+  [key: string]: unknown;
 }
 
 // ---- Project ----

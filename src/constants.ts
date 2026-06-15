@@ -893,6 +893,10 @@ export function DEFAULT_PROJECT_LAYER_PRESETS(projectId: string): LayerPreset[] 
     { id: `${projectId}-points`,   name: 'Points',   geometry_type: 'Point',      color: '#22c55e', stroke_color: '#166534', stroke_width: 2, fill_opacity: 0.8,  types: [], project_id: projectId, visible: true },
     { id: `${projectId}-lines`,    name: 'Lines',    geometry_type: 'LineString', color: '#3b82f6', stroke_color: '#1e40af', stroke_width: 2, fill_opacity: 1.0,  types: [], project_id: projectId, visible: true },
     { id: `${projectId}-polygons`, name: 'Polygons', geometry_type: 'Polygon',    color: '#f59e0b', stroke_color: '#92400e', stroke_width: 2, fill_opacity: 0.35, types: [], project_id: projectId, visible: true },
+    // Wetland plots — kept spatially separate from default points so they render,
+    // export and sync as their own layer. The rich survey data lives in each
+    // feature's wetland_data field. Dark teal matches the WETLANDS report accent.
+    { id: `${projectId}-wetlands`, name: 'Wetland Plots', geometry_type: 'Point', color: '#0b6b50', stroke_color: '#ffffff', stroke_width: 2, fill_opacity: 0.9, types: [], project_id: projectId, visible: true },
   ];
 }
 

@@ -32,6 +32,7 @@ import { DataLibraryModal } from './ui/DataLibraryModal';
 import { MasterDataPanel } from './ui/MasterDataPanel';
 import { BackendClient } from './sync/BackendClient';
 import { SyncManager } from './sync/SyncManager';
+import { WetlandsManager } from './wetlands/WetlandsManager';
 import type { SharedLayer, BasemapDef } from './types';
 import { sharedLayerToDef } from './data/sharedLayerDefs';
 import * as turf from '@turf/turf';
@@ -75,6 +76,7 @@ export class App {
   private symbolRenderer!: SymbolRenderer;
   private layoutMode!: LayoutMode;
   private syncManager!: SyncManager;
+  private wetlandsManager!: WetlandsManager;
 
   private settings!: AppSettings;
   private features: FieldFeature[] = [];
@@ -153,6 +155,14 @@ export class App {
     this.exportManager = new ExportManager();
     this.presetManager = new PresetManager();
     this.featureEditor = new FeatureEditor(this.presetManager);
+    // Created after FeatureEditor so its 'feature-selected' handler runs after the
+    // editor's — it then suppresses the generic editor for wetland plots.
+    this.wetlandsManager = new WetlandsManager(
+      this.mapManager,
+      this.captureManager,
+      () => this.settings,
+      () => this.refreshProjectLayers(),
+    );
     this.geometryEditor = new GeometryEditor(this.mapManager);
     this.importDataPanel = new ImportDataPanel(this.importManager, this.mapManager);
     this.cachePanel = new CachePanel(this.mapManager, this.basemapManager);
@@ -283,6 +293,14 @@ export class App {
     if (project?.basemap_stack_json && this.stackLayersDiffer(project.basemap_stack_json)) {
       this.basemapManager.setActiveProjectStack(project.basemap_stack_json, activeId);
     }
+  }
+
+  /** Reload the active project's layer presets and re-render (e.g. after a new
+   *  wetlands layer is created). Read-only with respect to feature data. */
+  async refreshProjectLayers(): Promise<void> {
+    const activeId = this.settings.active_project_id || 'default';
+    this.projectLayerPresets = await this.storage.getLayersByProject(activeId);
+    this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
   }
 
   /** True if the incoming stack's layers differ from what's currently on the map. */
@@ -1224,6 +1242,14 @@ export class App {
     document.getElementById('btn-export')?.addEventListener('click', () => {
       this.closeAllPanels();
       this.exportPanel.toggle();
+    });
+
+    // WETLANDS group (left toolbar)
+    document.getElementById('btn-wetlands-add-plot')?.addEventListener('click', () => {
+      void this.wetlandsManager.startAddPlot();
+    });
+    document.getElementById('btn-wetlands-report')?.addEventListener('click', () => {
+      void this.wetlandsManager.openReportPicker();
     });
 
 
