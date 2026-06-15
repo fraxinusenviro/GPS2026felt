@@ -1619,6 +1619,13 @@ export class MapManager {
     this.basemapOverlayIds = [];
   }
 
+  /** Add a WebGLBlendLayer (CustomLayerInterface) before the user-data layers and track it for cleanup. */
+  addCustomBlendOverlay(layer: import('maplibre-gl').CustomLayerInterface): void {
+    if (!this.initialized) return;
+    this.map.addLayer(layer, LAYER_IDS.USER_ACCURACY);
+    this.basemapOverlayIds.push(layer.id);
+  }
+
   addSingleRasterOverlay(ov: {
     instanceId: string; url: string; opacity: number; visible: boolean;
   }): void {
