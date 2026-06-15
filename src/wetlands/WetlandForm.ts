@@ -521,6 +521,7 @@ function injectStyles(): void {
   .wf-card h4 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--wf-accent, var(--color-accent)); }
   /* Condensed inline rows: label + field on one line (Metadata / Hydrology) */
   .wf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 8px 18px; }
+  .wf-page-metadata .wf-grid { grid-template-columns: 1fr; }
   .wf-field { display: flex; align-items: center; gap: 12px; min-height: 50px; }
   .wf-field > label { flex: 0 0 46%; font-size: 16px; font-weight: 500; color: var(--color-text-dim); line-height: 1.2; }
   .wf-field input, .wf-field select, .wf-field textarea, .wf-soil-cell input, .wf-soil-cell select {
