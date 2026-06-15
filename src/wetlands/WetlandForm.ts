@@ -507,7 +507,7 @@ function injectStyles(): void {
     border: 1px solid var(--wf-accent, var(--color-accent)); background: color-mix(in srgb, var(--wf-accent, var(--color-accent)) 18%, transparent);
     color: var(--wf-accent, var(--color-accent)); border-radius: var(--radius-sm); cursor: pointer; transition: transform .15s ease; }
   .wf-chevron.collapsed { transform: rotate(-90deg); }
-  .wf-body { flex: 1; overflow-y: auto; padding: 14px 16px; max-width: 1100px; width: 100%; margin: 0 auto; }
+  .wf-body { flex: 1; overflow-y: auto; padding: 16px; max-width: 1100px; width: 100%; margin: 0 auto; }
   .wf-footer { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--color-border); background: var(--color-surface); }
   .wf-status { color: var(--color-accent); font-size: 13px; }
   .wf-foot-actions { margin-left: auto; display: flex; gap: 8px; }
@@ -516,18 +516,18 @@ function injectStyles(): void {
   .wf-btn.wf-primary { background: var(--color-accent); border-color: var(--color-accent); color: #04140d; font-weight: 700; }
   .wf-btn.wf-primary:hover { opacity: 0.9; color: #04140d; background: var(--color-accent); }
   .wf-mini { width: 34px; height: 34px; border: 1px solid var(--color-border); background: var(--color-surface-2); color: var(--color-text); border-radius: var(--radius-sm); cursor: pointer; font-size: 16px; }
-  .wf-card { background: var(--color-surface); border: 1px solid var(--color-border); border-left: 5px solid var(--wf-accent, var(--color-accent)); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
-  .wf-card h4 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--wf-accent, var(--color-accent)); }
+  .wf-card { background: var(--color-surface); border: 1px solid var(--color-border); border-left: 5px solid var(--wf-accent, var(--color-accent)); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; }
+  .wf-card h4 { margin: 0 0 12px; font-size: 14px; text-transform: uppercase; letter-spacing: .04em; color: var(--wf-accent, var(--color-accent)); }
   /* Condensed inline rows: label + field on one line (Metadata / Hydrology) */
-  .wf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px 16px; }
-  .wf-field { display: flex; align-items: center; gap: 10px; min-height: 38px; }
-  .wf-field > label { flex: 0 0 44%; font-size: 14px; color: var(--color-text-dim); line-height: 1.2; }
+  .wf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px 20px; }
+  .wf-field { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+  .wf-field > label { flex: 0 0 42%; font-size: 15px; font-weight: 500; color: var(--color-text-dim); line-height: 1.25; }
   .wf-field input, .wf-field select, .wf-field textarea, .wf-soil-cell input, .wf-soil-cell select {
-    flex: 1 1 auto; min-width: 0; width: 100%; padding: 9px 10px; border: 1px solid var(--color-border);
+    flex: 1 1 auto; min-width: 0; width: 100%; padding: 10px 12px; border: 1px solid var(--color-border);
     background: var(--color-input-bg); color: var(--color-text); border-radius: var(--radius-sm); font-size: 15px; font-family: inherit; }
   .wf-field input:focus-visible, .wf-field select:focus-visible, .wf-field textarea:focus-visible,
   .wf-soil-cell input:focus-visible, .wf-soil-cell select:focus-visible { border-color: var(--color-accent); outline: none; }
-  .wf-field.wf-field-block { flex-direction: column; align-items: stretch; gap: 5px; }
+  .wf-field.wf-field-block { flex-direction: column; align-items: stretch; gap: 6px; }
   .wf-field.wf-field-block > label { flex: none; }
   .wf-field textarea { min-height: 80px; resize: vertical; }
   .wf-veg-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
@@ -536,19 +536,19 @@ function injectStyles(): void {
   .wf-count { min-width: 24px; text-align: center; font-weight: 700; font-size: 15px; }
   .wf-veg-table { display: flex; flex-direction: column; gap: 6px; }
   .wf-veg-row { display: grid; grid-template-columns: 26px 1fr 88px 36px; gap: 8px; align-items: center; }
-  .wf-veg-header { font-size: 12px; color: var(--color-text-muted); }
+  .wf-veg-header { font-size: 13px; font-weight: 600; color: var(--color-text-dim); }
   .wf-veg-row input[type=text], .wf-veg-row input[type=number] { padding: 9px 10px; border: 1px solid var(--color-border); background: var(--color-input-bg); color: var(--color-text); border-radius: var(--radius-sm); font-size: 15px; font-family: inherit; width: 100%; }
   .wf-veg-idx { text-align: center; color: var(--color-text-muted); font-weight: 600; }
   .wf-indices { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 14px; }
   .wf-muted { color: var(--color-text-muted); font-size: 13px; margin: 8px 0 0; }
   .wf-check-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
-  .wf-check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.3; }
+  .wf-check { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; line-height: 1.35; }
   .wf-check input { margin-top: 2px; width: 18px; height: 18px; flex-shrink: 0; }
-  .wf-restrictive { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--color-text-dim); }
-  .wf-soil-table { display: flex; flex-direction: column; gap: 8px; }
-  .wf-soil-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
-  .wf-soil-cell { display: flex; align-items: center; gap: 10px; min-height: 38px; }
-  .wf-soil-cell > label { flex: 0 0 44%; font-size: 14px; color: var(--color-text-dim); line-height: 1.2; }
+  .wf-restrictive { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--color-text-dim); }
+  .wf-soil-table { display: flex; flex-direction: column; gap: 10px; }
+  .wf-soil-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
+  .wf-soil-cell { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+  .wf-soil-cell > label { flex: 0 0 42%; font-size: 15px; font-weight: 500; color: var(--color-text-dim); line-height: 1.25; }
   .wf-photo-preview { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
   .wf-photo-item { position: relative; }
   .wf-photo-item img { width: 96px; height: 96px; object-fit: cover; border-radius: var(--radius-sm); border: 1px solid var(--color-border); }
@@ -561,7 +561,7 @@ function injectStyles(): void {
     .wf-grid, .wf-check-grid { grid-template-columns: 1fr; }
     .wf-indices { grid-template-columns: 1fr; }
     .wf-soil-row { grid-template-columns: 1fr; gap: 8px; }
-    .wf-field > label, .wf-soil-cell > label { flex-basis: 46%; font-size: 15px; }
+    .wf-field > label, .wf-soil-cell > label { flex-basis: 44%; font-size: 16px; }
     .wf-field input, .wf-field select, .wf-soil-cell input, .wf-soil-cell select, .wf-veg-row input { font-size: 16px; padding: 11px 12px; }
     .wf-foot-actions { width: 100%; }
     .wf-foot-actions .wf-btn { flex: 1; }
