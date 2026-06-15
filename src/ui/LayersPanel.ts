@@ -652,6 +652,7 @@ export class LayersPanel {
           if (!layer) return;
           this.importManager.removeImportedLayer(layer);
           await this.storage.deleteImportedLayer(layer.id);
+          if (layer.file_type === 'mbtiles') await this.storage.clearTilesForLayer(layer.id);
           this.importedLayers = this.importedLayers.filter(l => l.id !== layer.id);
           this.render();
         });

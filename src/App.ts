@@ -1066,6 +1066,7 @@ export class App {
           if (importedLayer) {
             this.importManager.removeImportedLayer(importedLayer);
             await this.storage.deleteImportedLayer(id);
+            if (importedLayer.file_type === 'mbtiles') await this.storage.clearTilesForLayer(id);
             EventBus.emit('layer-deleted', { id });
             return;
           }

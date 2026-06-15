@@ -2,6 +2,7 @@ import { MapCompositeExporter } from '../io/MapCompositeExporter';
 import { buildTileCoords, clampBboxLat } from '../cache/tileUtils';
 import type { MapManager } from '../map/MapManager';
 import type { ImportManager } from '../io/ImportManager';
+import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 
 // Composited tiles vary a lot in size; ~45 KB is a reasonable average for a
@@ -12,6 +13,7 @@ export class CachePanel {
   private panel: HTMLElement;
   private isOpen = false;
   private exporter: MapCompositeExporter;
+  private storage = StorageManager.getInstance();
   private abortController: AbortController | null = null;
   private onMoveEnd = () => { if (this.isOpen) this.refreshExtent(); };
 
@@ -93,6 +95,10 @@ export class CachePanel {
           <div class="cache-actions">
             <button class="btn-primary" id="cache-export-btn">Export Offline Map</button>
           </div>
+          <div class="settings-section">
+            <h4>Saved offline maps</h4>
+            <div id="cache-saved-list" class="cache-saved-list"><div class="cache-loading">Loading…</div></div>
+          </div>
         </div>
         <div class="panel-footer">
           <button class="btn btn-primary panel-done-btn" id="cache-done">Done</button>
@@ -103,6 +109,57 @@ export class CachePanel {
     document.getElementById('cache-done')?.addEventListener('click', () => this.close());
     this.wirePanel();
     this.refreshExtent();
+    void this.renderSavedList();
+  }
+
+  /** List MBTiles layers stored in-app, with zoom-to + delete (purges tiles). */
+  private async renderSavedList(): Promise<void> {
+    const container = document.getElementById('cache-saved-list');
+    if (!container) return;
+    const maps = (await this.storage.getAllImportedLayers()).filter(l => l.file_type === 'mbtiles');
+
+    if (maps.length === 0) {
+      container.innerHTML = '<div class="cache-empty">No offline maps saved yet.</div>';
+      return;
+    }
+
+    container.innerHTML = maps.map(m => {
+      const date = (m.added_at ?? '').slice(0, 10);
+      return `
+        <div class="cache-saved-item" data-id="${m.id}">
+          <div class="cache-saved-info">
+            <div class="cache-saved-name">${m.name}</div>
+            <div class="cache-saved-meta">${date}${m.bounds ? ' · has extent' : ''}</div>
+          </div>
+          <div class="cache-saved-actions">
+            <button class="btn-sm cache-saved-zoom" data-id="${m.id}" title="Zoom to extent"${m.bounds ? '' : ' disabled'}>Zoom to</button>
+            <button class="btn-sm btn-danger cache-saved-del" data-id="${m.id}" title="Delete offline map">Delete</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    container.querySelectorAll<HTMLButtonElement>('.cache-saved-zoom').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const m = maps.find(l => l.id === btn.dataset.id);
+        if (!m?.bounds) return;
+        const [w, s, e, n] = m.bounds;
+        this.mapManager.fitBounds([[w, s], [e, n]], 60);
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('.cache-saved-del').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const m = maps.find(l => l.id === btn.dataset.id);
+        if (!m) return;
+        if (!confirm(`Delete offline map "${m.name}"?\nThis removes it from the map and frees its cached tiles.`)) return;
+        this.importManager.removeImportedLayer(m);
+        await this.storage.deleteImportedLayer(m.id);
+        await this.storage.clearTilesForLayer(m.id);
+        EventBus.emit('layer-deleted', { id: m.id });
+        EventBus.emit('toast', { message: `Offline map "${m.name}" deleted`, type: 'info', duration: 2000 });
+        this.renderSavedList();
+      });
+    });
   }
 
   private refreshExtent(): void {
@@ -178,6 +235,7 @@ export class CachePanel {
       const file = new File([blob], `${name}.mbtiles`, { type: 'application/x-sqlite3' });
       await this.importManager.importFile(file);
 
+      void this.renderSavedList();
       this.close();
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
