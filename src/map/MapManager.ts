@@ -213,27 +213,6 @@ export class MapManager {
       });
     }
 
-    // Register bmcache:// protocol — serves pre-downloaded tiles from IDB
-    // URL format: bmcache://cacheId/defId/z/x/y
-    if (!(maplibregl as unknown as { _bmcacheProtocolRegistered?: boolean })._bmcacheProtocolRegistered) {
-      (maplibregl as unknown as { _bmcacheProtocolRegistered?: boolean })._bmcacheProtocolRegistered = true;
-      maplibregl.addProtocol('bmcache', async (params) => {
-        const withoutProto = params.url.split('?')[0].slice('bmcache://'.length);
-        const parts = withoutProto.split('/');
-        if (parts.length < 4) return { data: new ArrayBuffer(0) };
-        const y = parseInt(parts.pop()!);
-        const x = parseInt(parts.pop()!);
-        const z = parseInt(parts.pop()!);
-        const defId = parts.pop()!;
-        const cacheId = parts.join('/');
-        if (isNaN(z) || isNaN(x) || isNaN(y)) return { data: new ArrayBuffer(0) };
-        const layerId = `bmcache-${cacheId}-${defId}`;
-        const blob = await StorageManager.getInstance().getTile(layerId, z, x, y);
-        if (!blob) return { data: new ArrayBuffer(0) };
-        return { data: await blob.arrayBuffer() };
-      });
-    }
-
     // Register rampify:// protocol — recolours RGB tiles through a luminance LUT
     // URL format: rampify://<key>@<version>/<real tile URL (templates pre-expanded)>
     if (!(maplibregl as unknown as { _rampifyProtocolRegistered?: boolean })._rampifyProtocolRegistered) {

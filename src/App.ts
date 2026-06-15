@@ -165,7 +165,7 @@ export class App {
     );
     this.geometryEditor = new GeometryEditor(this.mapManager);
     this.importDataPanel = new ImportDataPanel(this.importManager, this.mapManager);
-    this.cachePanel = new CachePanel(this.mapManager, this.basemapManager);
+    this.cachePanel = new CachePanel(this.mapManager, this.importManager);
     this.projectPanel = new ProjectPanel(
       id => this.loadProject(id),
       (name, desc, templateId) => this.createProject(name, desc, templateId),

@@ -4261,6 +4261,12 @@ input[type=color] {
   overflow-y: auto;
   flex: 1;
 }
+.cache-help {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-2, #999);
+  margin: 0 0 4px;
+}
 .cache-bbox-row {
   display: flex;
   align-items: center;
