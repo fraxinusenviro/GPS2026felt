@@ -772,6 +772,10 @@ export class MapManager {
     return this.map;
   }
 
+  getMapContainer(): HTMLElement {
+    return this.map.getContainer();
+  }
+
   isInitialized(): boolean {
     return this.initialized;
   }
@@ -1582,7 +1586,6 @@ export class MapManager {
 
   rebuildBasemapOverlays(overlays: Array<{
     instanceId: string; url: string; opacity: number; visible: boolean;
-    hueRotate?: number; saturation?: number; contrast?: number; brightness?: number;
   }>): void {
     if (!this.initialized) return;
     for (const layerId of [...this.basemapOverlayIds]) {
@@ -1598,13 +1601,7 @@ export class MapManager {
         this.map.addSource(srcId, { type: 'raster', tiles: [ov.url], tileSize: 256 });
       }
       this.map.addLayer(
-        { id: layerId, type: 'raster', source: srcId, paint: {
-          'raster-opacity': ov.opacity,
-          'raster-hue-rotate': ov.hueRotate ?? 0,
-          'raster-saturation': ov.saturation ?? 0,
-          'raster-contrast': ov.contrast ?? 0,
-          'raster-brightness-max': ov.brightness ?? 1,
-        }},
+        { id: layerId, type: 'raster', source: srcId, paint: { 'raster-opacity': ov.opacity } },
         LAYER_IDS.USER_ACCURACY
       );
       if (!ov.visible) this.map.setLayoutProperty(layerId, 'visibility', 'none');
@@ -1624,7 +1621,6 @@ export class MapManager {
 
   addSingleRasterOverlay(ov: {
     instanceId: string; url: string; opacity: number; visible: boolean;
-    hueRotate?: number; saturation?: number; contrast?: number; brightness?: number;
   }): void {
     if (!this.initialized) return;
     const layerId = `bm-ov-${ov.instanceId}`;
@@ -1633,13 +1629,7 @@ export class MapManager {
       this.map.addSource(srcId, { type: 'raster', tiles: [ov.url], tileSize: 256 });
     }
     this.map.addLayer(
-      { id: layerId, type: 'raster', source: srcId, paint: {
-        'raster-opacity': ov.opacity,
-        'raster-hue-rotate': ov.hueRotate ?? 0,
-        'raster-saturation': ov.saturation ?? 0,
-        'raster-contrast': ov.contrast ?? 0,
-        'raster-brightness-max': ov.brightness ?? 1,
-      }},
+      { id: layerId, type: 'raster', source: srcId, paint: { 'raster-opacity': ov.opacity } },
       LAYER_IDS.USER_ACCURACY,
     );
     if (!ov.visible) this.map.setLayoutProperty(layerId, 'visibility', 'none');
