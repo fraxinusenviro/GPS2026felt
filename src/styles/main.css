@@ -4267,6 +4267,16 @@ input[type=color] {
   color: var(--fg-2, #999);
   margin: 0 0 4px;
 }
+.cache-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--fg-1, #ccc);
+  cursor: pointer;
+}
+.cache-check-row input { margin: 0; }
 .cache-bbox-row {
   display: flex;
   align-items: center;
@@ -5472,6 +5482,11 @@ input[type=color] {
 .bm-section-header-row .bm-section-toggle {
   flex: 1;
   min-width: 0;
+}
+.bm-section-header-row .vis-tog {
+  align-self: center;
+  flex-shrink: 0;
+  margin: 0 4px;
 }
 .bm-refresh-all-btn {
   background: none;

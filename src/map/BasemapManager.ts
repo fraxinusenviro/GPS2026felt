@@ -138,6 +138,9 @@ const thumbUrl = (url: string) =>
 
 export class BasemapManager {
   private stack: StackLayer[] = [];
+  // Remembers which stack layers were visible before a "hide all" master toggle,
+  // so the next click restores the exact prior visibility combo.
+  private stackVisSnapshot: string[] | null = null;
   private dragSrcIdx: number | null = null;
   private userLayers: UserLayerInfo[] = [];
   private pdfLayers: PDFLayerInfo[] = [];
@@ -1855,17 +1858,12 @@ export class BasemapManager {
     return result;
   }
 
-  private renderUserLayersSection(): string {
-    if (this.userLayers.length === 0) return '';
-    const eyeSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,168a40,40,0,1,1,40-40A40,40,0,0,1,128,168Z"/></svg>`;
+  private renderUserLayerRow(l: UserLayerInfo): string {
     const zoomSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M229.66,218.34,179.6,168.28a88.21,88.21,0,1,0-11.32,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM144,120H120v24a8,8,0,0,1-16,0V120H80a8,8,0,0,1,0-16h24V80a8,8,0,0,1,16,0v24h24a8,8,0,0,1,0,16Z"/></svg>`;
-
-    const body = `<div class="bm-pdf-layers">
-      ${this.userLayers.map(l => {
-        const badge = (l.fileType ?? l.kind).toUpperCase();
-        const canStack = l.kind === 'raster' && !!l.tileUrl;
-        const canStyle = l.kind === 'vector' && (l.features?.length ?? 0) > 0;
-        return `
+    const badge = (l.fileType ?? l.kind).toUpperCase();
+    const canStack = l.kind === 'raster' && !!l.tileUrl;
+    const canStyle = l.kind === 'vector' && (l.features?.length ?? 0) > 0;
+    return `
         <div class="bm-stack-item" data-ulid="${l.id}">
           <div class="bm-item-main">
             <span class="bm-layer-label" title="${l.name}">${l.name}</span>
@@ -1882,11 +1880,25 @@ export class BasemapManager {
             </div>
           </div>
         </div>`;
-      }).join('')}
-    </div>`;
+  }
 
-    return this.sectionToggle('userlayers', 'Your Layers', 'imported &amp; online') +
-      this.sectionBody('userlayers', body);
+  private renderUserLayersSection(): string {
+    if (this.userLayers.length === 0) return '';
+    const offline = this.userLayers.filter(l => l.fileType === 'mbtiles');
+    const other = this.userLayers.filter(l => l.fileType !== 'mbtiles');
+
+    let html = '';
+    if (other.length > 0) {
+      const body = `<div class="bm-pdf-layers">${other.map(l => this.renderUserLayerRow(l)).join('')}</div>`;
+      html += this.sectionToggle('userlayers', 'Your Layers', 'imported &amp; online') +
+        this.sectionBody('userlayers', body);
+    }
+    if (offline.length > 0) {
+      const body = `<div class="bm-pdf-layers">${offline.map(l => this.renderUserLayerRow(l)).join('')}</div>`;
+      html += this.sectionToggle('offline-maps', 'Offline Maps', `${offline.length} map${offline.length !== 1 ? 's' : ''}`) +
+        this.sectionBody('offline-maps', body);
+    }
+    return html;
   }
 
   // ---- PDF overlay section ----
@@ -2901,6 +2913,24 @@ export class BasemapManager {
 
   // ---- Main render ----
 
+  /** Apply a stack layer's current `visible` state to the corresponding map layer. */
+  private applyStackLayerVisibility(layer: StackLayer): void {
+    const iid = layer.instanceId;
+    const isBase = iid === this.stack[this.stack.length - 1]?.instanceId;
+    const ltype = this.getLayerType(layer);
+    if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? layer.opacity : 0);
+    else if (ltype === 'nsprd-vector') this.nsprdLayer?.setVisible(layer.visible);
+    else if (ltype === 'nshn-vector') this.nshnLayers.get(iid)?.setVisible(layer.visible);
+    else if (ltype === 'hrdem-wcs') {
+      this.hrdemLayers.get(iid)?.setVisible(layer.visible);
+      this.refreshLegend();
+    }
+    else if (ltype === 'cog-contour') this.cogContourLayers.get(iid)?.setVisible(layer.visible);
+    else if (ltype === 'geojson') this.applyGeojsonOpacityVisibility(layer, `bm-ov-${iid}`);
+    else if (this.webglBlendLayers.has(iid)) this.webglBlendLayers.get(iid)!.setOpacityAndVisible(layer.opacity, layer.visible);
+    else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
+  }
+
   private renderContent(container: HTMLElement, onClose: () => void): void {
     container.innerHTML = `
       <div class="panel-header">
@@ -2914,6 +2944,7 @@ export class BasemapManager {
 
         <div class="bm-section-header-row">
           ${this.sectionToggle('active-layers', 'Basemap Stack', '', false)}
+          <button id="bm-stack-vis-all" class="vis-tog bm-stack-vis-all ${this.stack.some(l => l.visible) ? 'active' : ''}" title="Show/hide all layers"></button>
           <button id="bm-refresh-all" class="bm-refresh-all-btn" title="Reload all basemap layers"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M240,56v48a8,8,0,0,1-8,8H184a8,8,0,0,1,0-16h28.69L197.31,80.69A96.09,96.09,0,0,0,43.81,116.8a8,8,0,1,1-15.62-3.6A112.11,112.11,0,0,1,208,70.69l15.33,15.32V56a8,8,0,0,1,16,0Zm-16.19,82.8a8,8,0,0,0-10,5.39A96.09,96.09,0,0,1,58.69,175.31L71.31,162.69A8,8,0,0,0,65.82,149H16a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V176.69l15.32,15.32a112.11,112.11,0,0,0,179.81-45.21A8,8,0,0,0,223.81,138.8Z"/></svg></button>
         </div>
         ${this.sectionBody('active-layers', `
@@ -3008,21 +3039,31 @@ export class BasemapManager {
         if (!layer) return;
         layer.visible = !layer.visible;
         btn.classList.toggle('active', layer.visible);
-        const isBase = iid === this.stack[this.stack.length - 1]?.instanceId;
-        const ltype2 = this.getLayerType(layer);
-        if (isBase) this.mapManager.setBasemapOpacity(layer.visible ? layer.opacity : 0);
-        else if (ltype2 === 'nsprd-vector') this.nsprdLayer?.setVisible(layer.visible);
-        else if (ltype2 === 'nshn-vector') this.nshnLayers.get(iid)?.setVisible(layer.visible);
-        else if (ltype2 === 'hrdem-wcs') {
-          this.hrdemLayers.get(iid)?.setVisible(layer.visible);
-          this.refreshLegend();
-        }
-        else if (ltype2 === 'cog-contour') this.cogContourLayers.get(iid)?.setVisible(layer.visible);
-        else if (ltype2 === 'geojson') this.applyGeojsonOpacityVisibility(layer, `bm-ov-${iid}`);
-        else if (this.webglBlendLayers.has(iid)) this.webglBlendLayers.get(iid)!.setOpacityAndVisible(layer.opacity, layer.visible);
-        else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
+        this.applyStackLayerVisibility(layer);
         this.saveStack();
       });
+    });
+
+    // Master "show/hide all" toggle on the Basemap Stack header
+    container.querySelector<HTMLButtonElement>('#bm-stack-vis-all')?.addEventListener('click', () => {
+      const anyVisible = this.stack.some(l => l.visible);
+      if (anyVisible) {
+        // Snapshot the current combo, then hide everything.
+        this.stackVisSnapshot = this.stack.filter(l => l.visible).map(l => l.instanceId);
+        for (const l of this.stack) {
+          if (l.visible) { l.visible = false; this.applyStackLayerVisibility(l); }
+        }
+      } else {
+        // Restore the remembered combo (or show all if none was saved).
+        const snap = this.stackVisSnapshot;
+        for (const l of this.stack) {
+          const want = snap ? snap.includes(l.instanceId) : true;
+          if (l.visible !== want) { l.visible = want; this.applyStackLayerVisibility(l); }
+        }
+        this.stackVisSnapshot = null;
+      }
+      this.saveStack();
+      this.renderContent(container, onClose);
     });
 
     // "Show in legend" toggles
