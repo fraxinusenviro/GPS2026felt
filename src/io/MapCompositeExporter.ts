@@ -9,6 +9,11 @@ import {
 } from '../cache/tileUtils';
 
 const TILE = 256;
+// MapLibre GL's internal coordinate system uses a 512px reference tile, so when
+// the map is rendered at integer zoom z, each XYZ-z tile occupies 512 CSS px on
+// screen. We capture at that footprint and downscale to the 256px output tile
+// (which also supersamples for sharper results).
+const SCREEN_TILE = 512;
 
 /**
  * Renders the *current* live MapLibre map (full basemap stack + every visible
@@ -69,15 +74,18 @@ export class MapCompositeExporter {
     const hasDynamicOverlays = this.styleHasDynamicOverlays(map);
 
     // Block size in tiles: render NxN tiles per camera move to amortize the
-    // per-viewport HRDEM/COG fetch cost. 4x4 = 1024px square.
-    const BLOCK = 4;
+    // per-viewport HRDEM/COG fetch cost. Each tile is SCREEN_TILE (512) CSS px,
+    // so cap the block so the backing store stays within GPU texture limits
+    // (~4096px) on high-DPI screens.
+    const dpr0 = window.devicePixelRatio || 1;
+    const BLOCK = Math.max(1, Math.min(4, Math.floor(4096 / (SCREEN_TILE * dpr0))));
 
     try {
       for (const i of interactions) (map[i] as { disable: () => void }).disable();
 
       // Resize the map container to an exact block-sized square so each block
       // renders 1:1 with the tile grid regardless of the real screen size.
-      const side = BLOCK * TILE;
+      const side = BLOCK * SCREEN_TILE;
       container.style.cssText =
         `position:absolute;left:0;top:0;right:auto;bottom:auto;width:${side}px;height:${side}px;z-index:1;`;
       map.resize();
@@ -152,7 +160,13 @@ export class MapCompositeExporter {
 
         const srcCanvas = map.getCanvas();
         const dpr = srcCanvas.width / srcCanvas.clientWidth;
-        const px = TILE * dpr;
+
+        // Measure the real on-screen tile footprint via projection rather than
+        // assuming it: at integer zoom this is SCREEN_TILE (512) CSS px, but
+        // measuring is robust to MapLibre version / source tile-size quirks.
+        const c0 = map.project([tile2lon(blk.bx, blk.z), tile2lat(blk.by, blk.z)]);
+        const c1 = map.project([tile2lon(blk.bx + 1, blk.z), tile2lat(blk.by + 1, blk.z)]);
+        const footprint = Math.round((c1.x - c0.x) * dpr);
 
         for (let tx = blk.bx; tx < blk.bx + BLOCK && tx <= blk.xMax; tx++) {
           for (let ty = blk.by; ty < blk.by + BLOCK && ty <= blk.yMax; ty++) {
@@ -163,9 +177,17 @@ export class MapCompositeExporter {
             const p = map.project([tile2lon(tx, blk.z), tile2lat(ty, blk.z)]);
             const sx = Math.round(p.x * dpr);
             const sy = Math.round(p.y * dpr);
+            // Clamp the source rect to the canvas so rounding at the block edge
+            // never reads out of bounds.
+            const sw = Math.min(footprint, srcCanvas.width - sx);
+            const sh = Math.min(footprint, srcCanvas.height - sy);
+            if (sx < 0 || sy < 0 || sw <= 0 || sh <= 0) continue;
 
             tileCtx.clearRect(0, 0, TILE, TILE);
-            tileCtx.drawImage(srcCanvas, sx, sy, px, px, 0, 0, TILE, TILE);
+            // Downscale the (≈512px) footprint into the 256px output tile.
+            const dw = TILE * (sw / footprint);
+            const dh = TILE * (sh / footprint);
+            tileCtx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, dw, dh);
 
             done++;
             // Skip fully-transparent tiles.

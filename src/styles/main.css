@@ -4412,6 +4412,37 @@ input[type=color] {
   flex-wrap: wrap;
 }
 
+/* Saved offline maps list (Offline panel) */
+.cache-saved-list { margin-top: 4px; }
+.cache-saved-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: var(--bg-2, #0f1a0f);
+}
+.cache-saved-info { flex: 1; min-width: 0; }
+.cache-saved-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-1, #ddd);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cache-saved-meta {
+  font-size: 10px;
+  color: var(--fg-2, #888);
+}
+.cache-saved-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 /* ============================================================
    Identify popup — tabs + add-to-sketch
    ============================================================ */
