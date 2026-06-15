@@ -1,3 +1,8 @@
+/**
+ * CanvasTileLayer — renders XYZ / WMS tiles on a 2D canvas overlay using
+ * CSS mix-blend-mode.  Used only as a fallback when WebGL blend is unavailable.
+ * Primary path is WebGLBlendLayer which runs inside MapLibre's render pipeline.
+ */
 import type { Map as MapLibreMap } from 'maplibre-gl';
 
 function lng2tile(lng: number, z: number): number {
@@ -62,9 +67,7 @@ export class CanvasTileLayer {
     this.canvas.height = c.clientHeight * dpr;
   }
 
-  setBlendMode(mode: string): void {
-    this.canvas.style.mixBlendMode = mode;
-  }
+  setBlendMode(mode: string): void { this.canvas.style.mixBlendMode = mode; }
 
   setOpacityAndVisible(opacity: number, visible: boolean): void {
     this.canvas.style.opacity = visible ? String(opacity) : '0';
@@ -81,10 +84,7 @@ export class CanvasTileLayer {
 
   private scheduleRender(): void {
     if (this.frameId !== null) return;
-    this.frameId = requestAnimationFrame(() => {
-      this.frameId = null;
-      this.renderTiles();
-    });
+    this.frameId = requestAnimationFrame(() => { this.frameId = null; this.renderTiles(); });
   }
 
   private getTileUrl(x: number, y: number, z: number): string {
@@ -105,15 +105,8 @@ export class CanvasTileLayer {
     this.pendingLoads.add(url);
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      this.pendingLoads.delete(url);
-      this.tileCache.set(url, img);
-      this.scheduleRender();
-    };
-    img.onerror = () => {
-      this.pendingLoads.delete(url);
-      this.tileCache.set(url, null);
-    };
+    img.onload = () => { this.pendingLoads.delete(url); this.tileCache.set(url, img); this.scheduleRender(); };
+    img.onerror = () => { this.pendingLoads.delete(url); this.tileCache.set(url, null); };
     img.src = url;
   }
 
@@ -121,17 +114,12 @@ export class CanvasTileLayer {
     const ctx  = this.ctx;
     const dpr  = devicePixelRatio;
     const map  = this.map;
-    const zoom = map.getZoom();
-
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-
     if (this.canvas.style.opacity === '0') return;
 
-    const z       = Math.min(Math.max(Math.round(zoom), 0), 22);
+    const z       = Math.min(Math.max(Math.round(map.getZoom()), 0), 22);
     const maxTile = Math.pow(2, z);
     const bounds  = map.getBounds();
-
-    // Add a 1-tile buffer on each side to hide loading seams
     const minTX = Math.floor(lng2tile(bounds.getWest(),  z)) - 1;
     const maxTX = Math.floor(lng2tile(bounds.getEast(),  z)) + 1;
     const minTY = Math.max(0, Math.floor(lat2tile(bounds.getNorth(), z)) - 1);
@@ -142,14 +130,8 @@ export class CanvasTileLayer {
         const wx  = ((tx % maxTile) + maxTile) % maxTile;
         const url = this.getTileUrl(wx, ty, z);
         const img = this.tileCache.get(url);
+        if (!img) { this.loadTile(url); continue; }
 
-        if (!img) {
-          this.loadTile(url);
-          continue;
-        }
-
-        // Project the 3 corners that define the tile's affine transform on screen.
-        // (SW corner projects independently — not needed since affine uses NW/NE/SW)
         const nw = map.project([tile2lng(tx,     z), tile2lat(ty,     z)]);
         const ne = map.project([tile2lng(tx + 1, z), tile2lat(ty,     z)]);
         const sw = map.project([tile2lng(tx,     z), tile2lat(ty + 1, z)]);

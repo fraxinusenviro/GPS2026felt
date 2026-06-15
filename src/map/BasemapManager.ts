@@ -21,7 +21,7 @@ import { CutFillLayer } from './CutFillLayer';
 import { sampleElevationBilinear } from '../lib/cutFillEngine';
 import { CutFillRunStore, type CutFillRun } from './CutFillRunStore';
 import { computeCutFill, computeDaylightFeatures } from '../lib/cutFillEngine';
-import { CanvasTileLayer } from './CanvasTileLayer';
+import { WebGLBlendLayer } from './WebGLBlendLayer';
 
 const BM_STACK_KEY = 'fm2026_bm_stack';
 const BM_STACK_PROJECT_KEY = 'fm2026_bm_stack_project';
@@ -159,7 +159,7 @@ export class BasemapManager {
   private nshnLayers = new Map<string, NSHNVectorLayer>();
   private hrdemLayers = new Map<string, HRDEMLayer>();
   private cogContourLayers = new Map<string, CogContourLayer>();
-  private canvasTileLayers = new Map<string, CanvasTileLayer>();
+  private webglBlendLayers = new Map<string, WebGLBlendLayer>();
   // Static GeoJSON overlays (shared data library, type 'geojson'): cache the  // fetched features per instance so symbology + identify can reuse them, and
   // track which are loaded onto the map.
   private geojsonOverlays = new Map<string, { properties: Record<string, unknown> }[]>();
@@ -1665,19 +1665,10 @@ export class BasemapManager {
     // overlays ordered bottom-to-top (index 0 = lowest in UI stack, last = highest)
     const overlays = this.stack.slice(0, this.stack.length - 1).reverse();
 
-    // Clear all raster overlays so they can be re-inserted in the correct unified order
+    // Clear all raster overlays so they can be re-inserted in the correct unified order.
+    // This also removes any WebGLBlendLayer custom layers (same id convention: bm-ov-{iid}).
     this.mapManager.clearAllRasterOverlays();
-
-    // Deactivate canvas blend layers no longer in the stack
-    const activeRasterIds = new Set(
-      overlays.filter(l => this.getLayerType(l) === 'raster').map(l => l.instanceId)
-    );
-    for (const [iid, cbl] of this.canvasTileLayers) {
-      if (!activeRasterIds.has(iid)) {
-        cbl.deactivate();
-        this.canvasTileLayers.delete(iid);
-      }
-    }
+    this.webglBlendLayers.clear();
 
     // Deactivate NSHN layers that are no longer in the stack
     const activeNshnIds = new Set(
@@ -1739,27 +1730,18 @@ export class BasemapManager {
           && (resolvedUrl.includes('{x}') || resolvedUrl.includes('{bbox-epsg-3857}'));
 
         if (blendMode !== 'normal' && isTiledHttpUrl) {
-          // Use a CSS canvas overlay so CSS mix-blend-mode can composite correctly
-          if (this.canvasTileLayers.has(l.instanceId)) {
-            const cbl = this.canvasTileLayers.get(l.instanceId)!;
-            cbl.setBlendMode(blendMode);
-            cbl.setOpacityAndVisible(l.opacity, l.visible);
-          } else {
-            this.canvasTileLayers.set(l.instanceId, new CanvasTileLayer(
-              this.mapManager.getMapContainer(),
-              this.mapManager.getMap(),
-              resolvedUrl,
-              blendMode,
-              l.opacity,
-              l.visible,
-            ));
-          }
+          // Insert a WebGL custom layer at the correct z-position so blend composites
+          // against the actual background at that point in the layer stack.
+          const wbl = new WebGLBlendLayer(
+            `bm-ov-${l.instanceId}`,
+            resolvedUrl,
+            blendMode,
+            l.opacity,
+            l.visible,
+          );
+          this.mapManager.addCustomBlendOverlay(wbl);
+          this.webglBlendLayers.set(l.instanceId, wbl);
         } else {
-          // Deactivate any leftover canvas blend layer for this slot
-          if (this.canvasTileLayers.has(l.instanceId)) {
-            this.canvasTileLayers.get(l.instanceId)!.deactivate();
-            this.canvasTileLayers.delete(l.instanceId);
-          }
           this.mapManager.addSingleRasterOverlay({
             instanceId: l.instanceId,
             url: resolvedUrl,
@@ -3100,7 +3082,7 @@ export class BasemapManager {
         else if (ltype === 'hrdem-wcs') this.hrdemLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'cog-contour') this.cogContourLayers.get(iid)?.setOpacity(layer.visible ? opacity : 0);
         else if (ltype === 'geojson') this.applyGeojsonOpacityVisibility(layer, `bm-ov-${iid}`);
-        else if (this.canvasTileLayers.has(iid)) this.canvasTileLayers.get(iid)!.setOpacityAndVisible(opacity, layer.visible);
+        else if (this.webglBlendLayers.has(iid)) this.webglBlendLayers.get(iid)!.setOpacityAndVisible(opacity, layer.visible);
         else this.mapManager.setBasemapOverlayOpacity(iid, layer.visible ? opacity : 0);
         this.saveStack();
       });
@@ -3125,7 +3107,7 @@ export class BasemapManager {
         }
         else if (ltype2 === 'cog-contour') this.cogContourLayers.get(iid)?.setVisible(layer.visible);
         else if (ltype2 === 'geojson') this.applyGeojsonOpacityVisibility(layer, `bm-ov-${iid}`);
-        else if (this.canvasTileLayers.has(iid)) this.canvasTileLayers.get(iid)!.setOpacityAndVisible(layer.opacity, layer.visible);
+        else if (this.webglBlendLayers.has(iid)) this.webglBlendLayers.get(iid)!.setOpacityAndVisible(layer.opacity, layer.visible);
         else this.mapManager.setBasemapOverlayVisible(iid, layer.visible);
         this.saveStack();
       });
