@@ -146,9 +146,9 @@ export class WebGLBlendLayer implements CustomLayerInterface {
     this.visible = visible;
   }
 
-  onAdd(map: MapLibreMap, gl: WebGLRenderingContext): void {
+  onAdd(map: MapLibreMap, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
     this.map = map;
-    this.gl = gl;
+    this.gl = gl as WebGLRenderingContext;
 
     this.prog = makeProgram(gl);
     this.aPos = gl.getAttribLocation(this.prog, 'a_pos');
@@ -174,14 +174,15 @@ export class WebGLBlendLayer implements CustomLayerInterface {
     gl.bindTexture(gl.TEXTURE_2D, null);
   }
 
-  onRemove(_map: MapLibreMap, gl: WebGLRenderingContext): void {
-    for (const tex of this.texCache.values()) gl.deleteTexture(tex);
+  onRemove(_map: MapLibreMap, gl: WebGLRenderingContext | WebGL2RenderingContext): void {
+    const g = gl as WebGLRenderingContext;
+    for (const tex of this.texCache.values()) g.deleteTexture(tex);
     this.texCache.clear();
-    gl.deleteTexture(this.destTex);
-    gl.deleteBuffer(this.posBuf);
-    gl.deleteBuffer(this.uvBuf);
-    gl.deleteBuffer(this.idxBuf);
-    gl.deleteProgram(this.prog);
+    g.deleteTexture(this.destTex);
+    g.deleteBuffer(this.posBuf);
+    g.deleteBuffer(this.uvBuf);
+    g.deleteBuffer(this.idxBuf);
+    g.deleteProgram(this.prog);
     this.imgCache.clear();
     this.pending.clear();
   }
@@ -241,8 +242,9 @@ export class WebGLBlendLayer implements CustomLayerInterface {
     return tex;
   }
 
-  render(gl: WebGLRenderingContext, args: { defaultProjectionData: { mainMatrix: ArrayLike<number> } }): void {
+  render(gl: WebGLRenderingContext | WebGL2RenderingContext, matrix: ArrayLike<number>, _options?: unknown): void {
     if (!this.visible || this.opacity <= 0) return;
+    const g = gl as WebGLRenderingContext;
 
     const map  = this.map;
     const z    = Math.min(Math.max(Math.round(map.getZoom()), 0), 22);
@@ -267,7 +269,7 @@ export class WebGLBlendLayer implements CustomLayerInterface {
         if (!img) { this.loadTile(url); continue; }
 
         let tex = this.texCache.get(url);
-        if (!tex) tex = this.uploadTile(gl, url, img);
+        if (!tex) tex = this.uploadTile(g, url, img);
 
         // Mercator [0,1] corners — use unwrapped tx for correct anti-meridian positioning
         const [mxW, myN] = lngLatToMercator(tile2lng(tx,     z), tile2lat(ty,     z));
@@ -287,55 +289,55 @@ export class WebGLBlendLayer implements CustomLayerInterface {
     if (tileDraw.length === 0) return;
 
     // Snapshot everything rendered below this layer
-    gl.bindTexture(gl.TEXTURE_2D, this.destTex);
-    gl.copyTexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 0, 0, gl.canvas.width as number, gl.canvas.height as number, 0);
-    gl.bindTexture(gl.TEXTURE_2D, null);
+    g.bindTexture(g.TEXTURE_2D, this.destTex);
+    g.copyTexImage2D(g.TEXTURE_2D, 0, g.RGBA, 0, 0, g.canvas.width as number, g.canvas.height as number, 0);
+    g.bindTexture(g.TEXTURE_2D, null);
 
     // Upload geometry once
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(posData), gl.DYNAMIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.uvBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvData), gl.DYNAMIC_DRAW);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.idxBuf);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idxData), gl.DYNAMIC_DRAW);
+    g.bindBuffer(g.ARRAY_BUFFER, this.posBuf);
+    g.bufferData(g.ARRAY_BUFFER, new Float32Array(posData), g.DYNAMIC_DRAW);
+    g.bindBuffer(g.ARRAY_BUFFER, this.uvBuf);
+    g.bufferData(g.ARRAY_BUFFER, new Float32Array(uvData), g.DYNAMIC_DRAW);
+    g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, this.idxBuf);
+    g.bufferData(g.ELEMENT_ARRAY_BUFFER, new Uint16Array(idxData), g.DYNAMIC_DRAW);
 
-    gl.useProgram(this.prog);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ZERO);  // shader writes final composited colour
+    g.useProgram(this.prog);
+    g.enable(g.BLEND);
+    g.blendFunc(g.ONE, g.ZERO);  // shader writes final composited colour
 
-    gl.uniformMatrix4fv(this.uMatrix, false, new Float32Array(args.defaultProjectionData.mainMatrix));
-    gl.uniform1i(this.uMode, MODE_MAP[this.blendMode] ?? 0);
-    gl.uniform1f(this.uOpacity, this.opacity);
-    gl.uniform2f(this.uCanvasSize, gl.canvas.width as number, gl.canvas.height as number);
+    g.uniformMatrix4fv(this.uMatrix, false, new Float32Array(matrix));
+    g.uniform1i(this.uMode, MODE_MAP[this.blendMode] ?? 0);
+    g.uniform1f(this.uOpacity, this.opacity);
+    g.uniform2f(this.uCanvasSize, g.canvas.width as number, g.canvas.height as number);
 
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.destTex);
-    gl.uniform1i(this.uDest, 1);
+    g.activeTexture(g.TEXTURE1);
+    g.bindTexture(g.TEXTURE_2D, this.destTex);
+    g.uniform1i(this.uDest, 1);
 
-    gl.enableVertexAttribArray(this.aPos);
-    gl.enableVertexAttribArray(this.aUv);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuf);
-    gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.uvBuf);
-    gl.vertexAttribPointer(this.aUv, 2, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.idxBuf);
+    g.enableVertexAttribArray(this.aPos);
+    g.enableVertexAttribArray(this.aUv);
+    g.bindBuffer(g.ARRAY_BUFFER, this.posBuf);
+    g.vertexAttribPointer(this.aPos, 2, g.FLOAT, false, 0, 0);
+    g.bindBuffer(g.ARRAY_BUFFER, this.uvBuf);
+    g.vertexAttribPointer(this.aUv, 2, g.FLOAT, false, 0, 0);
+    g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, this.idxBuf);
 
     // One draw call per tile (each has its own texture)
     for (let i = 0; i < tileDraw.length; i++) {
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, tileDraw[i]);
-      gl.uniform1i(this.uTile, 0);
-      gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, i * 6 * 2);
+      g.activeTexture(g.TEXTURE0);
+      g.bindTexture(g.TEXTURE_2D, tileDraw[i]);
+      g.uniform1i(this.uTile, 0);
+      g.drawElements(g.TRIANGLES, 6, g.UNSIGNED_SHORT, i * 6 * 2);
     }
 
-    gl.disableVertexAttribArray(this.aPos);
-    gl.disableVertexAttribArray(this.aUv);
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, null);
+    g.disableVertexAttribArray(this.aPos);
+    g.disableVertexAttribArray(this.aUv);
+    g.bindBuffer(g.ARRAY_BUFFER, null);
+    g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, null);
+    g.activeTexture(g.TEXTURE0);
+    g.bindTexture(g.TEXTURE_2D, null);
 
     // Restore MapLibre's default blend state
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    g.blendFunc(g.SRC_ALPHA, g.ONE_MINUS_SRC_ALPHA);
   }
 }
