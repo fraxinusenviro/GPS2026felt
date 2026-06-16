@@ -141,6 +141,14 @@ export class BasemapManager {
   // Remembers which stack layers were visible before a "hide all" master toggle,
   // so the next click restores the exact prior visibility combo.
   private stackVisSnapshot: string[] | null = null;
+
+  // "View as" (preview another user's layer view, read-only). When viewOnly is
+  // set, stack changes are not persisted to localStorage/cloud.
+  private viewOnly = false;
+  private viewAsUsers: string[] = [];
+  private viewAsCurrentUser = '';
+  private viewingAs: string | null = null;
+  private onViewAs: ((uid: string | null) => void) | null = null;
   private dragSrcIdx: number | null = null;
   private userLayers: UserLayerInfo[] = [];
   private pdfLayers: PDFLayerInfo[] = [];
@@ -246,11 +254,43 @@ export class BasemapManager {
     return this.stack.filter(l => knownIds.has(l.defId) || l.defId.startsWith('shared:'));
   }
 
+  /** Enable/disable read-only "view as" mode (suppresses persistence). */
+  setViewOnly(on: boolean): void {
+    this.viewOnly = on;
+  }
+
+  /** Apply a stack JSON to the live map WITHOUT persisting (for "view as" preview). */
+  applyStackEphemeral(stackJson: string): void {
+    try {
+      const parsed = JSON.parse(stackJson) as { stack?: StackLayer[]; collapsed?: string[] };
+      if (!Array.isArray(parsed.stack) || parsed.stack.length === 0) return;
+      this.stack = parsed.stack;
+      if (Array.isArray(parsed.collapsed)) this.collapsedSections = new Set(parsed.collapsed);
+      this.rebuildMap();
+      if (this.panelState) this.renderContent(this.panelState.container, this.panelState.onClose);
+    } catch { /* keep existing stack */ }
+  }
+
+  /** Configure the "View as" control shown in the TOC. */
+  setViewAsControl(users: string[], currentUser: string, viewingAs: string | null, onChange: (uid: string | null) => void): void {
+    this.viewAsUsers = users;
+    this.viewAsCurrentUser = currentUser;
+    this.viewingAs = viewingAs;
+    this.onViewAs = onChange;
+    if (this.panelState) this.renderContent(this.panelState.container, this.panelState.onClose);
+  }
+
   private saveStack(): void {
     const data = JSON.stringify({
       stack: this.persistableStack(),
       collapsed: [...this.collapsedSections],
     });
+    // In read-only preview, reflect changes on the map but never persist them.
+    if (this.viewOnly) {
+      this.refreshLegend();
+      EventBus.emit('basemap-stack-changed');
+      return;
+    }
     try {
       localStorage.setItem(BM_STACK_KEY, data);
       // Record which project this stack belongs to so reload can detect it
@@ -2920,6 +2960,19 @@ export class BasemapManager {
 
   // ---- Main render ----
 
+  /** "View as <user>" dropdown — only shown when teammates have saved views. */
+  private renderViewAsControl(): string {
+    if (this.viewAsUsers.length === 0 && !this.viewingAs) return '';
+    const opts = ['<option value="">You</option>']
+      .concat(this.viewAsUsers.map(u => `<option value="${u}"${this.viewingAs === u ? ' selected' : ''}>${u}</option>`))
+      .join('');
+    return `<div class="bm-viewas-row${this.viewingAs ? ' active' : ''}">
+      <span class="bm-viewas-label">View as</span>
+      <select id="bm-viewas" class="bm-viewas-select">${opts}</select>
+      ${this.viewingAs ? '<span class="bm-viewas-badge">read-only</span>' : ''}
+    </div>`;
+  }
+
   /** Apply a stack layer's current `visible` state to the corresponding map layer. */
   private applyStackLayerVisibility(layer: StackLayer): void {
     const iid = layer.instanceId;
@@ -2946,6 +2999,7 @@ export class BasemapManager {
       </div>
       <div class="panel-body bm-panel-body">
 
+        ${this.renderViewAsControl()}
         ${this.renderFieldDataSection()}
         ${this.renderCutFillSection()}
 
@@ -3049,6 +3103,12 @@ export class BasemapManager {
         this.applyStackLayerVisibility(layer);
         this.saveStack();
       });
+    });
+
+    // "View as" another user's layer view (read-only)
+    container.querySelector<HTMLSelectElement>('#bm-viewas')?.addEventListener('change', (e) => {
+      const v = (e.target as HTMLSelectElement).value;
+      this.onViewAs?.(v || null);
     });
 
     // Master "show/hide all" toggle on the Basemap Stack header

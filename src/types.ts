@@ -80,7 +80,8 @@ export interface Project {
   created_at: string;
   updated_at: string;
   default_layer_id: string;     // active sketch layer for this project
-  basemap_stack_json: string;   // JSON-serialized StackLayer[] from BasemapManager
+  basemap_stack_json: string;   // JSON-serialized StackLayer[] from BasemapManager (shared baseline)
+  user_layer_views?: Record<string, string>; // per-user (user_id → stack JSON) symbology/visibility
   map_center: [number, number]; // [lng, lat]
   map_zoom: number;
 }
