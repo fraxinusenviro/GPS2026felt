@@ -1885,7 +1885,7 @@ export class BasemapManager {
   private renderUserLayersSection(): string {
     if (this.userLayers.length === 0) return '';
     const offline = this.userLayers.filter(l => l.fileType === 'mbtiles');
-    const other = this.userLayers.filter(l => l.fileType !== 'mbtiles');
+    const other = this.userLayers.filter(l => l.fileType !== 'mbtiles' && l.fileType !== 'geopdf');
 
     let html = '';
     if (other.length > 0) {
@@ -3736,7 +3736,15 @@ export class BasemapManager {
         if (!ul) return;
         ul.visible = !ul.visible;
         btn.classList.toggle('active', ul.visible);
-        this.mapManager.setLayerVisibility(ulid, ul.visible);
+        // Vector imports render as three sub-layers (-fill/-line/-point); toggle
+        // all of them, not just the -fill that mapLayerId points at.
+        if (ul.kind === 'vector') {
+          for (const suffix of ['fill', 'line', 'point', 'labels']) {
+            this.mapManager.setLayerVisibility(`${ul.id}-${suffix}`, ul.visible);
+          }
+        } else {
+          this.mapManager.setLayerVisibility(ulid, ul.visible);
+        }
         this.onLayerStateChange?.(ul.id, { visible: ul.visible });
       });
     });

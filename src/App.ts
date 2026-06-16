@@ -350,9 +350,10 @@ export class App {
   }
 
   /**
-   * Imported layers for the Table of Contents: project-scoped layers plus any
-   * offline MBTiles maps, which are saved globally (no project_id) and so are
-   * shown in every project's TOC.
+   * Imported layers for the Table of Contents. Imported files (GeoJSON/KML/SHP/
+   * GPX vectors and offline MBTiles) are saved globally with no project_id, so
+   * they are surfaced in every project's TOC. Project-scoped imports (if any)
+   * are merged in first so their order is preserved.
    */
   private async loadTocImported(projectId: string): Promise<ImportedLayer[]> {
     const [scoped, all] = await Promise.all([
@@ -360,8 +361,7 @@ export class App {
       this.storage.getAllImportedLayers(),
     ]);
     const seen = new Set(scoped.map(l => l.id));
-    const globalMbtiles = all.filter(l => l.file_type === 'mbtiles' && !seen.has(l.id));
-    return [...scoped, ...globalMbtiles];
+    return [...scoped, ...all.filter(l => !seen.has(l.id))];
   }
 
   /** Infer (kind, format, ext) from a filename for shared uploads. */

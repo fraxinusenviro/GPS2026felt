@@ -43,11 +43,26 @@ export class MapCompositeExporter {
     zMax: number,
     name: string,
     onProgress: (done: number, total: number, phase: string) => void = () => {},
+    opts: { includeCollected?: boolean } = {},
     controller?: AbortController,
   ): Promise<{ blob: Blob; tileCount: number }> {
     const map = this.mapManager.getMap();
     const safeBbox = clampBboxLat(bbox);
     const signal = controller?.signal;
+    const includeCollected = opts.includeCollected !== false;
+
+    // Layers to temporarily hide so they are not baked into the composite:
+    //  - the live GPS location marker / accuracy circle (never wanted offline)
+    //  - optionally the user's collected Points/Lines/Polygons + previews
+    const hideIds: string[] = ['user-location', 'user-accuracy-circle'];
+    for (const ly of map.getStyle().layers ?? []) {
+      const id = ly.id;
+      if (id === 'selected-feature-highlight') hideIds.push(id);
+      if (!includeCollected && (id.startsWith('collected-') || id === 'sketch-preview' || id === 'gps-track-preview')) {
+        hideIds.push(id);
+      }
+    }
+    const restoreVis: Array<[string, string]> = [];
 
     // ---- save state we will mutate ----
     const camera = {
@@ -82,6 +97,14 @@ export class MapCompositeExporter {
 
     try {
       for (const i of interactions) (map[i] as { disable: () => void }).disable();
+
+      // Hide GPS / (optionally) collected layers, remembering prior visibility.
+      for (const id of hideIds) {
+        if (!map.getLayer(id)) continue;
+        const prev = (map.getLayoutProperty(id, 'visibility') as string | undefined) ?? 'visible';
+        restoreVis.push([id, prev]);
+        map.setLayoutProperty(id, 'visibility', 'none');
+      }
 
       // Resize the map container to an exact block-sized square so each block
       // renders 1:1 with the tile grid regardless of the real screen size.
@@ -222,6 +245,9 @@ export class MapCompositeExporter {
       return { blob, tileCount: written };
     } finally {
       // Restore everything regardless of success/abort/error.
+      for (const [id, vis] of restoreVis) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+      }
       container.style.cssText = savedCss;
       map.resize();
       map.jumpTo(camera);

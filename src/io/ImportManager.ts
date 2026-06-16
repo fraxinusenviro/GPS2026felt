@@ -286,12 +286,19 @@ export class ImportManager {
       tileSize: 256
     });
 
+    // Insert at the lowest z-index — directly above the basemap raster — so
+    // offline maps act as a base underlay and all overlays / vector data / GPS
+    // render on top of them rather than being hidden underneath.
+    const layers = map.getStyle().layers ?? [];
+    const baseIdx = layers.findIndex(l => l.id === 'basemap');
+    const beforeId = baseIdx >= 0 && baseIdx + 1 < layers.length ? layers[baseIdx + 1].id : undefined;
+
     map.addLayer({
       id: layerId,
       type: 'raster',
       source: srcId,
       paint: { 'raster-opacity': 1 }
-    });
+    }, beforeId);
   }
 
   private async importGeoPDF(file: File): Promise<ImportedLayer> {
