@@ -20,6 +20,7 @@ import { authenticate } from './auth';
 import { handleSync, handleChanges, handleSharedLayers } from './sync';
 import { signUpload, signDownload, putBlob, getBlob } from './blobs';
 import { reconcileStaticLayers } from './reconcile';
+import { rebuildWetlandMaster } from './wetlandMaster';
 import { handleAlmanac } from './almanac';
 import { json, bad, corsHeaders } from './http';
 
@@ -32,13 +33,14 @@ function isApiPath(path: string): boolean {
     path === '/changes' ||
     path === '/uploads/sign' ||
     path === '/admin/reconcile' ||
+    path === '/admin/wetland-master' ||
     path === '/shared-layers' ||
     path.startsWith('/blobs/')
   );
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     // Non-API requests → serve the PWA (Static Assets handle SPA fallback).
@@ -49,7 +51,7 @@ export default {
       return new Response(null, { status: 204, headers: cors });
     }
 
-    const res = await route(request, env, url);
+    const res = await route(request, env, url, ctx);
     // attach CORS to every real response
     for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
     return res;
@@ -62,10 +64,15 @@ export default {
       (r) => { if (r.added) console.log(`[reconcile] registered ${r.added} static layer(s)`); },
       (err) => console.error('[reconcile] failed:', err)
     ));
+    // Keep the wetland-plots Master File in the Data Library up to date.
+    ctx.waitUntil(rebuildWetlandMaster(env).then(
+      (r) => console.log(`[wetland-master] ${r.plots} plot(s)`),
+      (err) => console.error('[wetland-master] failed:', err)
+    ));
   },
 };
 
-async function route(request: Request, env: Env, url: URL): Promise<Response> {
+async function route(request: Request, env: Env, url: URL, ctx: ExecutionContext): Promise<Response> {
   const path = url.pathname;
   const method = request.method.toUpperCase();
 
@@ -79,7 +86,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   if (!who) return bad('unauthorized', 401);
 
   try {
-    if (path === '/sync' && method === 'POST') return await handleSync(request, env, who);
+    if (path === '/sync' && method === 'POST') return await handleSync(request, env, who, ctx);
     if (path === '/changes' && method === 'GET') return await handleChanges(url, env);
     if (path === '/shared-layers' && method === 'GET') return await handleSharedLayers(env);
 
@@ -89,6 +96,11 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
     // Manual trigger for the R2→D1 static-layer reconciler (cron runs it too).
     if (path === '/admin/reconcile' && method === 'POST') {
       return json(await reconcileStaticLayers(env, who.email));
+    }
+
+    // Manual rebuild of the wetland-plots Master File (cron + post-sync run it too).
+    if (path === '/admin/wetland-master' && method === 'POST') {
+      return json(await rebuildWetlandMaster(env, who.email));
     }
 
     if (path.startsWith('/blobs/')) {
