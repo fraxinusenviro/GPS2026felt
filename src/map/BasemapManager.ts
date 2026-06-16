@@ -1672,14 +1672,21 @@ export class BasemapManager {
         if (!this.nsprdLayer) this.nsprdLayer = new NSPRDVectorLayer(this.mapManager);
         this.nsprdLayer.activate(l.instanceId, l.opacity, l.visible);
         this.applyVectorStyleOverrides(l);
+        if (l.symbologyState) {
+          this.mapManager.setVectorOverlaySymbology(l.instanceId, l.symbologyState, this.nsprdLayer.getLoadedFeatureProps(), 'polygon');
+        }
       } else if (ltype === 'nshn-vector') {
         const cfg = this.getVectorConfig(l);
         if (!cfg) continue;
         if (!this.nshnLayers.has(l.instanceId)) {
           this.nshnLayers.set(l.instanceId, new NSHNVectorLayer(this.mapManager, cfg));
         }
-        this.nshnLayers.get(l.instanceId)!.activate(l.instanceId, l.opacity, l.visible);
+        const nshnInst = this.nshnLayers.get(l.instanceId)!;
+        nshnInst.activate(l.instanceId, l.opacity, l.visible);
         this.applyVectorStyleOverrides(l);
+        if (l.symbologyState) {
+          this.mapManager.setVectorOverlaySymbology(l.instanceId, l.symbologyState, nshnInst.getLoadedFeatureProps(), cfg.geomType === 'line' ? 'line' : 'polygon');
+        }
       } else if (ltype === 'hrdem-wcs') {
         if (!this.hrdemLayers.has(l.instanceId)) {
           const newLayer = new HRDEMLayer(this.mapManager);
@@ -3670,6 +3677,8 @@ export class BasemapManager {
               this.mapManager.setVectorOverlaySymbology(iid, state, feats, geomStr as 'line' | 'polygon');
             }
             this.saveStack();
+            // Force a full re-render so the new symbology/labels reliably apply.
+            this.rebuildMap();
           },
         });
       });

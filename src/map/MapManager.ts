@@ -1302,11 +1302,15 @@ export class MapManager {
     }
 
     const colorExpr = buildColorExpression(features, state);
-    const opacity = state.opacity ?? 0.8;
+    // Decouple fill vs stroke opacity. For polygon layers the SymbologyStudio
+    // exposes a separate stroke-opacity (state.strokeOpacity); point/line layers
+    // only set state.opacity, so stroke falls back to it.
+    const fillOpacity = state.opacity ?? 0.8;
+    const strokeOpacity = state.strokeOpacity ?? fillOpacity;
 
     if (this.map.getLayer(pointId)) {
       this.map.setPaintProperty(pointId, 'circle-color', colorExpr);
-      this.map.setPaintProperty(pointId, 'circle-opacity', opacity);
+      this.map.setPaintProperty(pointId, 'circle-opacity', fillOpacity);
       this.map.setPaintProperty(pointId, 'circle-radius',
         state.method === 'proportional'
           ? buildRadiusExpression(features, state)
@@ -1317,12 +1321,12 @@ export class MapManager {
     }
     if (this.map.getLayer(lineId)) {
       this.map.setPaintProperty(lineId, 'line-color', colorExpr);
-      this.map.setPaintProperty(lineId, 'line-opacity', opacity);
+      this.map.setPaintProperty(lineId, 'line-opacity', strokeOpacity);
       this.map.setPaintProperty(lineId, 'line-width', state.size ?? 2);
     }
     if (this.map.getLayer(fillId)) {
       this.map.setPaintProperty(fillId, 'fill-color', colorExpr);
-      this.map.setPaintProperty(fillId, 'fill-opacity', opacity * 0.4);
+      this.map.setPaintProperty(fillId, 'fill-opacity', fillOpacity);
     }
   }
 
@@ -1344,23 +1348,26 @@ export class MapManager {
     if (!state) return;
 
     const colorExpr = buildColorExpression(features, state);
-    const opacity = state.opacity ?? 1.0;
+    // Fill and stroke opacity are independent: state.opacity drives the fill,
+    // state.strokeOpacity drives the outline (falling back to opacity).
+    const fillOpacity = state.opacity ?? 1.0;
+    const strokeOpacity = state.strokeOpacity ?? fillOpacity;
 
     if (geomType === 'line') {
       if (this.map.getLayer(layerId)) {
         this.map.setPaintProperty(layerId, 'line-color', colorExpr);
         this.map.setPaintProperty(layerId, 'line-width', state.size ?? 1);
-        this.map.setPaintProperty(layerId, 'line-opacity', opacity);
+        this.map.setPaintProperty(layerId, 'line-opacity', fillOpacity);
       }
     } else {
       if (this.map.getLayer(layerId)) {
         this.map.setPaintProperty(layerId, 'fill-color', colorExpr);
-        this.map.setPaintProperty(layerId, 'fill-opacity', opacity * (state.opacity ?? 0.35));
+        this.map.setPaintProperty(layerId, 'fill-opacity', fillOpacity);
       }
       if (this.map.getLayer(strokeId)) {
         this.map.setPaintProperty(strokeId, 'line-color', state.strokeColor ?? '#ffffff');
         this.map.setPaintProperty(strokeId, 'line-width', state.size ?? 1);
-        this.map.setPaintProperty(strokeId, 'line-opacity', opacity);
+        this.map.setPaintProperty(strokeId, 'line-opacity', strokeOpacity);
       }
     }
   }

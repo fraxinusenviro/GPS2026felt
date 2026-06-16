@@ -329,6 +329,8 @@ export interface ImportedLayer {
   label_field?: string;          // field to use for map labels (vector layers)
   source_crs?: string;           // original CRS of imported data (EPSG code); data stored as WGS84
   bounds?: [number, number, number, number]; // [west,south,east,north] for mbtiles/geopdf zoom
+  minzoom?: number;              // mbtiles min stored zoom
+  maxzoom?: number;              // mbtiles max stored zoom (source overzooms beyond this)
   image_data_url?: string;       // JPEG data URL for georeferenced geopdf overlay
   project_id?: string;           // owning project ID (undefined = legacy)
   symbologyState?: SymbologyState; // data-driven symbology override
