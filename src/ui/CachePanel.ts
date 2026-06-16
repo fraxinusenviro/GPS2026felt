@@ -88,6 +88,10 @@ export class CachePanel {
               <input type="text" id="cache-name" value="Offline – ${new Date().toISOString().slice(0, 10)}" />
             </label>
             <label class="cache-check-row">
+              <input type="checkbox" id="cache-include-collected" checked />
+              <span>Include collected Points / Lines / Polygons</span>
+            </label>
+            <label class="cache-check-row">
               <input type="checkbox" id="cache-download" checked />
               <span>Download .mbtiles file</span>
             </label>
@@ -214,6 +218,7 @@ export class CachePanel {
     const bbox = this.viewportBbox();
     const zMin = Math.floor(this.mapManager.getZoom());
     const zMax = zMin + parseInt(slider?.value ?? '1');
+    const includeCollected = (document.getElementById('cache-include-collected') as HTMLInputElement | null)?.checked ?? true;
 
     if (exportBtn) exportBtn.disabled = true;
     if (progressWrap) progressWrap.style.display = '';
@@ -227,6 +232,7 @@ export class CachePanel {
           if (progressFill) progressFill.style.width = `${pct}%`;
           if (progressText) progressText.textContent = `${done} / ${total} tiles`;
         },
+        { includeCollected },
         this.abortController,
       );
 
