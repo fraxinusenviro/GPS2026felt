@@ -248,9 +248,6 @@ export class ImportManager {
     tileStmt.free();
     db.close();
 
-    // Register a custom tile source for this layer
-    this.registerMBTilesSource(layerId);
-
     // Parse bounds from metadata if present (format: "west,south,east,north")
     let bounds: [number, number, number, number] | undefined;
     if (meta.bounds) {
@@ -259,6 +256,10 @@ export class ImportManager {
         bounds = parts as [number, number, number, number];
       }
     }
+    const minzoom = meta.minzoom !== undefined ? Number(meta.minzoom) : undefined;
+    const maxzoom = meta.maxzoom !== undefined ? Number(meta.maxzoom) : undefined;
+
+    this.registerMBTilesSource(layerId, minzoom, maxzoom);
 
     return {
       id: layerId,
@@ -269,21 +270,27 @@ export class ImportManager {
       opacity: 1,
       color: '#ffffff',
       added_at: new Date().toISOString(),
-      bounds
+      bounds,
+      minzoom: Number.isFinite(minzoom) ? minzoom : undefined,
+      maxzoom: Number.isFinite(maxzoom) ? maxzoom : undefined,
     };
   }
 
-  private registerMBTilesSource(layerId: string): void {
+  private registerMBTilesSource(layerId: string, minzoom?: number, maxzoom?: number): void {
     // Add as custom protocol-based source
     // We use a data URL approach via a Blob URL served through a custom protocol
     const map = this.mapManager.getMap();
     const srcId = `src-${layerId}`;
 
-    // Use a custom tile function approach
+    // Setting the source maxzoom to the highest stored zoom lets MapLibre
+    // OVERZOOM — it scales the deepest tiles up past that zoom instead of
+    // requesting non-existent tiles (which would render blank).
     map.addSource(srcId, {
       type: 'raster',
       tiles: [`mbtiles://${layerId}/{z}/{x}/{y}`],
-      tileSize: 256
+      tileSize: 256,
+      ...(Number.isFinite(minzoom) ? { minzoom: minzoom as number } : {}),
+      ...(Number.isFinite(maxzoom) ? { maxzoom: maxzoom as number } : {}),
     });
 
     // Insert at the lowest z-index — directly above the basemap raster — so
@@ -350,7 +357,7 @@ export class ImportManager {
     if (layer.data) {
       this.mapManager.addGeoJSONLayer(layer.id, layer.data, layer.color, layer.opacity);
     } else if (layer.file_type === 'mbtiles') {
-      this.registerMBTilesSource(layer.id);
+      this.registerMBTilesSource(layer.id, layer.minzoom, layer.maxzoom);
     } else if (layer.file_type === 'geopdf' && layer.image_data_url && layer.bounds) {
       this.mapManager.addGeoPDFLayer(layer.id, layer.image_data_url, layer.bounds, layer.opacity);
     }

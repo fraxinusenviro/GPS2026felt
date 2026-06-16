@@ -246,14 +246,22 @@ export class App {
       this.mapManager.resetNorthPitch();
     });
 
-    // Permalink: restore view from URL hash on startup
-    this.restorePermalinkView();
+    // Restore view: a URL permalink wins; otherwise fall back to the project's
+    // last-recorded extent (and finally the map's built-in default).
+    const appliedPermalink = this.restorePermalinkView();
+    if (!appliedPermalink && activeProject?.map_center && typeof activeProject.map_zoom === 'number') {
+      const [lng, lat] = activeProject.map_center;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        this.mapManager.flyTo(lat, lng, activeProject.map_zoom);
+      }
+    }
 
-    // Permalink: update URL hash on map move
+    // Permalink: update URL hash on map move + persist the view to the project.
     EventBus.on<{ center: { lat: number; lng: number }; zoom: number }>('map-moveend', ({ center, zoom }) => {
       const stackParam = this.basemapManager.getUrlStackParam();
       const hash = `#${zoom.toFixed(2)}/${center.lng.toFixed(5)}/${center.lat.toFixed(5)}${stackParam ? '/' + stackParam : ''}`;
       history.replaceState(null, '', hash);
+      this.saveProjectViewDebounced(center.lng, center.lat, zoom);
     });
 
     // Also update URL when stack changes
@@ -1934,21 +1942,41 @@ export class App {
     btn?.classList.toggle('active', active);
   }
 
-  private restorePermalinkView(): void {
+  private viewSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Persist the current map view onto the active project (debounced). */
+  private saveProjectViewDebounced(lng: number, lat: number, zoom: number): void {
+    if (this.viewSaveTimer) clearTimeout(this.viewSaveTimer);
+    this.viewSaveTimer = setTimeout(async () => {
+      const id = this.settings.active_project_id || 'default';
+      const proj = await this.storage.getProject(id);
+      if (!proj) return;
+      proj.map_center = [lng, lat];
+      proj.map_zoom = zoom;
+      proj.updated_at = new Date().toISOString();
+      await this.storage.saveProject(proj);
+    }, 1500);
+  }
+
+  /** @returns true if a map view was applied from the URL permalink. */
+  private restorePermalinkView(): boolean {
     const hash = window.location.hash.slice(1);
-    if (!hash) return;
+    if (!hash) return false;
     const parts = hash.split('/');
-    if (parts.length < 3) return;
+    if (parts.length < 3) return false;
     const zoom = parseFloat(parts[0]);
     const lng = parseFloat(parts[1]);
     const lat = parseFloat(parts[2]);
+    let applied = false;
     if (!isNaN(zoom) && !isNaN(lng) && !isNaN(lat)) {
       this.mapManager.flyTo(lat, lng, zoom);
+      applied = true;
     }
     // Restore layer stack if encoded in URL (part 3)
     if (parts[3]) {
       this.basemapManager.restoreFromUrlStack(parts[3]);
     }
+    return applied;
   }
 
   private shareCurrentView(): void {
