@@ -192,6 +192,7 @@ export interface LayerPreset {
   types: TypePreset[];
   project_id?: string;          // owning project ID (undefined = legacy global)
   visible?: boolean;            // TOC visibility toggle (default true)
+  show_labels?: boolean;        // show point labels on map (default true)
   symbologyState?: SymbologyState; // data-driven symbology override
 }
 

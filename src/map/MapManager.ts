@@ -389,6 +389,12 @@ export class MapManager {
       data: { type: 'FeatureCollection', features: [] }
     });
 
+    // --- Wetland plots (dedicated source so they're an independent TOC class) ---
+    this.map.addSource('wetland-plots', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
+
     // ---- Layers ----
 
     // User accuracy circle
@@ -565,6 +571,53 @@ export class MapManager {
       }
     });
 
+    // ---- Wetland plots — dedicated layers (mirror collected points) ----
+    this.map.addLayer({
+      id: 'wetland-plots-circle',
+      type: 'circle',
+      source: 'wetland-plots',
+      filter: ['!', ['get', 'use_symbol']],
+      paint: {
+        'circle-radius': ['coalesce', ['get', 'size'], 7],
+        'circle-color': ['coalesce', ['get', 'color'], '#14b8a6'],
+        'circle-stroke-color': ['coalesce', ['get', 'stroke_color'], '#ffffff'],
+        'circle-stroke-width': ['coalesce', ['get', 'stroke_width'], 2],
+        'circle-opacity': ['coalesce', ['get', 'fill_opacity'], 1],
+      }
+    });
+    this.map.addLayer({
+      id: 'wetland-plots-symbols',
+      type: 'symbol',
+      source: 'wetland-plots',
+      filter: ['get', 'use_symbol'],
+      layout: {
+        'icon-image': ['concat', 'preset-', ['get', 'preset_id']],
+        'icon-size': ['/', ['coalesce', ['get', 'size'], 7.0], 24.0],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      }
+    });
+    this.map.addLayer({
+      id: 'wetland-plots-labels',
+      type: 'symbol',
+      source: 'wetland-plots',
+      layout: {
+        'text-field': ['get', 'label_text'],
+        'text-font': ['literal', ['Open Sans Regular', 'Arial Unicode MS Regular']],
+        'text-size': 11,
+        'text-offset': [0, 1.5],
+        'text-anchor': 'top',
+        'text-max-width': 10,
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(0,0,0,0.85)',
+        'text-halo-width': 2
+      }
+    });
+
     // Sketch preview (polygon fill)
     this.map.addLayer({
       id: 'sketch-preview-fill',
@@ -679,7 +732,7 @@ export class MapManager {
     });
 
     // Make collected layers clickable for selection
-    [LAYER_IDS.COLLECTED_POINTS, LAYER_IDS.COLLECTED_LINES,
+    [LAYER_IDS.COLLECTED_POINTS, 'wetland-plots-circle', LAYER_IDS.COLLECTED_LINES,
       LAYER_IDS.COLLECTED_POLYGONS_FILL].forEach(layerId => {
       this.map.on('mouseenter', layerId, () => {
         this.map.getCanvas().style.cursor = 'pointer';
@@ -783,6 +836,7 @@ export class MapManager {
     const points: object[] = [];
     const lines: object[] = [];
     const polygons: object[] = [];
+    const wetlandPlots: object[] = [];
 
     for (const f of features) {
       const lp = layerMap.get(f.layer_id);
@@ -854,7 +908,9 @@ export class MapManager {
         }
       };
 
-      if (f.geometry_type === 'Point') points.push(geoFeature);
+      // Wetland plots render in their OWN source/layers (independent TOC class).
+      if (isWetlandPlot) wetlandPlots.push(geoFeature);
+      else if (f.geometry_type === 'Point') points.push(geoFeature);
       else if (f.geometry_type === 'LineString') lines.push(geoFeature);
       else if (f.geometry_type === 'Polygon') polygons.push(geoFeature);
     }
@@ -863,6 +919,14 @@ export class MapManager {
     (this.map.getSource('collected-points') as maplibregl.GeoJSONSource)?.setData(toFC(points) as never);
     (this.map.getSource('collected-lines') as maplibregl.GeoJSONSource)?.setData(toFC(lines) as never);
     (this.map.getSource('collected-polygons') as maplibregl.GeoJSONSource)?.setData(toFC(polygons) as never);
+    (this.map.getSource('wetland-plots') as maplibregl.GeoJSONSource)?.setData(toFC(wetlandPlots) as never);
+
+    // Re-apply the wetland-plots layer's saved symbology + label visibility so it
+    // survives data refreshes / reloads (paint persists, but reload needs it set).
+    const wetlandLp = layerPresets?.find(lp => lp.id.endsWith('-wetlands'));
+    const wetlandFeatProps = wetlandPlots.map(p => ({ properties: (p as { properties: Record<string, unknown> }).properties }));
+    this.setWetlandPlotSymbology(wetlandLp?.symbologyState ?? null, wetlandFeatProps);
+    this.setLayerVisibility('wetland-plots-labels', wetlandLp?.show_labels !== false);
   }
 
   private colorCache: Map<string, string> = new Map();
@@ -1270,6 +1334,42 @@ export class MapManager {
   }
 
   // Apply data-driven symbology to an imported GeoJSON layer.
+  /** Apply data-driven symbology + labels to the dedicated wetland-plots layers. */
+  setWetlandPlotSymbology(
+    state: SymbologyState | null,
+    features: { properties: Record<string, unknown> }[],
+  ): void {
+    if (!this.initialized) return;
+    const circleId = 'wetland-plots-circle';
+    const labelId = 'wetland-plots-labels';
+
+    // Labels: default to per-feature PLOT_ID (label_text); honour a chosen field.
+    if (this.map.getLayer(labelId)) {
+      const lf = state?.label_field;
+      this.map.setLayoutProperty(labelId, 'text-field',
+        lf ? ['coalesce', ['to-string', ['get', lf]], ''] : ['get', 'label_text']);
+      this.map.setLayoutProperty(labelId, 'text-size', state?.label_size ?? 11);
+      this.map.setPaintProperty(labelId, 'text-color', state?.label_color ?? '#ffffff');
+    }
+
+    if (!this.map.getLayer(circleId)) return;
+    if (!state) {
+      // Default — per-feature colour (by PLOT_TYPE, set in updateCollectedFeatures)
+      this.map.setPaintProperty(circleId, 'circle-color', ['coalesce', ['get', 'color'], '#14b8a6']);
+      this.map.setPaintProperty(circleId, 'circle-radius', ['coalesce', ['get', 'size'], 7]);
+      this.map.setPaintProperty(circleId, 'circle-opacity', ['coalesce', ['get', 'fill_opacity'], 1]);
+      this.map.setPaintProperty(circleId, 'circle-stroke-color', ['coalesce', ['get', 'stroke_color'], '#ffffff']);
+      this.map.setPaintProperty(circleId, 'circle-stroke-width', ['coalesce', ['get', 'stroke_width'], 2]);
+      return;
+    }
+    this.map.setPaintProperty(circleId, 'circle-color', buildColorExpression(features, state));
+    this.map.setPaintProperty(circleId, 'circle-opacity', state.opacity ?? 0.9);
+    this.map.setPaintProperty(circleId, 'circle-radius',
+      state.method === 'proportional' ? buildRadiusExpression(features, state) : (state.size ?? 7));
+    this.map.setPaintProperty(circleId, 'circle-stroke-color', state.outlineColor ?? '#ffffff');
+    this.map.setPaintProperty(circleId, 'circle-stroke-width', state.outlineWidth ?? 1.5);
+  }
+
   setImportedLayerSymbology(
     layerId: string,
     state: SymbologyState | null,
@@ -1544,6 +1644,8 @@ export class MapManager {
       layers: [
         LAYER_IDS.COLLECTED_POINTS,
         'collected-points-symbols',
+        'wetland-plots-circle',
+        'wetland-plots-symbols',
         LAYER_IDS.COLLECTED_LINES,
         'collected-lines-dashed',
         'collected-lines-dotted',
