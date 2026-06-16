@@ -210,7 +210,7 @@ export class App {
     const activeProject = await this.storage.getProject(activeProjectId);
     // Prefer localStorage (most-recent session state) over the project's IndexedDB snapshot.
     // Falls back to the project JSON only when localStorage has no data for this project.
-    this.basemapManager.initForProject(activeProjectId, activeProject?.basemap_stack_json);
+    this.basemapManager.initForProject(activeProjectId, activeProject ? this.projectStackForUser(activeProject) : undefined);
     // Persist user-driven stack changes (layers/symbology/labels) to the active
     // project so they sync across devices.
     this.basemapManager.onStackPersist = (stackJson) => this.persistStackToProject(stackJson);
@@ -299,8 +299,11 @@ export class App {
     // project's stored stack now differs from what's on the map. setActiveProjectStack
     // suppresses re-persist, so this can't loop back into sync.
     const project = await this.storage.getProject(activeId);
-    if (project?.basemap_stack_json && this.stackLayersDiffer(project.basemap_stack_json)) {
-      this.basemapManager.setActiveProjectStack(project.basemap_stack_json, activeId);
+    if (project?.basemap_stack_json) {
+      const view = this.projectStackForUser(project);
+      if (view && this.stackLayersDiffer(view)) {
+        this.basemapManager.setActiveProjectStack(view, activeId);
+      }
     }
   }
 
@@ -324,17 +327,74 @@ export class App {
 
   /** Debounced: persist the basemap stack to the active project (→ cloud sync). */
   private persistStackToProject(stackJson: string): void {
+    // Don't persist while previewing another user's view (read-only).
+    if (this.viewingAsUser) return;
     if (this.stackPersistTimer) clearTimeout(this.stackPersistTimer);
     this.stackPersistTimer = setTimeout(() => {
       void (async () => {
         const id = this.settings.active_project_id || 'default';
+        const uid = this.settings.user_id || 'USER';
         const project = await this.storage.getProject(id);
-        if (!project || project.basemap_stack_json === stackJson) return;
+        if (!project) return;
+        if (project.basemap_stack_json === stackJson && project.user_layer_views?.[uid] === stackJson) return;
+        // Save this user's personal view, and keep the shared baseline in step.
+        project.user_layer_views = { ...(project.user_layer_views ?? {}), [uid]: stackJson };
         project.basemap_stack_json = stackJson;
         project.updated_at = new Date().toISOString();
         await this.storage.saveProject(project); // marks dirty → syncs (LWW)
       })();
     }, 1500);
+  }
+
+  /** The active user's stack view for a project (personal view → shared baseline). */
+  private projectStackForUser(project: { basemap_stack_json: string; user_layer_views?: Record<string, string> }): string {
+    const uid = this.settings.user_id || 'USER';
+    return project.user_layer_views?.[uid] ?? project.basemap_stack_json;
+  }
+
+  private viewingAsUser: string | null = null;
+
+  /**
+   * Temporarily preview another teammate's layer view (read-only), or pass null
+   * to return to your own. While previewing, stack changes are not persisted.
+   */
+  private async applyUserView(uid: string | null): Promise<void> {
+    const myUid = this.settings.user_id || 'USER';
+    const id = this.settings.active_project_id || 'default';
+    const project = await this.storage.getProject(id);
+    if (!project) return;
+
+    if (uid && uid !== myUid) {
+      const theirJson = project.user_layer_views?.[uid];
+      if (!theirJson) {
+        EventBus.emit('toast', { message: `No saved view for ${uid}`, type: 'warning' });
+        return;
+      }
+      // Persist my own current view once before previewing someone else's.
+      if (!this.viewingAsUser) {
+        project.user_layer_views = { ...(project.user_layer_views ?? {}), [myUid]: this.basemapManager.getCurrentStackJson() };
+        project.updated_at = new Date().toISOString();
+        await this.storage.saveProject(project);
+      }
+      this.viewingAsUser = uid;
+      this.basemapManager.setViewOnly(true);
+      this.basemapManager.applyStackEphemeral(theirJson);
+      EventBus.emit('toast', { message: `Viewing as ${uid} — read-only`, type: 'info', duration: 2500 });
+    } else {
+      this.viewingAsUser = null;
+      this.basemapManager.setViewOnly(false);
+      this.basemapManager.setActiveProjectStack(this.projectStackForUser(project), id);
+    }
+    this.refreshViewAsControl();
+  }
+
+  /** Push the current project's roster of saved-view users into the TOC control. */
+  private async refreshViewAsControl(): Promise<void> {
+    const id = this.settings.active_project_id || 'default';
+    const project = await this.storage.getProject(id);
+    const myUid = this.settings.user_id || 'USER';
+    const users = Object.keys(project?.user_layer_views ?? {}).filter(u => u !== myUid).sort();
+    this.basemapManager.setViewAsControl(users, myUid, this.viewingAsUser, (u) => void this.applyUserView(u));
   }
 
   /**
@@ -1133,6 +1193,7 @@ export class App {
         },
         this.features,
         );
+        void this.refreshViewAsControl();
       }
     });
 
@@ -2233,10 +2294,21 @@ export class App {
   // Project management
   // ============================================================
   async loadProject(id: string): Promise<void> {
+    // If previewing another user's view, exit it WITHOUT saving the ephemeral
+    // (other user's) stack as mine — my own view was already persisted on entry.
+    const wasPreviewing = !!this.viewingAsUser;
+    if (wasPreviewing) {
+      this.viewingAsUser = null;
+      this.basemapManager.setViewOnly(false);
+    }
+
     // Save current stack to the current project before switching
     const currentProject = await this.storage.getProject(this.settings.active_project_id || 'default');
-    if (currentProject) {
-      currentProject.basemap_stack_json = this.basemapManager.getCurrentStackJson();
+    if (currentProject && !wasPreviewing) {
+      const uid = this.settings.user_id || 'USER';
+      const json = this.basemapManager.getCurrentStackJson();
+      currentProject.user_layer_views = { ...(currentProject.user_layer_views ?? {}), [uid]: json };
+      currentProject.basemap_stack_json = json;
       currentProject.updated_at = new Date().toISOString();
       await this.storage.saveProject(currentProject);
     }
@@ -2249,9 +2321,9 @@ export class App {
     this.settings.default_layer_id = project.default_layer_id;
     await this.storage.saveAppSettings(this.settings);
 
-    // Restore basemap stack for the new project
+    // Restore basemap stack for the new project (this user's personal view)
     if (project.basemap_stack_json) {
-      this.basemapManager.setActiveProjectStack(project.basemap_stack_json, id);
+      this.basemapManager.setActiveProjectStack(this.projectStackForUser(project), id);
     }
 
     // Load project features and layers

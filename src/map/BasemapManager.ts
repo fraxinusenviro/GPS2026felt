@@ -141,6 +141,14 @@ export class BasemapManager {
   // Remembers which stack layers were visible before a "hide all" master toggle,
   // so the next click restores the exact prior visibility combo.
   private stackVisSnapshot: string[] | null = null;
+
+  // "View as" (preview another user's layer view, read-only). When viewOnly is
+  // set, stack changes are not persisted to localStorage/cloud.
+  private viewOnly = false;
+  private viewAsUsers: string[] = [];
+  private viewAsCurrentUser = '';
+  private viewingAs: string | null = null;
+  private onViewAs: ((uid: string | null) => void) | null = null;
   private dragSrcIdx: number | null = null;
   private userLayers: UserLayerInfo[] = [];
   private pdfLayers: PDFLayerInfo[] = [];
@@ -246,11 +254,43 @@ export class BasemapManager {
     return this.stack.filter(l => knownIds.has(l.defId) || l.defId.startsWith('shared:'));
   }
 
+  /** Enable/disable read-only "view as" mode (suppresses persistence). */
+  setViewOnly(on: boolean): void {
+    this.viewOnly = on;
+  }
+
+  /** Apply a stack JSON to the live map WITHOUT persisting (for "view as" preview). */
+  applyStackEphemeral(stackJson: string): void {
+    try {
+      const parsed = JSON.parse(stackJson) as { stack?: StackLayer[]; collapsed?: string[] };
+      if (!Array.isArray(parsed.stack) || parsed.stack.length === 0) return;
+      this.stack = parsed.stack;
+      if (Array.isArray(parsed.collapsed)) this.collapsedSections = new Set(parsed.collapsed);
+      this.rebuildMap();
+      if (this.panelState) this.renderContent(this.panelState.container, this.panelState.onClose);
+    } catch { /* keep existing stack */ }
+  }
+
+  /** Configure the "View as" control shown in the TOC. */
+  setViewAsControl(users: string[], currentUser: string, viewingAs: string | null, onChange: (uid: string | null) => void): void {
+    this.viewAsUsers = users;
+    this.viewAsCurrentUser = currentUser;
+    this.viewingAs = viewingAs;
+    this.onViewAs = onChange;
+    if (this.panelState) this.renderContent(this.panelState.container, this.panelState.onClose);
+  }
+
   private saveStack(): void {
     const data = JSON.stringify({
       stack: this.persistableStack(),
       collapsed: [...this.collapsedSections],
     });
+    // In read-only preview, reflect changes on the map but never persist them.
+    if (this.viewOnly) {
+      this.refreshLegend();
+      EventBus.emit('basemap-stack-changed');
+      return;
+    }
     try {
       localStorage.setItem(BM_STACK_KEY, data);
       // Record which project this stack belongs to so reload can detect it
@@ -1986,12 +2026,16 @@ export class BasemapManager {
       { id: 'Polygon',    label: 'Polygons', icon: '▭', geomType: 'Polygon' },
     ];
 
+    const isWetland = (f: FieldFeature) => f.layer_id?.endsWith('-wetlands') || !!f.wetland_data;
+
     const body = geomGroups.map(({ id, label, icon, geomType }) => {
-      const layerPreset = this.featureLayerPresets.find(lp => lp.geometry_type === geomType);
+      // Wetland plots are their own class below — keep them out of the Point group.
+      const layerPreset = this.featureLayerPresets.find(lp =>
+        lp.geometry_type === geomType && !lp.id.endsWith('-wetlands'));
       const types = this.typePresets.filter(p => p.geometry_type === geomType || p.geometry_type === 'all');
 
-      // Count features in this geometry group
-      const groupCount = this.collectedFeatures.filter(f => f.geometry_type === geomType).length;
+      // Count features in this geometry group (excluding wetland plots)
+      const groupCount = this.collectedFeatures.filter(f => f.geometry_type === geomType && !isWetland(f)).length;
 
       if (types.length === 0 && groupCount === 0) return '';
 
@@ -2034,6 +2078,22 @@ export class BasemapManager {
         </div>`;
     }).join('');
 
+    // Wetland Plots — dedicated class (own map layers + symbology/labeling)
+    const wetlandFeats = this.collectedFeatures.filter(isWetland);
+    const wetlandPreset = this.featureLayerPresets.find(lp => lp.id.endsWith('-wetlands'));
+    const wetlandGroup = (wetlandFeats.length > 0 || wetlandPreset) ? `
+      <div class="fd-geom-group" data-fd-geom="WetlandPlot">
+        <div class="fd-geom-header fd-geom-collapsible" data-fd-collapse="WetlandPlot">
+          <span class="fd-geom-chevron${this.collapsedFdGroups.has('WetlandPlot') ? ' fd-collapsed' : ''}">▾</span>
+          <span class="fd-geom-icon">◆</span>
+          <span class="fd-geom-label">Wetland Plots</span>
+          ${wetlandFeats.length > 0 ? `<span class="fd-geom-count">${wetlandFeats.length}</span>` : ''}
+          <button class="fd-symbology-btn" data-fd-symbology="WetlandPlot" title="Edit symbology" onclick="event.stopPropagation()">⊛</button>
+          <button class="fd-label-btn${wetlandPreset?.show_labels !== false ? ' active' : ''}" data-fd-wetland-label="1" title="Toggle labels" onclick="event.stopPropagation()">${labelOnSvg}</button>
+          <button class="vis-tog fd-group-vis fd-vis-lg${wetlandPreset?.visible !== false ? ' active' : ''}" data-fd-wetland-vis="1" title="Toggle Wetland Plots" onclick="event.stopPropagation()"></button>
+        </div>
+      </div>` : '';
+
     // Untyped features row
     const untypedCount = countByType.get('(untyped)') ?? 0;
     const untypedRow = untypedCount > 0 ? `
@@ -2048,7 +2108,7 @@ export class BasemapManager {
 
     const fdLabel = (this.userId ? this.userId.toUpperCase() : 'Field') + ' Data';
     return this.sectionToggle('field-data', fdLabel, hint) +
-      this.sectionBody('field-data', `<div class="fd-body">${body}${untypedRow}</div>`);
+      this.sectionBody('field-data', `<div class="fd-body">${body}${wetlandGroup}${untypedRow}</div>`);
   }
 
   private wireFieldData(container: HTMLElement): void {
@@ -2135,7 +2195,36 @@ export class BasemapManager {
     // Symbology studio button per geometry group
     container.querySelectorAll<HTMLButtonElement>('[data-fd-symbology]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const geomType = btn.dataset.fdSymbology as GeometryType;
+        const key = btn.dataset.fdSymbology!;
+
+        // Wetland Plots — dedicated class with its own map layers.
+        if (key === 'WetlandPlot') {
+          const preset = this.featureLayerPresets.find(lp => lp.id.endsWith('-wetlands'));
+          const feats = this.collectedFeatures
+            .filter(f => f.layer_id?.endsWith('-wetlands') || !!f.wetland_data)
+            .map(f => ({
+              properties: {
+                PLOT_TYPE: f.wetland_data?.PLOT_TYPE ?? '',
+                PLOT_ID: f.wetland_data?.PLOT_ID ?? f.point_id,
+                observer: f.wetland_data?.observer ?? '',
+                type: f.type, elevation: f.elevation, accuracy: f.accuracy,
+              } as Record<string, unknown>,
+            }));
+          this.symbologyStudio.open({
+            title: 'Wetland Plots',
+            geomType: 'point',
+            features: feats,
+            initialState: preset?.symbologyState,
+            onApply: (state: SymbologyState) => {
+              if (preset) preset.symbologyState = state;
+              this.mapManager.setWetlandPlotSymbology(state, feats);
+              if (preset) this.onFeatureLayerChange?.(preset);
+            },
+          });
+          return;
+        }
+
+        const geomType = key as GeometryType;
         const geomStr = geomType === 'Point' ? 'point' : geomType === 'LineString' ? 'line' : 'polygon';
         const features = this.collectedFeatures
           .filter(f => f.geometry_type === geomType)
@@ -2148,7 +2237,7 @@ export class BasemapManager {
               created_by: f.created_by,
             } as Record<string, unknown>,
           }));
-        const layerPreset = this.featureLayerPresets.find(lp => lp.geometry_type === geomType);
+        const layerPreset = this.featureLayerPresets.find(lp => lp.geometry_type === geomType && !lp.id.endsWith('-wetlands'));
         const title = geomType === 'Point' ? 'Points' : geomType === 'LineString' ? 'Lines' : 'Polygons';
 
         this.symbologyStudio.open({
@@ -2163,6 +2252,27 @@ export class BasemapManager {
           },
         });
       });
+    });
+
+    // Wetland Plots — group visibility
+    container.querySelector<HTMLButtonElement>('[data-fd-wetland-vis]')?.addEventListener('click', (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const lp = this.featureLayerPresets.find(l => l.id.endsWith('-wetlands'));
+      if (!lp) return;
+      lp.visible = !(lp.visible !== false);
+      btn.classList.toggle('active', lp.visible !== false);
+      this.onFeatureLayerChange?.(lp);
+    });
+
+    // Wetland Plots — labels toggle
+    container.querySelector<HTMLButtonElement>('[data-fd-wetland-label]')?.addEventListener('click', (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const lp = this.featureLayerPresets.find(l => l.id.endsWith('-wetlands'));
+      if (!lp) return;
+      lp.show_labels = lp.show_labels === false;
+      btn.classList.toggle('active', lp.show_labels !== false);
+      this.mapManager.setLayerVisibility('wetland-plots-labels', lp.show_labels !== false);
+      this.onFeatureLayerChange?.(lp);
     });
   }
 
@@ -2920,6 +3030,19 @@ export class BasemapManager {
 
   // ---- Main render ----
 
+  /** "View as <user>" dropdown — only shown when teammates have saved views. */
+  private renderViewAsControl(): string {
+    if (this.viewAsUsers.length === 0 && !this.viewingAs) return '';
+    const opts = ['<option value="">You</option>']
+      .concat(this.viewAsUsers.map(u => `<option value="${u}"${this.viewingAs === u ? ' selected' : ''}>${u}</option>`))
+      .join('');
+    return `<div class="bm-viewas-row${this.viewingAs ? ' active' : ''}">
+      <span class="bm-viewas-label">View as</span>
+      <select id="bm-viewas" class="bm-viewas-select">${opts}</select>
+      ${this.viewingAs ? '<span class="bm-viewas-badge">read-only</span>' : ''}
+    </div>`;
+  }
+
   /** Apply a stack layer's current `visible` state to the corresponding map layer. */
   private applyStackLayerVisibility(layer: StackLayer): void {
     const iid = layer.instanceId;
@@ -2946,6 +3069,7 @@ export class BasemapManager {
       </div>
       <div class="panel-body bm-panel-body">
 
+        ${this.renderViewAsControl()}
         ${this.renderFieldDataSection()}
         ${this.renderCutFillSection()}
 
@@ -3049,6 +3173,12 @@ export class BasemapManager {
         this.applyStackLayerVisibility(layer);
         this.saveStack();
       });
+    });
+
+    // "View as" another user's layer view (read-only)
+    container.querySelector<HTMLSelectElement>('#bm-viewas')?.addEventListener('change', (e) => {
+      const v = (e.target as HTMLSelectElement).value;
+      this.onViewAs?.(v || null);
     });
 
     // Master "show/hide all" toggle on the Basemap Stack header

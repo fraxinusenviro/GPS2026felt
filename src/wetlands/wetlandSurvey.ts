@@ -14,7 +14,7 @@ const numOf = (v: unknown): number => Number(v);
 
 // ---- option lists ----
 export const yesNo = ['', 'Yes', 'No'];
-export const observers = ['', 'IB', 'ZS', 'SD', 'CN', 'Other'];
+export const observers = ['', 'IB', 'ZS', 'SD', 'CN', 'JA', 'DK', 'SV', 'PS', 'MS', 'Other'];
 export const provinces = ['', 'NS', 'PEI', 'NB', 'NL'];
 export const plotTypes = ['', 'Wetland Control Plot', 'Upland Control Plot'];
 export const localReliefOptions = ['', 'Convex', 'Concave', 'None'];

@@ -9,6 +9,7 @@
 
 import type { Env, Identity, SyncEntity, EntityKind } from './types';
 import { ENTITY_KINDS, TABLES } from './types';
+import { rebuildWetlandMaster, pushHasWetlandFeatures } from './wetlandMaster';
 import { json, bad } from './http';
 
 type SyncBody = Partial<Record<EntityKind, SyncEntity[]>>;
@@ -22,7 +23,7 @@ export async function reserveRevs(env: Env, count: number): Promise<number> {
   return row.value - count + 1; // first rev of the reserved block
 }
 
-export async function handleSync(request: Request, env: Env, who: Identity): Promise<Response> {
+export async function handleSync(request: Request, env: Env, who: Identity, ctx?: ExecutionContext): Promise<Response> {
   const body = (await request.json().catch(() => null)) as SyncBody | null;
   if (!body || typeof body !== 'object') return bad('expected a JSON object of entity arrays');
 
@@ -80,6 +81,13 @@ export async function handleSync(request: Request, env: Env, who: Identity): Pro
       appliedTotal++;
     }
   });
+
+  // If wetland plots changed, refresh the Master File in the background (best-effort).
+  if (appliedTotal > 0 && pushHasWetlandFeatures(items as Array<{ kind: string; e: Record<string, unknown> }>)) {
+    const rebuild = rebuildWetlandMaster(env, who.email).catch(
+      (err) => console.error('[wetland-master] post-sync rebuild failed:', err));
+    if (ctx) ctx.waitUntil(rebuild); else await rebuild;
+  }
 
   return json({
     applied,
