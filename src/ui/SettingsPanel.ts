@@ -214,6 +214,8 @@ export class SettingsPanel {
                   : `<span style="font-size:0.8em;color:var(--color-text-muted,#6b7280)">✓ App is up to date</span>`
                 }
               </div>
+              <button id="s-force-reload" class="btn-outline" style="width:100%;margin-top:8px">↻ Force Reload App</button>
+              <p class="settings-hint" style="margin-top:4px;font-size:0.8em">Clears cached files and fetches the latest version.</p>
             </div>
           </div>
 
@@ -268,6 +270,13 @@ export class SettingsPanel {
 
     // Wire update-reload button (may already be rendered if update arrived before panel opened)
     this.panel.querySelector('#s-sw-reload')?.addEventListener('click', () => SwUpdate.reload());
+
+    // Force reload: cache-bust and grab the latest version / service worker
+    this.panel.querySelector('#s-force-reload')?.addEventListener('click', async () => {
+      if (!confirm('Force reload the app? This clears cached files and re-downloads the latest version.')) return;
+      EventBus.emit('toast', { message: 'Clearing cache and reloading…', type: 'info' });
+      await SwUpdate.forceReload();
+    });
 
     // If an update arrives while the panel is open, swap the status row live
     const onSwUpdate = () => {

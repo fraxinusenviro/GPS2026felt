@@ -28,4 +28,26 @@ export const SwUpdate = {
   reload(): void {
     window.location.reload();
   },
+
+  /**
+   * Aggressive cache-bust: wipe all Cache Storage entries and unregister the
+   * service worker, then reload. With no controller and an empty cache the
+   * reload fetches fresh assets from the network, and the SW re-registers
+   * against the latest sw.js. Best-effort — always reloads regardless.
+   */
+  async forceReload(): Promise<void> {
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister().catch(() => {})));
+      }
+    } catch {
+      // best-effort; reload regardless
+    }
+    window.location.reload();
+  },
 };
