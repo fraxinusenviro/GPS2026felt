@@ -244,6 +244,7 @@ export class DataLibraryModal {
   private configuringDefId: string | null = null;
   private uploadOpen = false;
   private uploading = false;
+  private gridMode: 'card' | 'list' = 'card';
 
   constructor() {
     this.overlay = document.getElementById('data-library-overlay')!;
@@ -279,13 +280,20 @@ export class DataLibraryModal {
     return [...BASEMAPS, ...BASEMAP_OVERLAYS, ...this.sharedDefs, ...NS_REST_ALL_DEFS];
   }
 
+  private get sharedSubfolders(): string[] {
+    const folders = new Set<string>();
+    this.sharedDefs.forEach(d => {
+      if (d.group && d.group.startsWith(`${SHARED_GROUP_ROOT}: `)) {
+        folders.add(d.group.slice(`${SHARED_GROUP_ROOT}: `.length));
+      }
+    });
+    return [...folders].sort();
+  }
+
   private get groups(): string[] {
     const seen = new Set<string>();
     BASEMAP_OVERLAYS.forEach(d => { if (d.group) seen.add(d.group); });
-    // Per-folder shared groups (the bare root is a fixed nav entry, added in render).
-    const sharedGroups = new Set<string>();
-    this.sharedDefs.forEach(d => { if (d.group && d.group !== SHARED_GROUP_ROOT) sharedGroups.add(d.group); });
-    return [...[...sharedGroups].sort(), ...[...seen].sort(), NS_REST_ALL_GROUP];
+    return [...[...seen].sort(), NS_REST_ALL_GROUP];
   }
 
   private filteredDefs(): BasemapDef[] {
@@ -395,19 +403,67 @@ export class DataLibraryModal {
             </div>`;
   }
 
+  private renderListItem(def: BasemapDef): string {
+    const inStack = this.callbacks.isInStack(def.id);
+    const displayLabel = LABEL_OVERRIDES[def.id] ?? def.label;
+    const tl = typeLabel(def);
+    const hasParams = def.group === 'Raster Functions' && def.id in RF_PARAM_SCHEMAS;
+    let addBtn: string;
+    if (inStack && !hasParams) {
+      addBtn = `<button class="dl-list-add dl-list-added" data-def-id="${def.id}" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="20 6 9 17 4 12"/></svg> Added</button>`;
+    } else if (hasParams) {
+      addBtn = `<button class="dl-list-add dl-list-configure" data-def-id="${def.id}">Configure</button>`;
+    } else {
+      addBtn = `<button class="dl-list-add" data-def-id="${def.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add</button>`;
+    }
+    return `<div class="dl-list-item${inStack ? ' dl-list-item-active' : ''}" data-def-id="${def.id}">
+      <div class="dl-list-info">
+        <span class="dl-list-name">${displayLabel}</span>
+        <span class="dl-list-meta"><span class="dl-list-group">${def.group ?? 'Standard'}</span><span class="dl-list-type">${tl}</span></span>
+      </div>
+      ${addBtn}
+      ${isSharedDef(def) ? `<button class="dl-card-del" data-shared-id="${sharedIdFromDef(def.id)}" title="Delete" aria-label="Delete from shared library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>` : ''}
+    </div>`;
+  }
+
+  private sectionedGridHtml(defs: BasemapDef[]): string {
+    if (this.activeGroup !== 'all' || this.searchQuery) {
+      const items = defs.slice(0, MAX_GRID_CARDS);
+      return this.gridMode === 'list'
+        ? `<div class="dl-list">${items.map(d => this.renderListItem(d)).join('')}</div>`
+        : `<div class="dl-grid">${items.map(d => this.renderCard(d)).join('')}</div>`;
+    }
+    // For "All Sources" without search, group by section
+    const sections: Array<{ label: string; defs: BasemapDef[] }> = [
+      { label: 'Standard Basemaps', defs: BASEMAPS },
+      { label: 'Fraxinus Static Data', defs: this.sharedDefs },
+      ...this.groups.filter(g => g !== NS_REST_ALL_GROUP).map(g => ({
+        label: g,
+        defs: BASEMAP_OVERLAYS.filter(d => d.group === g),
+      })),
+    ].filter(s => s.defs.length > 0);
+    return sections.map(s => `
+      <div class="dl-section-header">${s.label}<span class="dl-count">${s.defs.length}</span></div>
+      ${this.gridMode === 'list'
+        ? `<div class="dl-list">${s.defs.map(d => this.renderListItem(d)).join('')}</div>`
+        : `<div class="dl-grid dl-grid-section">${s.defs.map(d => this.renderCard(d)).join('')}</div>`
+      }`).join('');
+  }
+
   private gridWrapHtml(defs: BasemapDef[]): string {
     const toolbar = isSharedGroup(this.activeGroup) ? this.uploadToolbarHtml() : '';
+    const labelText = this.activeGroup === 'all' ? 'All Sources' : this.activeGroup === 'basemaps' ? 'Standard Basemaps' : this.activeGroup;
     return `
           <div class="dl-grid-wrap">
             ${toolbar}
             <div class="dl-grid-label">
-              ${this.activeGroup === 'all' ? 'All Sources' : this.activeGroup === 'basemaps' ? 'Standard Basemaps' : this.activeGroup}
+              ${labelText}
               <span class="dl-count">${defs.length} layer${defs.length !== 1 ? 's' : ''}</span>
-              <span class="dl-flip-hint-global">tap preview to flip for details</span>
+              ${this.gridMode === 'card' ? '<span class="dl-flip-hint-global">tap preview to flip for details</span>' : ''}
             </div>
             ${defs.length === 0
               ? `<div class="dl-empty">No layers match "<strong>${this.searchQuery}</strong>"</div>`
-              : `<div class="dl-grid">${defs.slice(0, MAX_GRID_CARDS).map(d => this.renderCard(d)).join('')}</div>
+              : `${this.sectionedGridHtml(defs)}
                  ${defs.length > MAX_GRID_CARDS ? `<div class="dl-empty">Showing the first ${MAX_GRID_CARDS} of ${defs.length} layers — use the search box to narrow down the list.</div>` : ''}`
             }
           </div>`;
@@ -424,6 +480,10 @@ export class DataLibraryModal {
       const fresh = tmp.firstElementChild;
       if (fresh) wrap.replaceWith(fresh);
     }
+
+    // Sync view toggle button states
+    this.overlay.querySelector('#dl-view-card')?.classList.toggle('active', this.gridMode === 'card');
+    this.overlay.querySelector('#dl-view-list')?.classList.toggle('active', this.gridMode === 'list');
 
     // Keep the clear (✕) button in sync without touching the input element.
     const searchWrap = this.overlay.querySelector('.dl-search-wrap');
@@ -458,14 +518,12 @@ export class DataLibraryModal {
       <div class="dl-modal">
         <div class="dl-sidebar">
           <div class="dl-sidebar-header">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="18" height="18">
-              <path d="M231.65,194.55,198.46,36.75a16,16,0,0,0-19-12.39L132.65,34.42a16.08,16.08,0,0,0-12.3,19.05L153.6,211.28a16,16,0,0,0,15.65,12.72,16.2,16.2,0,0,0,3.38-.36l46.81-10.06A16.09,16.09,0,0,0,231.65,194.55ZM168.94,208,136,50.25l46.81-10.06h0L216,198Z"/>
-              <path d="M115.86,26.47A16,16,0,0,0,96,13.17L49.19,23.23A16.09,16.09,0,0,0,37,42.45L70.14,200.25A16,16,0,0,0,85.79,212a16.25,16.25,0,0,0,3.38-.36L120,205.46a8,8,0,0,0-3.38-15.64L86,197.56,53.37,40.1,100.18,30l30,128a8,8,0,1,0,15.64-3.38Z"/>
-            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>
             <span>Data Library</span>
           </div>
 
           <nav class="dl-nav">
+            <div class="dl-nav-section-label">Browse</div>
             <button class="dl-nav-item${this.activeView === 'library' && this.activeGroup === 'all' ? ' active' : ''}" data-group="all">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
               All Sources
@@ -474,10 +532,19 @@ export class DataLibraryModal {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/></svg>
               Standard Basemaps
             </button>
+            <div class="dl-nav-section-label" style="margin-top:6px">Fraxinus Static Data</div>
             <button class="dl-nav-item${this.activeView === 'library' && this.activeGroup === SHARED_GROUP_ROOT ? ' active' : ''}" data-group="${SHARED_GROUP_ROOT}">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-              Fraxinus – Static Data
+              All Static Data
             </button>
+            ${this.sharedSubfolders.map(folder => {
+              const groupId = `${SHARED_GROUP_ROOT}: ${folder}`;
+              return `<button class="dl-nav-item dl-nav-subfolder${this.activeView === 'library' && this.activeGroup === groupId ? ' active' : ''}" data-group="${groupId}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                ${folder}
+              </button>`;
+            }).join('')}
+            <div class="dl-nav-section-label" style="margin-top:6px">Overlay Layers</div>
             ${groups.map(g => {
               const icon = g === 'Raster Functions'
                 ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M12 3v18M3 12h18M4.22 4.22l15.56 15.56M19.78 4.22 4.22 19.78"/></svg>`
@@ -511,6 +578,14 @@ export class DataLibraryModal {
               </svg>
               <input type="text" id="dl-search" class="dl-search" placeholder="Search layers, descriptions…" value="${this.searchQuery}" autocomplete="off" />
               ${this.searchQuery ? '<button id="dl-search-clear" class="dl-search-clear" aria-label="Clear search">✕</button>' : ''}
+            </div>
+            <div class="dl-view-toggle" role="group" aria-label="View mode">
+              <button class="dl-view-btn${this.gridMode === 'card' ? ' active' : ''}" id="dl-view-card" title="Card view" aria-pressed="${this.gridMode === 'card'}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+              </button>
+              <button class="dl-view-btn${this.gridMode === 'list' ? ' active' : ''}" id="dl-view-list" title="List view" aria-pressed="${this.gridMode === 'list'}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              </button>
             </div>` : this.activeView !== 'library' ? `
             <div class="dl-io-title">
               ${this.activeView === 'import' ? 'Import Data' : 'Export Data'}
@@ -602,6 +677,21 @@ export class DataLibraryModal {
       });
     });
 
+    // List-view add buttons
+    this.overlay.querySelectorAll<HTMLButtonElement>('.dl-list-add:not(.dl-list-added)').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const defId = btn.dataset.defId!;
+        const def = this.allDefs.find(d => d.id === defId);
+        if (!def) return;
+        const hasParams = def.group === 'Raster Functions' && defId in RF_PARAM_SCHEMAS;
+        if (hasParams) { this.configuringDefId = defId; this.render(); return; }
+        if (this.callbacks.isInStack(defId)) return;
+        this.callbacks.onAddToMap(def);
+        this.refreshResults();
+      });
+    });
+
     // Shared-library: delete a layer (org-wide)
     this.overlay.querySelectorAll<HTMLButtonElement>('.dl-card-del').forEach(btn => {
       btn.addEventListener('click', async (e) => {
@@ -659,6 +749,16 @@ export class DataLibraryModal {
     this.overlay.querySelector('#dl-search-clear')?.addEventListener('click', () => {
       this.searchQuery = '';
       if (searchEl) searchEl.value = '';
+      this.refreshResults();
+    });
+
+    // View mode toggle (card / list)
+    this.overlay.querySelector('#dl-view-card')?.addEventListener('click', () => {
+      this.gridMode = 'card';
+      this.refreshResults();
+    });
+    this.overlay.querySelector('#dl-view-list')?.addEventListener('click', () => {
+      this.gridMode = 'list';
       this.refreshResults();
     });
 

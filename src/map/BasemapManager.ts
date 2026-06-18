@@ -1,5 +1,5 @@
 import maplibregl from 'maplibre-gl';
-import { BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
+import { BASEMAPS, BASEMAP_OVERLAYS, LAYER_IDS } from '../constants';
 import { NS_REST_ALL_DEFS } from '../data/nsRestAll';
 import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature, SymbologyState, RasterSymbologyState, RasterStretchMode, ClassifierName } from '../types';
 import { SymbologyStudio } from '../ui/SymbologyStudio';
@@ -1127,7 +1127,15 @@ export class BasemapManager {
       this.applyGeojsonOpacityVisibility(l, baseId);
     };
 
-    if (this.geojsonOverlays.has(l.instanceId)) { applyState(); return; }
+    if (this.geojsonOverlays.has(l.instanceId)) {
+      const map = this.mapManager.getMap();
+      for (const suffix of ['fill', 'casing', 'line', 'point']) {
+        const lid = `${baseId}-${suffix}`;
+        if (map.getLayer(lid)) map.moveLayer(lid, LAYER_IDS.USER_ACCURACY);
+      }
+      applyState();
+      return;
+    }
     if (this.geojsonLoading.has(l.instanceId)) return;
     this.geojsonLoading.add(l.instanceId);
 
