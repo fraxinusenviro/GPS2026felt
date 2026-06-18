@@ -129,6 +129,9 @@ export interface SymbologyState {
   // Polygon-specific
   strokeColor?: string;
   strokeOpacity?: number;
+  // Custom legend label overrides, keyed by stable legend-entry key
+  // ('all' | 'cat:<value>' | 'g:<index>'). Empty/missing = use generated label.
+  legendLabels?: Record<string, string>;
   // Labels (any source attribute; empty/undefined = no labels)
   label_field?: string;
   label_size?: number;       // text size px

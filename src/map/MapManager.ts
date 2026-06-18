@@ -1216,10 +1216,20 @@ export class MapManager {
       filter: ['==', '$type', 'Polygon'],
       paint: { 'fill-color': color, 'fill-opacity': opacity * 0.4 }
     });
+    // Line casing (rendered beneath the main line; off until symbology enables it).
+    this.map.addLayer({
+      id: `${id}-casing`,
+      type: 'line',
+      source: srcId,
+      filter: ['==', '$type', 'LineString'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#0a0d12', 'line-width': 0, 'line-opacity': 0 }
+    });
     this.map.addLayer({
       id: `${id}-line`,
       type: 'line',
       source: srcId,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': color, 'line-width': 2, 'line-opacity': opacity }
     });
     this.map.addLayer({
@@ -1238,7 +1248,7 @@ export class MapManager {
   }
 
   removeGeoJSONLayer(id: string): void {
-    [`${id}-fill`, `${id}-line`, `${id}-point`, `${id}-labels`, `${id}-icons`].forEach(lid => {
+    [`${id}-fill`, `${id}-casing`, `${id}-line`, `${id}-point`, `${id}-labels`, `${id}-icons`].forEach(lid => {
       if (this.map.getLayer(lid)) this.map.removeLayer(lid);
     });
     const srcId = `src-${id}`;
@@ -1291,18 +1301,42 @@ export class MapManager {
 
     if (geomType === 'LineString') {
       const layerId = LAYER_IDS.COLLECTED_LINES;
+      const casingId = 'collected-lines-casing';
       if (!this.map.getLayer(layerId)) return;
       if (!state) {
         this.map.setPaintProperty(layerId, 'line-color', ['coalesce', ['get', 'color'], '#facc15']);
         this.map.setPaintProperty(layerId, 'line-width', ['coalesce', ['get', 'stroke_width'], 3]);
         this.map.setPaintProperty(layerId, 'line-opacity', 1);
         this.map.setLayoutProperty(layerId, 'line-cap', 'round');
+        // Restore per-feature (casing_color / casing_width) driven casing.
+        if (this.map.getLayer(casingId)) {
+          this.map.setFilter(casingId, ['>', ['coalesce', ['get', 'casing_width'], 0], 0]);
+          this.map.setPaintProperty(casingId, 'line-color', ['coalesce', ['get', 'casing_color'], 'rgba(0,0,0,0)']);
+          this.map.setPaintProperty(casingId, 'line-width', ['+', ['coalesce', ['get', 'stroke_width'], 3], ['*', 2, ['coalesce', ['get', 'casing_width'], 0]]]);
+          this.map.setPaintProperty(casingId, 'line-opacity', 1);
+        }
         return;
       }
+      // Lines are fully opaque by default; the slider still lets the user dial it down.
+      const lineOpacity = state.opacity ?? 1;
       this.map.setPaintProperty(layerId, 'line-color', buildColorExpression(features, state));
       this.map.setPaintProperty(layerId, 'line-width', state.size ?? 3);
-      this.map.setPaintProperty(layerId, 'line-opacity', state.opacity ?? 0.9);
+      this.map.setPaintProperty(layerId, 'line-opacity', lineOpacity);
       if (state.cap) this.map.setLayoutProperty(layerId, 'line-cap', state.cap);
+      // Symbology-driven casing: a uniform border beneath every line.
+      if (this.map.getLayer(casingId)) {
+        if (state.casing && (state.casingWidth ?? 0) > 0) {
+          this.map.setFilter(casingId, null);
+          this.map.setPaintProperty(casingId, 'line-color', state.casingColor ?? '#0a0d12');
+          this.map.setPaintProperty(casingId, 'line-width', (state.size ?? 3) + (state.casingWidth ?? 2) * 2);
+          this.map.setPaintProperty(casingId, 'line-opacity', lineOpacity);
+          if (state.cap) this.map.setLayoutProperty(casingId, 'line-cap', state.cap);
+        } else {
+          // Casing off — keep all features in range but render nothing.
+          this.map.setFilter(casingId, null);
+          this.map.setPaintProperty(casingId, 'line-opacity', 0);
+        }
+      }
       return;
     }
 
@@ -1381,6 +1415,7 @@ export class MapManager {
     this.setPointIconOverlay(`src-${layerId}`, `${layerId}-icons`, state);
     const fillId = `${layerId}-fill`;
     const lineId = `${layerId}-line`;
+    const casingId = `${layerId}-casing`;
     const pointId = `${layerId}-point`;
 
     if (!state) {
@@ -1394,6 +1429,7 @@ export class MapManager {
         this.map.setPaintProperty(lineId, 'line-opacity', 0.8);
         this.map.setPaintProperty(lineId, 'line-width', 2);
       }
+      if (this.map.getLayer(casingId)) this.map.setPaintProperty(casingId, 'line-opacity', 0);
       if (this.map.getLayer(fillId)) {
         this.map.setPaintProperty(fillId, 'fill-color', originalColor);
         this.map.setPaintProperty(fillId, 'fill-opacity', 0.32);
@@ -1423,6 +1459,17 @@ export class MapManager {
       this.map.setPaintProperty(lineId, 'line-color', colorExpr);
       this.map.setPaintProperty(lineId, 'line-opacity', strokeOpacity);
       this.map.setPaintProperty(lineId, 'line-width', state.size ?? 2);
+      if (state.cap) this.map.setLayoutProperty(lineId, 'line-cap', state.cap);
+    }
+    if (this.map.getLayer(casingId)) {
+      if (state.casing && (state.casingWidth ?? 0) > 0) {
+        this.map.setPaintProperty(casingId, 'line-color', state.casingColor ?? '#0a0d12');
+        this.map.setPaintProperty(casingId, 'line-width', (state.size ?? 2) + (state.casingWidth ?? 2) * 2);
+        this.map.setPaintProperty(casingId, 'line-opacity', strokeOpacity);
+        if (state.cap) this.map.setLayoutProperty(casingId, 'line-cap', state.cap);
+      } else {
+        this.map.setPaintProperty(casingId, 'line-opacity', 0);
+      }
     }
     if (this.map.getLayer(fillId)) {
       this.map.setPaintProperty(fillId, 'fill-color', colorExpr);
