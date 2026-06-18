@@ -1129,9 +1129,10 @@ export class BasemapManager {
 
     if (this.geojsonOverlays.has(l.instanceId)) {
       const map = this.mapManager.getMap();
+      const beforeExists = !!map.getLayer(LAYER_IDS.USER_ACCURACY);
       for (const suffix of ['fill', 'casing', 'line', 'point']) {
         const lid = `${baseId}-${suffix}`;
-        if (map.getLayer(lid)) map.moveLayer(lid, LAYER_IDS.USER_ACCURACY);
+        if (map.getLayer(lid) && beforeExists) map.moveLayer(lid, LAYER_IDS.USER_ACCURACY);
       }
       applyState();
       return;
