@@ -215,7 +215,7 @@ export class SettingsPanel {
                 }
               </div>
               <button id="s-force-reload" class="btn-outline" style="width:100%;margin-top:8px">↻ Force Reload App</button>
-              <p class="settings-hint" style="margin-top:4px;font-size:0.8em">Clears cached files and fetches the latest version.</p>
+              <p class="settings-hint" style="margin-top:4px;font-size:0.8em">Clears cached files and fetches the latest version. On an installed iOS home-screen icon, use this button (or remove &amp; re-add the icon) — the external reload link only refreshes Safari, not the installed app.</p>
             </div>
           </div>
 

@@ -6,12 +6,17 @@ import { SwUpdate } from './utils/SwUpdate';
 // Track SW updates before registering so controllerchange is never missed
 SwUpdate.init();
 
-// Register service worker — use relative path so it works on any deploy subpath
+// Register service worker — use relative path so it works on any deploy subpath.
+// Hand the registration to SwUpdate.watch() so the app proactively checks for a
+// new sw.js on launch + when it returns to the foreground (self-heals stale
+// installed iOS PWAs).
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {
-      // SW registration failure is non-fatal in development
-    });
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => SwUpdate.watch(reg))
+      .catch(() => {
+        // SW registration failure is non-fatal in development
+      });
   });
 }
 
