@@ -7,6 +7,7 @@ type OnLoadProject = (id: string) => Promise<void>;
 type OnCreateProject = (name: string, description: string, templateId?: string) => Promise<void>;
 type OnDeleteProject = (id: string) => Promise<void>;
 type OnRenameProject = (id: string, name: string) => Promise<void>;
+type OnDuplicateProject = (id: string) => Promise<void>;
 
 export class ProjectPanel {
   private panel: HTMLElement;
@@ -19,6 +20,7 @@ export class ProjectPanel {
   private onCreate: OnCreateProject;
   private onDelete: OnDeleteProject;
   private onRename: OnRenameProject;
+  private onDuplicate: OnDuplicateProject;
   private storage = StorageManager.getInstance();
 
   constructor(
@@ -26,6 +28,7 @@ export class ProjectPanel {
     onCreate: OnCreateProject,
     onDelete: OnDeleteProject,
     onRename?: OnRenameProject,
+    onDuplicate?: OnDuplicateProject,
   ) {
     this.panel = document.getElementById('project-panel')!;
     this.onLoad = onLoad;
@@ -35,6 +38,7 @@ export class ProjectPanel {
       const proj = await this.storage.getProject(id);
       if (proj) { proj.name = name; proj.updated_at = new Date().toISOString(); await this.storage.saveProject(proj); }
     });
+    this.onDuplicate = onDuplicate ?? (async (_id) => {});
   }
 
   setActiveProjectId(id: string): void {
@@ -127,26 +131,32 @@ export class ProjectPanel {
 
   private renderProjectList(projects: Project[], counts: number[]): string {
 
-    const pencilSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M224,128v80a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V48A16,16,0,0,1,48,32h80a8,8,0,0,1,0,16H48V208H208V128a8,8,0,0,1,16,0Zm5.66-58.34-96,96A8,8,0,0,1,128,168H96a8,8,0,0,1-8-8V128a8,8,0,0,1,2.34-5.66l96-96a8,8,0,0,1,11.32,0l32,32A8,8,0,0,1,229.66,69.66Zm-17-5.66L192,43.31,179.31,56,200,76.69Z"/></svg>`;
+    const pencilSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="11" height="11"><path d="M224,128v80a16,16,0,0,1-16,16H48a16,16,0,0,1-16-16V48A16,16,0,0,1,48,32h80a8,8,0,0,1,0,16H48V208H208V128a8,8,0,0,1,16,0Zm5.66-58.34-96,96A8,8,0,0,1,128,168H96a8,8,0,0,1-8-8V128a8,8,0,0,1,2.34-5.66l96-96a8,8,0,0,1,11.32,0l32,32A8,8,0,0,1,229.66,69.66Zm-17-5.66L192,43.31,179.31,56,200,76.69Z"/></svg>`;
+    const copySvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
 
     return `<div class="proj-list">
       ${projects.map((p, i) => {
         const isActive = p.id === this.activeProjectId;
         const isRenaming = p.id === this.renamingId;
         const date = new Date(p.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        const contributors = Object.keys(p.user_layer_views ?? {});
+        const avatarHtml = contributors.length > 0
+          ? `<div class="proj-avatars">${contributors.slice(0, 4).map(uid => `<span class="proj-avatar" title="${escHtml(uid)}">${escHtml(uid.slice(0, 2).toUpperCase())}</span>`).join('')}${contributors.length > 4 ? `<span class="proj-avatar proj-avatar-more">+${contributors.length - 4}</span>` : ''}</div>`
+          : '';
         return `
           <div class="proj-item${isActive ? ' proj-active' : ''}" data-proj-id="${p.id}">
             <div class="proj-item-header">
               ${isRenaming
                 ? `<input type="text" class="proj-rename-input" id="proj-rename-${p.id}"
-                    value="${escHtml(p.name)}" maxlength="60" style="flex:1;padding:2px 6px;font-size:14px;font-weight:600;background:var(--bg-3,#243a24);border:1px solid var(--color-accent);border-radius:4px;color:var(--color-text);min-width:0" />`
+                    value="${escHtml(p.name)}" maxlength="60" />`
                 : `<span class="proj-name">${escHtml(p.name)}</span>`
               }
               ${isActive ? '<span class="proj-badge">Active</span>' : ''}
+              ${avatarHtml}
               ${isRenaming
-                ? `<button class="btn btn-sm btn-primary proj-rename-save-btn" data-save-rename="${p.id}" style="padding:2px 8px;font-size:12px">Save</button>
-                   <button class="btn btn-sm btn-secondary proj-rename-cancel-btn" data-cancel-rename="${p.id}" style="padding:2px 8px;font-size:12px">✕</button>`
-                : `<button class="btn-icon proj-rename-btn" data-rename="${p.id}" title="Rename project" style="opacity:0.5;padding:2px">${pencilSvg}</button>`
+                ? `<button class="btn btn-sm btn-primary proj-rename-save-btn" data-save-rename="${p.id}">Save</button>
+                   <button class="btn btn-sm btn-secondary proj-rename-cancel-btn" data-cancel-rename="${p.id}">✕</button>`
+                : `<button class="btn-icon proj-rename-btn" data-rename="${p.id}" title="Rename project">${pencilSvg}</button>`
               }
             </div>
             <div class="proj-meta">${date} · ${counts[i]} feature${counts[i] !== 1 ? 's' : ''}</div>
@@ -156,7 +166,8 @@ export class ProjectPanel {
                       data-activate="${p.id}" ${isActive ? 'disabled' : ''}>
                 ${isActive ? 'Active' : 'Activate'}
               </button>
-              <button class="btn btn-sm btn-outline proj-bundle-btn" data-bundle="${p.id}" title="Export project bundle for sharing">Export Bundle</button>
+              <button class="btn btn-sm btn-outline proj-dupe-btn" data-dupe="${p.id}" title="Duplicate this project">${copySvg} Duplicate</button>
+              <button class="btn btn-sm btn-outline proj-bundle-btn" data-bundle="${p.id}" title="Export project bundle for sharing">Export</button>
               <button class="btn btn-sm btn-danger proj-delete-btn" data-delete="${p.id}">Delete</button>
             </div>
           </div>`;
@@ -209,6 +220,17 @@ export class ProjectPanel {
         btn.disabled = true;
         btn.textContent = 'Loading…';
         await this.onLoad(id);
+        void this.render();
+      });
+    });
+
+    // Duplicate
+    this.panel.querySelectorAll<HTMLButtonElement>('[data-dupe]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.dupe!;
+        btn.disabled = true;
+        btn.textContent = 'Duplicating…';
+        await this.onDuplicate(id);
         void this.render();
       });
     });

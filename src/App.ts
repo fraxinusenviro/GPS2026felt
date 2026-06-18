@@ -176,6 +176,7 @@ export class App {
       (name, desc, templateId) => this.createProject(name, desc, templateId),
       id => this.deleteProject(id),
       (id, name) => this.renameProject(id, name),
+      id => this.duplicateProject(id),
     );
     this.exportPanel = new ExportPanel(this.exportManager, () => {
       const b = this.mapManager.getBounds();
@@ -2437,6 +2438,22 @@ export class App {
     if ((this.settings.active_project_id || 'default') === id) {
       EventBus.emit('toast', { message: `Project renamed to "${name}"`, type: 'success', duration: 2000 });
     }
+  }
+
+  async duplicateProject(id: string): Promise<void> {
+    const src = await this.storage.getProject(id);
+    if (!src) return;
+    const newId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const copy = { ...src, id: newId, name: `${src.name} (copy)`, created_at: now, updated_at: now, user_layer_views: {} };
+    await this.storage.saveProject(copy);
+    // Copy layer presets from source project, assigning new ids and project_id
+    const srcPresets = await this.storage.getLayersByProject(id);
+    for (const lp of srcPresets) {
+      await this.storage.saveLayerPreset({ ...lp, id: crypto.randomUUID(), project_id: newId });
+    }
+    EventBus.emit('toast', { message: `"${copy.name}" created`, type: 'success', duration: 2000 });
+    this.projectPanel.refresh();
   }
 
   async importProjectBundle(bundle: ProjectBundle, mode: 'new' | 'merge'): Promise<void> {
