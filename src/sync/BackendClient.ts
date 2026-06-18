@@ -20,6 +20,21 @@ export class BackendClient {
     this.base = (trimmed || origin).replace(/\/+$/, '');
   }
 
+  /**
+   * The Cloudflare Access email of the logged-in user, or null when the
+   * identity is unavailable (offline, not served by the Worker, or not behind
+   * Access). Never throws.
+   */
+  async getWhoami(): Promise<{ email: string } | null> {
+    try {
+      const r = await fetch(`${this.base}/whoami`, { credentials: 'include' });
+      if (!r.ok) return null;
+      return await r.json() as { email: string };
+    } catch {
+      return null;
+    }
+  }
+
   /** Liveness check; never throws. */
   async health(): Promise<boolean> {
     try {

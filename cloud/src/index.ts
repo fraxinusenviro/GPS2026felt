@@ -29,6 +29,7 @@ function isApiPath(path: string): boolean {
   return (
     path === '/health' ||
     path === '/force-reload' ||
+    path === '/whoami' ||
     path === '/almanac' ||
     path === '/sync' ||
     path === '/changes' ||
@@ -90,6 +91,10 @@ async function route(request: Request, env: Env, url: URL, ctx: ExecutionContext
   // --- auth gate: every route below needs a verified Access identity ---
   const who = await authenticate(request, env);
   if (!who) return bad('unauthorized', 401);
+
+  // Expose the logged-in identity so the PWA can derive the User code from the
+  // email (e.g. ibryson@… → IBRYSON). No DB access — just echoes the JWT email.
+  if (path === '/whoami' && method === 'GET') return json({ email: who.email });
 
   try {
     if (path === '/sync' && method === 'POST') return await handleSync(request, env, who, ctx);

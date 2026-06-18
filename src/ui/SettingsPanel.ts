@@ -2,6 +2,7 @@ import type { AppSettings } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import { SwUpdate } from '../utils/SwUpdate';
+import { normalizeUserId, USERID_SOURCE_KEY } from '../utils/userId';
 import { SyncManager } from '../sync/SyncManager';
 import type { SyncStatus } from '../sync/types';
 import type { PresetManager } from './PresetManager';
@@ -70,8 +71,10 @@ export class SettingsPanel {
             <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M230.93,220a8,8,0,0,1-6.93,4H32a8,8,0,0,1-6.92-12c15.23-26.33,38.7-45.21,66.09-54.16a72,72,0,1,1,73.66,0c27.39,8.95,50.86,27.83,66.09,54.16A8,8,0,0,1,230.93,220Z"/></svg>User Identity${CHEVRON_SVG}</h4>
             <div class="settings-section-body">
               <label>User ID / Initials
-                <input type="text" id="s-user-id" value="${this.settings.user_id}" maxlength="10" placeholder="e.g. IB" />
-                <span class="settings-hint">Used in feature IDs, e.g. IB_2026_05_01_1241</span>
+                <input type="text" id="s-user-id" value="${this.settings.user_id}" maxlength="10" placeholder="e.g. IB"${localStorage.getItem(USERID_SOURCE_KEY) === 'access' ? ' readonly' : ''} />
+                <span class="settings-hint">${localStorage.getItem(USERID_SOURCE_KEY) === 'access'
+                  ? 'Set automatically from your login (the name before @). Used in feature IDs, e.g. IB_2026_05_01_1241.'
+                  : 'Used in feature IDs, e.g. IB_2026_05_01_1241'}</span>
               </label>
             </div>
           </div>
@@ -305,7 +308,11 @@ export class SettingsPanel {
   private async save(): Promise<void> {
     const get = <T extends HTMLElement>(id: string) => this.panel.querySelector<T>(`#${id}`);
 
-    this.settings.user_id = (get<HTMLInputElement>('s-user-id')?.value ?? 'USER').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // When the User ID is managed by the Cloudflare login, keep the synced
+    // value; otherwise normalize whatever was typed.
+    if (localStorage.getItem(USERID_SOURCE_KEY) !== 'access') {
+      this.settings.user_id = normalizeUserId(get<HTMLInputElement>('s-user-id')?.value ?? 'USER') || 'USER';
+    }
     this.settings.gps_distance_tolerance = parseFloat(get<HTMLInputElement>('s-gps-dist')?.value ?? '5');
     this.settings.gps_time_tolerance = parseFloat(get<HTMLInputElement>('s-gps-time')?.value ?? '3');
     this.settings.gps_min_accuracy = parseFloat(get<HTMLInputElement>('s-gps-acc')?.value ?? '20');

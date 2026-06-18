@@ -32,6 +32,7 @@ import { DataLibraryModal } from './ui/DataLibraryModal';
 import { MasterDataPanel } from './ui/MasterDataPanel';
 import { BackendClient } from './sync/BackendClient';
 import { SyncManager } from './sync/SyncManager';
+import { userIdFromEmail, USERID_SOURCE_KEY } from './utils/userId';
 import { WetlandsManager } from './wetlands/WetlandsManager';
 import type { SharedLayer, BasemapDef, ImportedLayer } from './types';
 import { sharedLayerToDef } from './data/sharedLayerDefs';
@@ -87,6 +88,10 @@ export class App {
   async init(): Promise<void> {
     await this.storage.init();
     this.settings = await this.storage.getAppSettings();
+
+    // Force the User identity to the logged-in email prefix before the rest of
+    // init consumes settings (feature stamps, point IDs, map labels).
+    await this.syncUserIdFromAccess();
 
     const sessionLabel = document.getElementById('session-label');
     if (sessionLabel) sessionLabel.textContent = generateSessionId();
@@ -280,6 +285,29 @@ export class App {
     this.syncManager.start();
 
     EventBus.emit('toast', { message: 'Field Mapper ready', type: 'success', duration: 2000 });
+  }
+
+  /**
+   * Force the User identity (user_id) to the Cloudflare Access email prefix —
+   * e.g. ibryson@fraxinusenviro.com → IBRYSON — so feature stamps and point IDs
+   * always match the authenticated user. Best-effort: when the identity is
+   * unavailable (offline, local dev, or not behind Access) the existing user_id
+   * is left untouched and the field stays manually editable.
+   */
+  private async syncUserIdFromAccess(): Promise<void> {
+    try {
+      const who = await new BackendClient(SyncManager.getConfig().url).getWhoami();
+      if (!who?.email) return;
+      const derived = userIdFromEmail(who.email);
+      if (!derived) return;
+      localStorage.setItem(USERID_SOURCE_KEY, 'access');
+      if (derived !== this.settings.user_id) {
+        this.settings.user_id = derived;
+        await this.storage.saveAppSettings(this.settings);
+      }
+    } catch {
+      // best-effort; leave user_id as-is
+    }
   }
 
   /**
