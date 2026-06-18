@@ -22,12 +22,13 @@ import { signUpload, signDownload, putBlob, getBlob } from './blobs';
 import { reconcileStaticLayers } from './reconcile';
 import { rebuildWetlandMaster } from './wetlandMaster';
 import { handleAlmanac } from './almanac';
-import { json, bad, corsHeaders } from './http';
+import { json, bad, html, corsHeaders } from './http';
 
 /** True for request paths this Worker handles itself (vs. static PWA assets). */
 function isApiPath(path: string): boolean {
   return (
     path === '/health' ||
+    path === '/force-reload' ||
     path === '/almanac' ||
     path === '/sync' ||
     path === '/changes' ||
@@ -78,6 +79,11 @@ async function route(request: Request, env: Env, url: URL, ctx: ExecutionContext
 
   if (path === '/health') return json({ ok: true, ts: Date.now() });
 
+  // Shareable cache-bust link: unregister the service worker, wipe Cache
+  // Storage, then bounce to the app so it reloads fresh from the network.
+  // Hand this URL to anyone stuck on an outdated build.
+  if (path === '/force-reload' && method === 'GET') return html(FORCE_RELOAD_HTML);
+
   // Public GPS almanac proxy — no auth needed (data is publicly available)
   if (path === '/almanac' && method === 'GET') return handleAlmanac(request, env);
 
@@ -116,3 +122,51 @@ async function route(request: Request, env: Env, url: URL, ctx: ExecutionContext
     return bad(`server error: ${(err as Error).message}`, 500);
   }
 }
+
+/**
+ * Self-contained page served at /force-reload. Runs in the visitor's browser:
+ * unregisters every service worker, deletes all Cache Storage entries, then
+ * redirects to the app root with a cache-busting query so the next load comes
+ * fresh from the network (and the SW re-registers against the latest sw.js).
+ */
+const FORCE_RELOAD_HTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Updating Field Mapper…</title>
+  <style>
+    html,body{margin:0;height:100%;background:#0f172a;color:#e2e8f0;
+      font:16px/1.5 system-ui,sans-serif;display:grid;place-items:center;text-align:center}
+    .card{max-width:420px;padding:24px}
+    h1{font-size:1.2rem;margin:0 0 8px}
+    p{margin:4px 0;color:#94a3b8}
+    .spin{width:36px;height:36px;margin:0 auto 16px;border:3px solid #334155;
+      border-top-color:#4ade80;border-radius:50%;animation:s 0.8s linear infinite}
+    @keyframes s{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spin"></div>
+    <h1>Updating Field Mapper…</h1>
+    <p id="status">Clearing cached files and fetching the latest version.</p>
+  </div>
+  <script>
+    (async function () {
+      try {
+        if ('serviceWorker' in navigator) {
+          var regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(function (r) { return r.unregister().catch(function () {}); }));
+        }
+        if ('caches' in window) {
+          var keys = await caches.keys();
+          await Promise.all(keys.map(function (k) { return caches.delete(k); }));
+        }
+      } catch (e) { /* best-effort; reload regardless */ }
+      // Cache-busting redirect to the app root.
+      location.replace('/?fresh=' + Date.now());
+    })();
+  </script>
+</body>
+</html>`;
