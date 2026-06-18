@@ -8988,13 +8988,66 @@ input[type=color] {
   font-size: 11px;
   color: var(--color-text-dim);
 }
+/* Editable legend label input */
+.ss-legend-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--color-text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 2px 5px;
+  transition: border-color 0.12s, background 0.12s;
+}
+.ss-legend-input:hover { border-color: var(--color-border); }
+.ss-legend-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+.ss-legend-row.edited .ss-legend-input { color: var(--color-text); font-weight: 600; }
+.ss-legend-reset {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  font-size: 12px;
+  line-height: 1;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.ss-legend-reset:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.ss-legend-row.edited .ss-legend-reset { display: inline-flex; }
 .ss-no-data {
   font-size: 11px;
   color: var(--color-text-muted);
   font-style: italic;
 }
 
-/* MapLibre expression box */
+/* MapLibre expression box (collapsible) */
+.ss-expr-details { margin: 0; }
+.ss-expr-summary {
+  cursor: pointer;
+  margin-bottom: 0;
+  user-select: none;
+  list-style: none;
+}
+.ss-expr-summary::-webkit-details-marker { display: none; }
+.ss-expr-summary::before {
+  content: '▸';
+  display: inline-block;
+  font-size: 9px;
+  transition: transform 0.12s;
+}
+.ss-expr-details[open] .ss-expr-summary::before { transform: rotate(90deg); }
+.ss-expr-details[open] .ss-expr-summary { margin-bottom: 6px; }
 .ss-expr-box {
   position: relative;
 }

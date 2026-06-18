@@ -65,11 +65,24 @@ export const QUAL_PALETTES: Record<string, string[]> = {
   Retro:    ['#5B8E7D', '#F4A259', '#BC4B51', '#8CB369', '#F4E285', '#6B4E71', '#3B6064'],
 };
 
+// A broad, perceptually varied default fill palette. Ordered roughly by hue so
+// the swatch grid reads like a colour wheel and users can find a tone quickly.
 export const SINGLE_COLORS = [
-  '#7fd1ae', '#5aa9e6', '#f2b701', '#e73f74', '#9b7ede', '#ef6548', '#9aa5b1', '#fde725',
+  '#ef4444', '#f97316', '#f59e0b', '#facc15', '#fde725', '#a3e635',
+  '#4ade80', '#10b981', '#14b8a6', '#06b6d4', '#38bdf8', '#3b82f6',
+  '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e',
+  '#ffffff', '#9aa5b1', '#64748b', '#334155', '#1e293b', '#0a0d12',
 ];
+// Outline / stroke / casing palette — neutrals first (most common for borders),
+// then accent hues for high-contrast outlines.
 export const OUTLINE_COLORS = [
-  '#0a0d12', '#22303f', '#ffffff', '#9aa5b1', '#7fd1ae', '#f2b701', '#e73f74', '#5aa9e6',
+  '#0a0d12', '#1e293b', '#334155', '#64748b', '#9aa5b1', '#cbd5e1', '#ffffff', '#000000',
+  '#ef4444', '#f59e0b', '#facc15', '#4ade80', '#14b8a6', '#38bdf8', '#6366f1', '#ec4899',
+];
+// Compact set for label / icon colours — light, dark, plus a few vivid accents.
+export const LABEL_COLORS = [
+  '#f8fafc', '#0a0d12', '#ffffff', '#facc15', '#f97316', '#ef4444',
+  '#4ade80', '#14b8a6', '#38bdf8', '#6366f1', '#a855f7', '#ec4899',
 ];
 
 // ---- Utility ----
@@ -196,9 +209,17 @@ export function detectFields(features: { properties: Record<string, unknown> }[]
 
 export interface LegendEntry {
   color: string;
-  label: string;
+  label: string;       // display label (custom override applied if present)
+  defaultLabel: string; // auto-generated label (shown as placeholder when overriding)
+  key: string;         // stable key for storing a custom label in state.legendLabels
   cat?: string;
   breaks?: number[];
+}
+
+// Apply any user label override for `key`, falling back to the generated label.
+function withOverride(state: SymbologyState, key: string, defaultLabel: string): { label: string; defaultLabel: string; key: string } {
+  const override = state.legendLabels?.[key];
+  return { key, defaultLabel, label: override != null && override !== '' ? override : defaultLabel };
 }
 
 const fmt = (v: number): string =>
@@ -209,14 +230,14 @@ export function buildLegend(
   state: SymbologyState,
 ): LegendEntry[] {
   if (state.method === 'single' || state.method === 'proportional') {
-    return [{ color: state.color ?? SINGLE_COLORS[0], label: 'All features' }];
+    return [{ color: state.color ?? SINGLE_COLORS[0], ...withOverride(state, 'all', 'All features') }];
   }
 
   if (state.method === 'categorical') {
     const field = state.field ?? '';
     const cats = [...new Set(features.map(f => String((f.properties ?? {})[field] ?? '')))].sort();
     const cols = categoricalColors(state.palette, cats.length);
-    return cats.map((c, i) => ({ color: cols[i % cols.length], label: c, cat: c }));
+    return cats.map((c, i) => ({ color: cols[i % cols.length], cat: c, ...withOverride(state, `cat:${c}`, c) }));
   }
 
   // graduated
@@ -234,8 +255,8 @@ export function buildLegend(
   const edges = [mn, ...breaks, mx];
   return cols.map((c, i) => ({
     color: c,
-    label: `${fmt(edges[i])} – ${fmt(edges[i + 1])}`,
     breaks,
+    ...withOverride(state, `g:${i}`, `${fmt(edges[i])} – ${fmt(edges[i + 1])}`),
   }));
 }
 

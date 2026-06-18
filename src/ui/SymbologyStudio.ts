@@ -1,6 +1,6 @@
 import type { SymbologyState, SymbologyMethod, ClassifierName } from '../types';
 import {
-  SEQ_RAMPS, QUAL_PALETTES, SINGLE_COLORS, OUTLINE_COLORS,
+  SEQ_RAMPS, QUAL_PALETTES, SINGLE_COLORS, OUTLINE_COLORS, LABEL_COLORS,
   sampleRamp, buildLegend, buildFullLayerSpec, detectFields, CLASSIFIERS,
 } from '../lib/symbologyEngine';
 import { ICON_PATHS, ICON_CATEGORIES } from './SymbolRenderer';
@@ -50,7 +50,9 @@ export class SymbologyStudio {
       classes: initialState?.classes ?? 5,
       classifier: initialState?.classifier ?? 'Natural breaks',
       color: initialState?.color ?? defaultColor,
-      opacity: initialState?.opacity ?? (geomType === 'polygon' ? 0.65 : 0.9),
+      // Lines default to fully opaque; polygons get a translucent fill so basemap
+      // shows through; points stay near-opaque.
+      opacity: initialState?.opacity ?? (geomType === 'polygon' ? 0.65 : geomType === 'line' ? 1 : 0.9),
       size: initialState?.size ?? (geomType === 'point' ? 6 : geomType === 'line' ? 3 : 1.5),
       outlineColor: initialState?.outlineColor ?? '#0a0d12',
       outlineWidth: initialState?.outlineWidth ?? 1.5,
@@ -59,7 +61,12 @@ export class SymbologyStudio {
       casingColor: initialState?.casingColor ?? '#0a0d12',
       casingWidth: initialState?.casingWidth ?? 2,
       strokeColor: initialState?.strokeColor ?? '#ffffff',
-      strokeOpacity: initialState?.strokeOpacity ?? 0.4,
+      // strokeOpacity is only meaningful for polygon outlines. Force it undefined
+      // for points/lines (ignoring any stale persisted value) so the map falls back
+      // to the main opacity — a line at 100% opacity renders fully opaque, not the
+      // old 0.4 leak that made every line translucent.
+      strokeOpacity: geomType === 'polygon' ? (initialState?.strokeOpacity ?? 0.4) : undefined,
+      legendLabels: initialState?.legendLabels ? { ...initialState.legendLabels } : {},
       label_field: initialState?.label_field ?? '',
       label_size: initialState?.label_size ?? 12,
       label_color: initialState?.label_color ?? '#f8fafc',
@@ -157,7 +164,7 @@ export class SymbologyStudio {
             <div id="ss-icon-extra" class="${state.icon ? '' : 'ss-hidden'}">
               <div class="ss-lbl" style="margin-top:8px">Icon colour</div>
               <div class="ss-swatch-grid">
-                ${this.swatchGrid(['#ffffff', '#0a0d12', '#ffd166', '#ef476f', '#06d6a0', '#118ab2'], state.icon_color, 'icon-color')}
+                ${this.swatchGrid(LABEL_COLORS, state.icon_color, 'icon-color')}
               </div>
               <div class="ss-lbl" style="margin-top:8px">Icon size <span class="ss-val" id="ss-isz-val">${(state.icon_size ?? 1).toFixed(1)}×</span></div>
               <input type="range" id="ss-icon-size" min="0.5" max="2.5" step="0.1" value="${state.icon_size ?? 1}" />
@@ -218,24 +225,26 @@ export class SymbologyStudio {
               <input type="range" id="ss-label-size" min="8" max="22" step="1" value="${state.label_size ?? 12}" />
               <div class="ss-lbl" style="margin-top:8px">Label colour</div>
               <div class="ss-swatch-grid" id="ss-label-color-swatches">
-                ${this.swatchGrid(['#f8fafc', '#0a0d12', '#ffd166', '#ef476f', '#06d6a0', '#118ab2'], state.label_color, 'label-color')}
+                ${this.swatchGrid(LABEL_COLORS, state.label_color, 'label-color')}
               </div>
             </div>
           </div>
 
-          <!-- Legend -->
+          <!-- Legend (labels editable inline) -->
           <div class="ss-section">
-            <div class="ss-lbl">Legend</div>
+            <div class="ss-lbl">Legend <span style="font-size:10px;opacity:.55">(click a label to rename)</span></div>
             <div id="ss-legend">${this.buildLegendHtml(state, features, geomType)}</div>
           </div>
 
-          <!-- MapLibre expression output -->
+          <!-- MapLibre expression output (collapsed by default) -->
           <div class="ss-section">
-            <div class="ss-lbl">MapLibre layer spec</div>
-            <div class="ss-expr-box">
-              <pre id="ss-expr-pre">${escapeHtml(JSON.stringify(buildFullLayerSpec(features, state, geomType), null, 2))}</pre>
-              <button class="ss-copy-btn" id="ss-copy">Copy</button>
-            </div>
+            <details class="ss-expr-details">
+              <summary class="ss-lbl ss-expr-summary">MapLibre layer spec</summary>
+              <div class="ss-expr-box">
+                <pre id="ss-expr-pre">${escapeHtml(JSON.stringify(buildFullLayerSpec(features, state, geomType), null, 2))}</pre>
+                <button class="ss-copy-btn" id="ss-copy">Copy</button>
+              </div>
+            </details>
           </div>
 
         </div><!-- /ss-body -->
@@ -365,12 +374,19 @@ export class SymbologyStudio {
     if (legend.length === 0) {
       return '<span class="ss-no-data">No classifiable data — select a field and ensure features are loaded</span>';
     }
-    return legend.map(l => `
-      <div class="ss-legend-row">
+    return legend.map(l => {
+      const isCustom = !!(state.legendLabels?.[l.key]);
+      return `
+      <div class="ss-legend-row${isCustom ? ' edited' : ''}">
         <span class="ss-legend-swatch${geomType === 'line' ? ' ss-legend-line' : ''}" style="background:${l.color}"></span>
-        <span class="ss-legend-label">${escapeHtml(l.label)}</span>
-      </div>
-    `).join('');
+        <input class="ss-legend-input" type="text"
+          data-legend-key="${escapeAttr(l.key)}"
+          value="${escapeAttr(l.label)}"
+          placeholder="${escapeAttr(l.defaultLabel)}"
+          title="Legend label (placeholder = original value)" />
+        <button class="ss-legend-reset" data-legend-reset="${escapeAttr(l.key)}" title="Reset to original value">↺</button>
+      </div>`;
+    }).join('');
   }
 
   private fieldOptions(
@@ -619,6 +635,28 @@ export class SymbologyStudio {
     });
     this.wireCustomColor(overlay, 'label-color', c => { state.label_color = c; }, () => {});
 
+    // Editable legend labels — delegated so listeners survive legend rebuilds.
+    const legendEl = overlay.querySelector<HTMLElement>('#ss-legend');
+    legendEl?.addEventListener('input', e => {
+      const inp = (e.target as HTMLElement).closest<HTMLInputElement>('.ss-legend-input');
+      if (!inp) return;
+      const key = inp.dataset.legendKey;
+      if (!key) return;
+      state.legendLabels = state.legendLabels ?? {};
+      const v = inp.value.trim();
+      if (v && v !== (inp.placeholder ?? '')) state.legendLabels[key] = inp.value;
+      else delete state.legendLabels[key];
+      inp.closest('.ss-legend-row')?.classList.toggle('edited', !!state.legendLabels[key]);
+    });
+    legendEl?.addEventListener('click', e => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.ss-legend-reset');
+      if (!btn) return;
+      const key = btn.dataset.legendReset;
+      if (!key || !state.legendLabels) return;
+      delete state.legendLabels[key];
+      legendEl.innerHTML = this.buildLegendHtml(state, features, geomType);
+    });
+
     // Copy expression
     overlay.querySelector('#ss-copy')?.addEventListener('click', e => {
       const btn = e.currentTarget as HTMLButtonElement;
@@ -726,4 +764,8 @@ export class SymbologyStudio {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeAttr(s: string): string {
+  return escapeHtml(s).replace(/"/g, '&quot;');
 }
