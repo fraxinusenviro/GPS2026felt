@@ -35,6 +35,7 @@ import { BackendClient } from './sync/BackendClient';
 import { SyncManager } from './sync/SyncManager';
 import { userIdFromEmail, USERID_SOURCE_KEY } from './utils/userId';
 import { WetlandsManager } from './wetlands/WetlandsManager';
+import { AttributeTablePanel } from './ui/AttributeTablePanel';
 import type { SharedLayer, BasemapDef, ImportedLayer } from './types';
 import { sharedLayerToDef } from './data/sharedLayerDefs';
 import * as turf from '@turf/turf';
@@ -64,6 +65,7 @@ export class App {
   private freehandToleranceM = 5;
   private lassoCleanup: (() => void) | null = null;
   private lassoSelection: FieldFeature[] = [];
+  private attrTablePanel = new AttributeTablePanel();
 
   private measurePanel!:  MeasurePanel;
   private cutFillPanel!:  CutFillPanel;
@@ -703,6 +705,19 @@ export class App {
       this.syncManager.setConfig(enabled, url);
     });
     EventBus.on('sync-now', () => { void this.syncManager.syncNow(); });
+
+    // Persist updated feature properties from the attribute table panel.
+    EventBus.on<{ id: string; features: { properties: Record<string, unknown> }[] }>('user-layer-attrs-saved', async ({ id, features }) => {
+      const layers = await this.storage.getAllImportedLayers();
+      const il = layers.find((l: ImportedLayer) => l.id === id);
+      if (!il || !il.data) return;
+      il.data.features.forEach((f: { properties: Record<string, unknown> | null }, i: number) => {
+        if (features[i] !== undefined && f.properties) {
+          f.properties = { ...(features[i] as { properties: Record<string, unknown> }).properties };
+        }
+      });
+      await this.storage.saveImportedLayer(il);
+    });
 
     // Master Data (read-only cross-project view).
     EventBus.on('open-master-data', () => { void this.masterDataPanel.open(); });
@@ -1875,6 +1890,85 @@ export class App {
   }
 
   private wireLassoHud(): void {
+    document.getElementById('lasso-edit-attrs')?.addEventListener('click', () => {
+      if (this.lassoSelection.length === 0) return;
+      const rows = this.lassoSelection.map(f => ({
+        id: f.id,
+        properties: {
+          point_id: f.point_id,
+          type: f.type,
+          desc: f.desc,
+          notes: f.notes,
+          layer_id: f.layer_id,
+          geometry_type: f.geometry_type as string,
+          created_by: f.created_by,
+          created_at: f.created_at,
+          project_id: f.project_id,
+        } as Record<string, unknown>,
+      }));
+      this.attrTablePanel.open({
+        layerName: `Lasso Selection (${this.lassoSelection.length} features)`,
+        rows,
+        onSave: async (savedRows) => {
+          for (const row of savedRows) {
+            const feat = this.lassoSelection.find(f => f.id === row.id);
+            if (!feat) continue;
+            const p = row.properties;
+            if (p.type !== undefined)  feat.type  = String(p.type);
+            if (p.desc !== undefined)  feat.desc  = String(p.desc);
+            if (p.notes !== undefined) feat.notes = String(p.notes);
+            await this.storage.saveFeature(feat);
+            EventBus.emit('feature-updated', { feature: feat });
+          }
+          this.mapManager.updateCollectedFeatures(this.features);
+        },
+      });
+    });
+
+    document.getElementById('lasso-export')?.addEventListener('click', () => {
+      if (this.lassoSelection.length === 0) return;
+      const geojson = {
+        type: 'FeatureCollection',
+        features: this.lassoSelection.map(f => ({
+          type: 'Feature',
+          geometry: f.geometry,
+          properties: {
+            point_id: f.point_id, type: f.type, desc: f.desc,
+            notes: f.notes, created_by: f.created_by, created_at: f.created_at,
+            layer_id: f.layer_id, project_id: f.project_id,
+          },
+        })),
+      };
+      const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/geo+json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `lasso_selection_${Date.now()}.geojson`;
+      a.click();
+      URL.revokeObjectURL(url);
+      EventBus.emit('toast', { message: `${this.lassoSelection.length} features exported`, type: 'success', duration: 2000 });
+    });
+
+    document.getElementById('lasso-zoom')?.addEventListener('click', () => {
+      if (this.lassoSelection.length === 0) return;
+      let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+      for (const f of this.lassoSelection) {
+        const coords: number[][] = [];
+        const collect = (g: unknown): void => {
+          if (!g || typeof g !== 'object') return;
+          const geom = g as { type: string; coordinates?: unknown };
+          if (geom.type === 'Point') { coords.push(geom.coordinates as number[]); }
+          else if (geom.type === 'LineString') { (geom.coordinates as number[][]).forEach(c => coords.push(c)); }
+          else if (geom.type === 'Polygon') { (geom.coordinates as number[][][]).forEach(r => r.forEach(c => coords.push(c))); }
+        };
+        collect(f.geometry);
+        for (const [lng, lat] of coords) {
+          if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
+          if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+        }
+      }
+      if (isFinite(minLng)) this.mapManager.fitBounds([[minLng, minLat], [maxLng, maxLat]], 80);
+    });
+
     document.getElementById('lasso-delete')?.addEventListener('click', async () => {
       const toDelete = [...this.lassoSelection];
       if (toDelete.length === 0) return;

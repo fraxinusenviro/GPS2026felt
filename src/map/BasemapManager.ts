@@ -21,6 +21,7 @@ import { sampleElevationBilinear } from '../lib/cutFillEngine';
 import { CutFillRunStore, type CutFillRun } from './CutFillRunStore';
 import { computeCutFill, computeDaylightFeatures } from '../lib/cutFillEngine';
 import { WebGLBlendLayer } from './WebGLBlendLayer';
+import { AttributeTablePanel } from '../ui/AttributeTablePanel';
 
 const BM_STACK_KEY = 'fm2026_bm_stack';
 const BM_STACK_PROJECT_KEY = 'fm2026_bm_stack_project';
@@ -194,6 +195,7 @@ export class BasemapManager {
   private panelState: { container: HTMLElement; onClose: () => void } | null = null;
   private symbologyStudio = new SymbologyStudio();
   private rasterSymbologyStudio = new RasterSymbologyStudio();
+  private attributeTablePanel = new AttributeTablePanel();
   // Bumped whenever an RGB recolour LUT changes so rampify:// tile URLs cache-bust
   private rasterStyleVersion = 0;
   // Map Legend drawer
@@ -1576,7 +1578,7 @@ export class BasemapManager {
     const ltype = this.getLayerType(layer);
     if (layer.defId === 'hrdem-contours' || layer.defId === 'hrdem-dsm-contours') return 'CONTOUR';
     if (ltype === 'hrdem-wcs') return 'DEM';
-    if (ltype === 'nsprd-vector' || ltype === 'nshn-vector') return 'VEC';
+    if (ltype === 'nsprd-vector' || ltype === 'nshn-vector' || ltype === 'geojson') return 'VEC';
     if (ltype === 'cog-contour') return 'CONTOUR';
     if (layer.url.startsWith('cog://')) return 'COG';
     return 'RASTER';
@@ -1938,6 +1940,7 @@ export class BasemapManager {
               ${l.bounds ? `<button class="bm-adj-toggle bm-ul-zoom" data-ulid="${l.id}" title="Zoom to layer">${zoomSvg}</button>` : ''}
               ${canStack ? `<button class="bm-add-btn bm-ul-stack" data-ulid="${l.id}" title="Add to active stack" style="width:22px;height:22px;font-size:14px">+</button>` : ''}
               ${canStyle ? `<button class="bm-adj-toggle bm-ul-symbology" data-ulid="${l.id}" title="Edit symbology">⊛</button>` : ''}
+              ${canStyle ? `<button class="bm-adj-toggle bm-ul-attrs" data-ulid="${l.id}" title="Attribute table" style="font-size:13px">⊞</button>` : ''}
               <button class="bm-del-btn bm-ul-del" data-ulid="${l.id}" title="Remove layer">✕</button>
             </div>
           </div>
@@ -2631,6 +2634,7 @@ export class BasemapManager {
           <button class="vis-tog bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}"></button>
           ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
           <button class="bm-dup-btn" data-iid="${layer.instanceId}" title="Duplicate layer" style="background:none;border:1px solid var(--color-border);border-radius:4px;color:var(--color-text-dim);cursor:pointer;padding:2px 5px;font-size:12px;flex-shrink:0">⧉</button>
+          ${ltype === 'geojson' ? `<button class="bm-adj-toggle bm-stack-attrs" data-iid="${layer.instanceId}" title="Attribute table" style="font-size:13px">⊞</button>` : ''}
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
         ${isVectorLayer ? vecStylePanel : isHrdem ? hrdemAdjPanel : isCogContour ? cogContourAdjPanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
@@ -3238,8 +3242,16 @@ export class BasemapManager {
     // Remove buttons
     container.querySelectorAll<HTMLButtonElement>('.bm-del-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.removeFromStack(btn.dataset.iid!);
-        this.renderContent(container, onClose);
+        if (btn.dataset.confirm === '1') {
+          this.removeFromStack(btn.dataset.iid!);
+          this.renderContent(container, onClose);
+          return;
+        }
+        btn.dataset.confirm = '1';
+        btn.textContent = 'Remove?';
+        btn.classList.add('bm-del-confirm');
+        const t = setTimeout(() => { btn.dataset.confirm = ''; btn.textContent = '✕'; btn.classList.remove('bm-del-confirm'); }, 3000);
+        btn.addEventListener('blur', () => { clearTimeout(t); btn.dataset.confirm = ''; btn.textContent = '✕'; btn.classList.remove('bm-del-confirm'); }, { once: true });
       });
     });
 
@@ -3968,6 +3980,14 @@ export class BasemapManager {
 
     container.querySelectorAll<HTMLButtonElement>('.bm-ul-del').forEach(btn => {
       btn.addEventListener('click', () => {
+        if (btn.dataset.confirm !== '1') {
+          btn.dataset.confirm = '1';
+          btn.textContent = 'Remove?';
+          btn.classList.add('bm-del-confirm');
+          const t = setTimeout(() => { btn.dataset.confirm = ''; btn.textContent = '✕'; btn.classList.remove('bm-del-confirm'); }, 3000);
+          btn.addEventListener('blur', () => { clearTimeout(t); btn.dataset.confirm = ''; btn.textContent = '✕'; btn.classList.remove('bm-del-confirm'); }, { once: true });
+          return;
+        }
         const id = btn.dataset.ulid!;
         const ul = this.userLayers.find(l => l.id === id);
         if (!ul) return;
@@ -4005,6 +4025,43 @@ export class BasemapManager {
             this.mapManager.setImportedLayerSymbology(ul.id, state, features as { properties: Record<string, unknown> }[], ul.originalColor ?? '#888888');
             this.onLayerStateChange?.(ul.id, { symbologyState: state });
           },
+        });
+      });
+    });
+
+    // User layer attribute table
+    container.querySelectorAll<HTMLButtonElement>('.bm-ul-attrs').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ul = this.userLayers.find(l => l.id === btn.dataset.ulid);
+        if (!ul?.features?.length) return;
+        this.attributeTablePanel.open({
+          layerName: ul.name,
+          rows: ul.features.map(f => ({ properties: (f as { properties: Record<string, unknown> }).properties })),
+          onSave: async (rows) => {
+            rows.forEach((r, i) => {
+              if (ul.features![i]) (ul.features![i] as { properties: Record<string, unknown> }).properties = r.properties;
+            });
+            EventBus.emit('user-layer-attrs-saved', { id: ul.id, features: ul.features });
+          },
+        });
+      });
+    });
+
+    // Stack GeoJSON attribute table
+    container.querySelectorAll<HTMLButtonElement>('.bm-stack-attrs').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        const feats = this.geojsonOverlays.get(iid) ?? [];
+        if (!feats.length) {
+          EventBus.emit('toast', { message: 'Layer not loaded yet — enable it first', type: 'info', duration: 2500 });
+          return;
+        }
+        this.attributeTablePanel.open({
+          layerName: layer.customLabel ?? layer.label,
+          rows: feats.map(f => ({ properties: { ...f.properties } })),
+          readOnly: true,
         });
       });
     });
