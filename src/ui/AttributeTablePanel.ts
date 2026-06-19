@@ -82,7 +82,7 @@ export class AttributeTablePanel {
         const display = val == null ? '' : String(val);
         return `<td class="at-td${this.readOnly ? '' : ' at-editable'}" data-row="${ri}" data-col="${esc(c)}" title="${esc(display)}">${esc(display)}</td>`;
       }).join('');
-      return `<tr class="at-tr">${cells}</tr>`;
+      return `<tr class="at-tr"><td class="at-td at-rownum">${ri + 1}</td>${cells}</tr>`;
     }).join('');
 
     const tableIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>`;
