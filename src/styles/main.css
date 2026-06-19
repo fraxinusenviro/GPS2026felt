@@ -6383,6 +6383,7 @@ input[type=color] {
 .at-th.at-sorted .at-sort-arrow { color: var(--color-accent); }
 .at-rownum-th { width: 36px; min-width: 36px; text-align: center; cursor: default; }
 .at-rownum-th:hover { background: var(--color-surface-2); }
+.at-rownum { width: 36px; min-width: 36px; text-align: center; color: var(--color-text-muted); cursor: default; user-select: none; }
 .at-tr:nth-child(even) { background: var(--color-surface-2); }
 .at-tr:hover { background: var(--color-accent-dim); }
 .at-td {

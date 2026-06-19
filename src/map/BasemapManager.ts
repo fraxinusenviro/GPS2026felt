@@ -25,6 +25,7 @@ import { AttributeTablePanel } from '../ui/AttributeTablePanel';
 
 const BM_STACK_KEY = 'fm2026_bm_stack';
 const BM_STACK_PROJECT_KEY = 'fm2026_bm_stack_project';
+const BM_STACK_TS_KEY = 'fm2026_bm_stack_ts';
 
 function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -304,6 +305,12 @@ export class BasemapManager {
       // Record which project this stack belongs to so reload can detect it
       if (this.currentProjectId) {
         localStorage.setItem(BM_STACK_PROJECT_KEY, this.currentProjectId);
+      }
+      // Stamp the wall-clock time of user-driven changes only. Sync-applied
+      // overwrites (suppressPersist) must not reset this clock — the guard in
+      // refreshAfterSync() uses it to avoid clobbering a locally-newer stack.
+      if (!this.suppressPersist) {
+        localStorage.setItem(BM_STACK_TS_KEY, new Date().toISOString());
       }
     } catch { /* ignore QuotaExceededError */ }
     this.refreshLegend();
