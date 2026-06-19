@@ -9786,9 +9786,9 @@ input[type=color] {
   box-shadow: 2px 2px 0 var(--tg-ink);
 }
 
-/* Map control buttons (zoom +/-, etc.) */
+/* Map control buttons — rounded-rect, NOT pill (68px-wide container) */
 [data-ui-style="topograph"] .map-ctrl-btn {
-  border-radius: var(--radius-full);
+  border-radius: var(--radius);
   background: var(--tg-paper);
   border: 2px solid var(--tg-ink);
   color: var(--tg-ink);
