@@ -19,7 +19,7 @@ import { Toast } from './ui/Toast';
 import { Modal } from './ui/Modal';
 import { LogConsole } from './ui/LogConsole';
 import { EventBus } from './utils/EventBus';
-import { generateSessionId, DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack, PROJECT_TEMPLATES } from './constants';
+import { DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack, PROJECT_TEMPLATES } from './constants';
 import { MeasurePanel }  from './ui/MeasurePanel';
 import { CutFillPanel }  from './ui/CutFillPanel';
 import { ProfilePanel }  from './ui/ProfilePanel';
@@ -96,8 +96,7 @@ export class App {
     // init consumes settings (feature stamps, point IDs, map labels).
     await this.syncUserIdFromAccess();
 
-    const sessionLabel = document.getElementById('session-label');
-    if (sessionLabel) sessionLabel.textContent = generateSessionId();
+    // session-label removed; project name shown in header once project loads
 
     this.toast = new Toast();
     this.modal = new Modal();
@@ -227,6 +226,8 @@ export class App {
     this.projectLayerPresets = await this.storage.getLayersByProject(activeProjectId);
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     this.projectPanel.setActiveProjectId(activeProjectId);
+    const headerProjName = document.getElementById('header-project-name');
+    if (headerProjName && activeProject) headerProjName.textContent = activeProject.name;
     void this.wetlandsManager.renderLegend();
 
     this.applySettings(this.settings);
@@ -2505,6 +2506,8 @@ export class App {
     this.updateActiveLayerIndicator();
     this.projectPanel.setActiveProjectId(id);
     this.projectPanel.refresh();
+    const projNameEl = document.getElementById('header-project-name');
+    if (projNameEl) projNameEl.textContent = project.name;
 
     // Force basemap panel to re-render with new project's layer presets
     const basemapPanel = document.getElementById('basemap-panel');

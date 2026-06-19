@@ -450,12 +450,16 @@ button, input, select, textarea, optgroup {
   line-height: 1;
 }
 
-#session-id #session-label {
+#session-id .header-project-name {
   font-size: 9px;
   font-family: var(--font-mono);
   color: var(--color-text-dim);
   letter-spacing: 0.04em;
   line-height: 1;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #header-right {
@@ -9786,14 +9790,19 @@ input[type=color] {
   box-shadow: 2px 2px 0 var(--tg-ink);
 }
 
-/* Map control buttons — rounded-rect, NOT pill (68px-wide container) */
+/* Map control buttons — rounded-rect, sized to fit label text */
 [data-ui-style="topograph"] .map-ctrl-btn {
   border-radius: var(--radius);
   background: var(--tg-paper);
   border: 2px solid var(--tg-ink);
   color: var(--tg-ink);
   box-shadow: 2px 2px 0 var(--tg-ink);
+  width: auto;
+  min-height: auto;
+  padding: 7px 10px;
+  white-space: nowrap;
 }
+
 [data-ui-style="topograph"] .map-ctrl-btn:hover {
   background: var(--color-accent-dim);
   box-shadow: 1px 1px 0 var(--tg-ink);
@@ -9855,6 +9864,7 @@ input[type=color] {
   border: 2px solid var(--tg-ink);
   border-right: none;
   box-shadow: -3px 3px 0 var(--tg-ink);
+  width: fit-content;
 }
 
 /* Collapse buttons */
@@ -10189,6 +10199,7 @@ input[type=color] {
   border: 2px solid rgba(242, 236, 223, 0.65);
   border-right: none;
   box-shadow: -3px 3px 0 rgba(242, 236, 223, 0.35);
+  width: fit-content;
 }
 
 /* Collapse buttons */
