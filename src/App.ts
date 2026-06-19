@@ -330,10 +330,20 @@ export class App {
     // Adopt a synced basemap stack (loaded layers/symbology/labels) if the active
     // project's stored stack now differs from what's on the map. setActiveProjectStack
     // suppresses re-persist, so this can't loop back into sync.
+    //
+    // Guard: if the user made stack changes (e.g. added shared layers) more
+    // recently than the remote project's updated_at, keep the local version.
+    // Without this, a sync pull arriving after startup can overwrite a
+    // locally-fresh stack with a stale remote snapshot — specifically when a
+    // version-update reload happened inside the 1.5 s persistStackToProject
+    // debounce window, leaving the remote without the latest changes.
     const project = await this.storage.getProject(activeId);
     if (project?.basemap_stack_json) {
       const view = this.projectStackForUser(project);
       if (view && this.stackLayersDiffer(view)) {
+        const localTs = localStorage.getItem('fm2026_bm_stack_ts');
+        const remoteTs = project.updated_at;
+        if (localTs && remoteTs && localTs > remoteTs) return;
         this.basemapManager.setActiveProjectStack(view, activeId);
       }
     }
