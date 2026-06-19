@@ -139,6 +139,11 @@ export class SettingsPanel {
                 <input type="checkbox" id="s-theme-light" ${this.settings.theme === 'light' ? 'checked' : ''} />
                 <span class="toggle-slider"></span>
               </label>
+              <label class="toggle-label">
+                <span>✦ Topograph <span class="badge-experimental">Experimental</span></span>
+                <input type="checkbox" id="s-ui-style" ${(this.settings.ui_style ?? 'default') === 'topograph' ? 'checked' : ''} />
+                <span class="toggle-slider"></span>
+              </label>
               <label>Font Appearance
                 <select id="s-font-family">
                   <option value="default" ${(this.settings.font_family ?? 'default') === 'default' ? 'selected' : ''}>Default (System)</option>
@@ -371,6 +376,9 @@ export class SettingsPanel {
     else document.documentElement.removeAttribute('data-outdoor');
 
     this.settings.theme = get<HTMLInputElement>('s-theme-light')?.checked ? 'light' : 'dark';
+    this.settings.ui_style = get<HTMLInputElement>('s-ui-style')?.checked ? 'topograph' : 'default';
+    if (this.settings.ui_style === 'topograph') document.documentElement.setAttribute('data-ui-style', 'topograph');
+    else document.documentElement.removeAttribute('data-ui-style');
     this.settings.font_family = (get<HTMLSelectElement>('s-font-family')?.value ?? 'default') as 'default' | 'oswald';
     this.settings.theme_color = get<HTMLInputElement>('s-theme-color')?.value ?? '#4ade80';
     document.documentElement.setAttribute('data-theme', this.settings.theme);

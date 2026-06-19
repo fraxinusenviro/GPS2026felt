@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   theme: 'dark',
   font_family: 'default',
   theme_color: '#4ade80',
+  ui_style: 'default',
 };
 
 // ---- Basemap Definitions ----

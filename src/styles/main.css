@@ -9649,3 +9649,360 @@ input[type=color] {
   padding: 9px;
   font-size: 13px;
 }
+
+/* ============================================================
+   Experimental badge (used in settings toggles)
+   ============================================================ */
+.badge-experimental {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.40);
+  border-radius: var(--radius-full);
+  padding: 1px 6px;
+  vertical-align: middle;
+  margin-left: 4px;
+  line-height: 1.4;
+}
+
+/* ============================================================
+   Topograph — Experimental Style
+   Clean paper-map aesthetic inspired by polished consumer map
+   apps: white surfaces, pill-shaped controls, soft shadows,
+   solid backgrounds (no glassmorphic blur).
+   ============================================================ */
+
+[data-ui-style="topograph"] {
+  --color-bg: #e8ece7;
+  --color-surface: rgba(255, 255, 255, 0.98);
+  --color-surface-2: rgba(252, 253, 252, 1.0);
+  --color-surface-3: rgba(248, 250, 248, 1.0);
+  --color-surface-raised: rgba(0, 0, 0, 0.04);
+  --color-input-bg: rgba(0, 0, 0, 0.04);
+  --color-glass-border: rgba(0, 0, 0, 0.08);
+  --color-border: rgba(0, 0, 0, 0.10);
+  --color-border-hover: rgba(0, 0, 0, 0.24);
+  --color-text: #111827;
+  --color-text-dim: #374151;
+  --color-text-muted: #6b7280;
+  --color-overlay-sm: rgba(0, 0, 0, 0.03);
+  --color-overlay-md: rgba(0, 0, 0, 0.06);
+  --color-overlay-lg: rgba(0, 0, 0, 0.10);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.07), 0 2px 8px rgba(0, 0, 0, 0.05);
+  --shadow: 0 2px 10px rgba(0, 0, 0, 0.09), 0 4px 18px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 4px 20px rgba(0, 0, 0, 0.11), 0 8px 32px rgba(0, 0, 0, 0.09);
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --backdrop: none;
+  --backdrop-heavy: none;
+}
+
+/* Disable all glassmorphic backdrop blurs */
+[data-ui-style="topograph"] #left-toolbar,
+[data-ui-style="topograph"] #right-controls,
+[data-ui-style="topograph"] #point-entry-hud,
+[data-ui-style="topograph"] #capture-controls,
+[data-ui-style="topograph"] .layer-mgr-popover,
+[data-ui-style="topograph"] .floating-panel,
+[data-ui-style="topograph"] .side-panel,
+[data-ui-style="topograph"] .cf-panel,
+[data-ui-style="topograph"] .pf-panel,
+[data-ui-style="topograph"] .measure-hud {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* Body background */
+[data-ui-style="topograph"] body {
+  background: #dde4db;
+}
+
+/* Header — clean white bar */
+[data-ui-style="topograph"] #header {
+  background: rgba(255, 255, 255, 0.98);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.07);
+}
+
+/* Icon buttons (hamburger, theme toggle, etc.) */
+[data-ui-style="topograph"] .icon-btn {
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.09);
+  color: #374151;
+}
+[data-ui-style="topograph"] .icon-btn:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* Tool buttons — pill shape */
+[data-ui-style="topograph"] .tool-btn {
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(0, 0, 0, 0.09);
+  color: #4b5563;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+}
+[data-ui-style="topograph"] .tool-btn:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
+}
+[data-ui-style="topograph"] .tool-btn.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Map control buttons (zoom +/-, etc.) */
+[data-ui-style="topograph"] .map-ctrl-btn {
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(0, 0, 0, 0.09);
+  color: #4b5563;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.09);
+}
+[data-ui-style="topograph"] .map-ctrl-btn:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+[data-ui-style="topograph"] .map-ctrl-btn.active,
+[data-ui-style="topograph"] .map-ctrl-btn[data-active="true"] {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Primary / outline buttons — pill shape */
+[data-ui-style="topograph"] .btn-primary {
+  border-radius: var(--radius-full);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+[data-ui-style="topograph"] .btn-outline {
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.92);
+  color: #374151;
+  border-color: rgba(0, 0, 0, 0.14);
+}
+[data-ui-style="topograph"] .btn-outline:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* Left toolbar — white card with rounded right edge */
+[data-ui-style="topograph"] #left-toolbar {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: rgba(0, 0, 0, 0.08);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  box-shadow: var(--shadow);
+}
+
+/* Right controls panel */
+[data-ui-style="topograph"] #right-controls {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow);
+}
+
+/* Collapse buttons */
+[data-ui-style="topograph"] .left-collapse-btn,
+[data-ui-style="topograph"] .right-collapse-btn {
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.09);
+  color: #4b5563;
+}
+[data-ui-style="topograph"] .left-collapse-btn:hover,
+[data-ui-style="topograph"] .right-collapse-btn:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* Toolbar section labels — rounded pills */
+[data-ui-style="topograph"] .toolbar-section-label {
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.10);
+  color: #374151;
+  font-weight: 600;
+}
+[data-ui-style="topograph"] .toolbar-section-label:hover {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* Toolbar section color overrides for Topograph (daylight-safe) */
+[data-ui-style="topograph"] .toolbar-section[data-sec="gps"] > .toolbar-section-label {
+  color: #15803d; border-color: rgba(22, 163, 74, 0.35); background: rgba(22, 163, 74, 0.10);
+}
+[data-ui-style="topograph"] .toolbar-section[data-sec="gps"] > .toolbar-section-label:hover { background: rgba(22, 163, 74, 0.20); }
+[data-ui-style="topograph"] .toolbar-section[data-sec="gps"]:not(.collapsed) > .toolbar-group { background: rgba(22, 163, 74, 0.04); }
+
+[data-ui-style="topograph"] .toolbar-section[data-sec="sketch"] > .toolbar-section-label {
+  color: #0369a1; border-color: rgba(3, 105, 161, 0.35); background: rgba(3, 105, 161, 0.10);
+}
+[data-ui-style="topograph"] .toolbar-section[data-sec="sketch"] > .toolbar-section-label:hover { background: rgba(3, 105, 161, 0.20); }
+[data-ui-style="topograph"] .toolbar-section[data-sec="sketch"]:not(.collapsed) > .toolbar-group { background: rgba(3, 105, 161, 0.04); }
+
+[data-ui-style="topograph"] .toolbar-section[data-sec="edit"] > .toolbar-section-label {
+  color: #b45309; border-color: rgba(180, 83, 9, 0.35); background: rgba(180, 83, 9, 0.10);
+}
+[data-ui-style="topograph"] .toolbar-section[data-sec="edit"] > .toolbar-section-label:hover { background: rgba(180, 83, 9, 0.20); }
+[data-ui-style="topograph"] .toolbar-section[data-sec="edit"]:not(.collapsed) > .toolbar-group { background: rgba(180, 83, 9, 0.04); }
+
+[data-ui-style="topograph"] .toolbar-section[data-sec="info"] > .toolbar-section-label {
+  color: #6d28d9; border-color: rgba(109, 40, 217, 0.35); background: rgba(109, 40, 217, 0.10);
+}
+[data-ui-style="topograph"] .toolbar-section[data-sec="info"] > .toolbar-section-label:hover { background: rgba(109, 40, 217, 0.20); }
+[data-ui-style="topograph"] .toolbar-section[data-sec="info"]:not(.collapsed) > .toolbar-group { background: rgba(109, 40, 217, 0.04); }
+
+[data-ui-style="topograph"] .toolbar-section[data-sec="elev"] > .toolbar-section-label {
+  color: #0f766e; border-color: rgba(15, 118, 110, 0.35); background: rgba(15, 118, 110, 0.10);
+}
+[data-ui-style="topograph"] .toolbar-section[data-sec="elev"] > .toolbar-section-label:hover { background: rgba(15, 118, 110, 0.20); }
+[data-ui-style="topograph"] .toolbar-section[data-sec="elev"]:not(.collapsed) > .toolbar-group { background: rgba(15, 118, 110, 0.04); }
+
+[data-ui-style="topograph"] .toolbar-section[data-sec="cache"] > .toolbar-section-label {
+  color: #c2410c; border-color: rgba(194, 65, 12, 0.35); background: rgba(194, 65, 12, 0.10);
+}
+[data-ui-style="topograph"] .toolbar-section[data-sec="cache"] > .toolbar-section-label:hover { background: rgba(194, 65, 12, 0.20); }
+[data-ui-style="topograph"] .toolbar-section[data-sec="cache"]:not(.collapsed) > .toolbar-group { background: rgba(194, 65, 12, 0.04); }
+
+[data-ui-style="topograph"] .toolbar-section[data-sec="mapopt"] > .toolbar-section-label {
+  color: #be123c; border-color: rgba(190, 18, 60, 0.35); background: rgba(190, 18, 60, 0.10);
+}
+[data-ui-style="topograph"] .toolbar-section[data-sec="mapopt"] > .toolbar-section-label:hover { background: rgba(190, 18, 60, 0.20); }
+[data-ui-style="topograph"] .toolbar-section[data-sec="mapopt"]:not(.collapsed) > .toolbar-group { background: rgba(190, 18, 60, 0.04); }
+
+[data-ui-style="topograph"] .toolbar-section[data-sec="io"] > .toolbar-section-label {
+  color: #334155; border-color: rgba(51, 65, 85, 0.35); background: rgba(51, 65, 85, 0.10);
+}
+[data-ui-style="topograph"] .toolbar-section[data-sec="io"] > .toolbar-section-label:hover { background: rgba(51, 65, 85, 0.20); }
+[data-ui-style="topograph"] .toolbar-section[data-sec="io"]:not(.collapsed) > .toolbar-group { background: rgba(51, 65, 85, 0.04); }
+
+/* Section group backgrounds */
+[data-ui-style="topograph"] .toolbar-section:not(.collapsed) > .toolbar-group {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+/* Settings panel overlay */
+[data-ui-style="topograph"] .side-panel {
+  background: rgba(180, 190, 180, 0.55);
+}
+[data-ui-style="topograph"] .side-panel-inner {
+  background: rgba(255, 255, 255, 0.99);
+  border-radius: var(--radius-lg);
+  margin: 8px;
+  max-height: calc(100dvh - 16px);
+}
+[data-ui-style="topograph"] .panel-header {
+  background: rgba(255, 255, 255, 1.0);
+  border-bottom-color: rgba(0, 0, 0, 0.07);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+[data-ui-style="topograph"] .panel-close {
+  border-radius: var(--radius-full);
+}
+
+/* Settings section headers */
+[data-ui-style="topograph"] .settings-section > h4,
+[data-ui-style="topograph"] .settings-section > .section-toggle {
+  background: rgba(0, 0, 0, 0.04);
+  color: #1f2937;
+  border-bottom-color: rgba(0, 0, 0, 0.07);
+  border-radius: var(--radius-sm);
+}
+
+/* GPS status badges */
+[data-ui-style="topograph"] .gps-good {
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.14);
+  box-shadow: none;
+}
+[data-ui-style="topograph"] .gps-fair { color: #b45309; background: rgba(217, 119, 6, 0.14); }
+[data-ui-style="topograph"] .gps-poor { color: #b91c1c; background: rgba(220, 38, 38, 0.14); }
+[data-ui-style="topograph"] .gps-unknown { color: #475569; background: rgba(71, 85, 105, 0.14); }
+
+/* Tab bar */
+[data-ui-style="topograph"] .tab-btn { color: #6b7280; }
+[data-ui-style="topograph"] .tab-btn.active {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+/* Layer / geom badges */
+[data-ui-style="topograph"] .layer-badge,
+[data-ui-style="topograph"] .layer-type-badge,
+[data-ui-style="topograph"] .preset-geom-badge {
+  background: rgba(0, 0, 0, 0.06);
+  color: #374151;
+  border-color: rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-full);
+}
+
+/* HUD coords widget */
+[data-ui-style="topograph"] #hud-coords:hover { background: rgba(0, 0, 0, 0.05); }
+[data-ui-style="topograph"] #hud-coords:active { background: rgba(0, 0, 0, 0.09); }
+
+/* Map identify popups */
+[data-ui-style="topograph"] .fm-identify-popup .maplibregl-popup-content {
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+}
+[data-ui-style="topograph"] .fm-identify-popup .maplibregl-popup-tip {
+  border-top-color: rgba(255, 255, 255, 0.98);
+}
+
+/* Floating panels and drawers */
+[data-ui-style="topograph"] .floating-panel,
+[data-ui-style="topograph"] .layer-mgr-popover {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+}
+[data-ui-style="topograph"] .map-legend-drawer {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-lg);
+}
+
+/* HUD and capture controls */
+[data-ui-style="topograph"] #point-entry-hud,
+[data-ui-style="topograph"] #capture-controls {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+}
+
+/* Measure HUD */
+[data-ui-style="topograph"] .measure-hud {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* Modal overlays and dialogs */
+[data-ui-style="topograph"] .modal-overlay {
+  background: rgba(0, 0, 0, 0.35);
+}
+[data-ui-style="topograph"] .modal,
+[data-ui-style="topograph"] .cf-panel .side-panel-inner,
+[data-ui-style="topograph"] .pf-panel .side-panel-inner {
+  background: rgba(255, 255, 255, 0.99);
+  border-color: rgba(0, 0, 0, 0.08);
+}
