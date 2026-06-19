@@ -544,6 +544,10 @@ export class App {
     if (darkIcon) darkIcon.style.display = theme === 'dark' ? '' : 'none';
     if (lightIcon) lightIcon.style.display = theme === 'light' ? '' : 'none';
 
+    // UI Style (Topograph experimental mode)
+    if ((settings.ui_style ?? 'default') === 'topograph') document.documentElement.setAttribute('data-ui-style', 'topograph');
+    else document.documentElement.removeAttribute('data-ui-style');
+
     // Font family
     const root = document.documentElement;
     if (settings.font_family === 'oswald') {

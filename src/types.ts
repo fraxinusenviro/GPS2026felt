@@ -223,6 +223,7 @@ export interface AppSettings {
   theme: 'dark' | 'light';
   font_family?: 'default' | 'oswald';
   theme_color?: string;
+  ui_style?: 'default' | 'topograph';
 }
 
 // ---- GPS State ----
