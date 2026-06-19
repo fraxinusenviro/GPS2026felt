@@ -9790,17 +9790,27 @@ input[type=color] {
   box-shadow: 2px 2px 0 var(--tg-ink);
 }
 
-/* Map control buttons — rounded-rect, sized to fit label text */
+/* Map control buttons — uniform square, text wraps to fit */
 [data-ui-style="topograph"] .map-ctrl-btn {
   border-radius: var(--radius);
   background: var(--tg-paper);
   border: 2px solid var(--tg-ink);
   color: var(--tg-ink);
   box-shadow: 2px 2px 0 var(--tg-ink);
-  width: auto;
-  min-height: auto;
-  padding: 7px 10px;
-  white-space: nowrap;
+  width: 60px;
+  height: 60px;
+  min-height: 60px;
+  padding: 5px 4px;
+}
+[data-ui-style="topograph"] .map-ctrl-btn svg {
+  width: 26px;
+  height: 26px;
+}
+[data-ui-style="topograph"] .map-ctrl-btn .tool-btn-label {
+  font-size: 7px;
+  white-space: normal;
+  line-height: 1.2;
+  word-break: break-word;
 }
 
 [data-ui-style="topograph"] .map-ctrl-btn:hover {
