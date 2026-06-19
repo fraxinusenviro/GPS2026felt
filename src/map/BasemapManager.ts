@@ -25,6 +25,10 @@ import { WebGLBlendLayer } from './WebGLBlendLayer';
 const BM_STACK_KEY = 'fm2026_bm_stack';
 const BM_STACK_PROJECT_KEY = 'fm2026_bm_stack_project';
 
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 interface StackLayer {
   instanceId: string;
   defId: string;
@@ -105,6 +109,7 @@ interface StackLayer {
   cogContourFillOpacity?: number;  // default 0.30
   symbologyState?: SymbologyState; // data-driven symbology override
   showInLegend?: boolean;          // default true (non-base layers); base layers excluded
+  customLabel?: string;            // user-edited display name (does not affect library name)
 }
 
 interface UserLayerInfo {
@@ -141,6 +146,7 @@ export class BasemapManager {
   // Remembers which stack layers were visible before a "hide all" master toggle,
   // so the next click restores the exact prior visibility combo.
   private stackVisSnapshot: string[] | null = null;
+  private renamingIid: string | null = null;
 
   // "View as" (preview another user's layer view, read-only). When viewOnly is
   // set, stack changes are not persisted to localStorage/cloud.
@@ -1548,7 +1554,7 @@ export class BasemapManager {
         return `<div class="legend-item${collapsed ? ' collapsed' : ''}" data-legend-iid="${layer.instanceId}">
           <button class="legend-item-header" data-legend-toggle="${layer.instanceId}">
             <span class="legend-chevron">▾</span>
-            <span class="legend-item-title" title="${layer.label}">${layer.label}</span>
+            <span class="legend-item-title" title="${escHtml(layer.customLabel ?? layer.label)}">${escHtml(layer.customLabel ?? layer.label)}</span>
             ${badge ? `<span class="legend-item-badge">${badge}</span>` : ''}
           </button>
           <div class="legend-item-body">${inner || '<div class="legend-row-label" style="opacity:0.6">—</div>'}</div>
@@ -2615,7 +2621,12 @@ export class BasemapManager {
            draggable="true" data-idx="${idx}" data-iid="${layer.instanceId}">
         <div class="bm-item-row">
           <div class="bm-drag-handle" title="Drag to reorder">${dragSvg}</div>
-          <span class="bm-layer-label" title="${layer.label}">${layer.label}</span>
+          ${this.renamingIid === layer.instanceId
+            ? `<input type="text" class="bm-label-rename-input" data-iid="${layer.instanceId}"
+                 value="${escHtml(layer.customLabel ?? layer.label)}" maxlength="80" />`
+            : `<span class="bm-layer-label bm-label-editable" data-iid="${layer.instanceId}"
+                 title="${escHtml(layer.customLabel ?? layer.label)}">${escHtml(layer.customLabel ?? layer.label)}</span>`
+          }
           ${isBase ? '<span class="bm-base-badge">B</span>' : ''}
           <button class="vis-tog bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}"></button>
           ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
@@ -3243,6 +3254,41 @@ export class BasemapManager {
         this.saveStack();
         this.rebuildMap();
         this.renderContent(container, onClose);
+      });
+    });
+
+    // Inline label rename — tap the label to enter edit mode
+    container.querySelectorAll<HTMLSpanElement>('.bm-label-editable').forEach(span => {
+      span.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.renamingIid = span.dataset.iid!;
+        this.renderContent(container, onClose);
+        requestAnimationFrame(() => {
+          const input = container.querySelector<HTMLInputElement>(`.bm-label-rename-input[data-iid="${this.renamingIid}"]`);
+          if (input) { input.focus(); input.select(); }
+        });
+      });
+    });
+
+    container.querySelectorAll<HTMLInputElement>('.bm-label-rename-input').forEach(input => {
+      const commitRename = () => {
+        const iid = input.dataset.iid!;
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (layer) {
+          const val = input.value.trim();
+          layer.customLabel = val || undefined; // blank = revert to library name
+          this.saveStack();
+        }
+        this.renamingIid = null;
+        this.renderContent(container, onClose);
+      };
+      input.addEventListener('blur', commitRename);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') {
+          this.renamingIid = null;
+          this.renderContent(container, onClose);
+        }
       });
     });
 

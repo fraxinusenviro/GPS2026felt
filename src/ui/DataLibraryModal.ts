@@ -7,6 +7,18 @@ import { EventBus } from '../utils/EventBus';
 // Cap on how many cards render at once (the NS REST catalogue is 1,000+ layers)
 const MAX_GRID_CARDS = 200;
 
+const USER_DATA_GROUP = 'user-data';
+
+export interface UserDataEntry {
+  userId: string;
+  points: number;
+  lines: number;
+  polygons: number;
+  wetlands: number;
+  total: number;
+  lastUpdated: string;
+}
+
 // ── Thumbnail type icons (public/layer-thumbs/type-*.png) ────────────────────
 // esri-imagery, esri-hybrid, osm, topo use live tile fetches (not listed here).
 // All others map to one of three generic type icons.
@@ -238,6 +250,8 @@ export interface DataLibraryCallbacks {
   getSharedDefs: () => BasemapDef[];
   onUploadShared: (data: { name: string; folder: string; file: File }) => Promise<void>;
   onDeleteShared: (sharedId: string) => Promise<void>;
+  // Per-user collected field data summary.
+  getUserDataEntries?: () => UserDataEntry[];
 }
 
 export class DataLibraryModal {
@@ -303,6 +317,7 @@ export class DataLibraryModal {
 
   private filteredDefs(): BasemapDef[] {
     let defs = this.allDefs;
+    if (this.activeGroup === USER_DATA_GROUP) return [];
     if (this.activeGroup !== 'all') {
       defs = this.activeGroup === 'basemaps'
         ? [...BASEMAPS]
@@ -457,7 +472,50 @@ export class DataLibraryModal {
       }`).join('');
   }
 
+  private renderUserDataView(): string {
+    const entries = this.callbacks.getUserDataEntries?.() ?? [];
+    const geomIcon = (g: 'point' | 'line' | 'polygon') => {
+      if (g === 'point')   return `<svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11"><circle cx="12" cy="12" r="5"/></svg>`;
+      if (g === 'line')    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="11" height="11"><line x1="4" y1="20" x2="20" y2="4"/></svg>`;
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><polygon points="12 2 22 18 2 18"/></svg>`;
+    };
+    const wetlandIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="M12 22V12"/><path d="M5 9c0-2.5 2-3 3.5-3 2 0 3 1 3 3s-1 3-3.5 3S5 11 5 9z"/><path d="M15.5 7c1 0 2.5.5 2.5 2.5S16 13 14 12"/></svg>`;
+    const formatDate = (iso: string) => iso ? iso.slice(0, 10) : '—';
+
+    const cards = entries.length === 0
+      ? `<div class="dl-empty">No field data collected yet.</div>`
+      : entries.map(e => `
+        <div class="dl-userdata-card">
+          <div class="dl-userdata-avatar">${esc(e.userId.slice(0, 2))}</div>
+          <div class="dl-userdata-info">
+            <div class="dl-userdata-userid">${esc(e.userId)}</div>
+            <div class="dl-userdata-stats">
+              ${e.points   > 0 ? `<span class="dl-uds dl-uds-point">${geomIcon('point')} ${e.points} pt${e.points !== 1 ? 's' : ''}</span>` : ''}
+              ${e.lines    > 0 ? `<span class="dl-uds dl-uds-line">${geomIcon('line')} ${e.lines} ln${e.lines !== 1 ? 's' : ''}</span>` : ''}
+              ${e.polygons > 0 ? `<span class="dl-uds dl-uds-poly">${geomIcon('polygon')} ${e.polygons} poly</span>` : ''}
+              ${e.wetlands > 0 ? `<span class="dl-uds dl-uds-wetland">${wetlandIcon} ${e.wetlands} plot${e.wetlands !== 1 ? 's' : ''}</span>` : ''}
+              ${e.total    === 0 ? `<span class="dl-uds">no features</span>` : ''}
+            </div>
+            <div class="dl-userdata-meta">
+              <span class="dl-uds-total">${e.total} feature${e.total !== 1 ? 's' : ''}</span>
+              <span class="dl-uds-date">last: ${formatDate(e.lastUpdated)}</span>
+            </div>
+          </div>
+        </div>`).join('');
+
+    return `
+      <div class="dl-grid-wrap">
+        <div class="dl-grid-label">
+          User Data
+          <span class="dl-count">${entries.length} user${entries.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="dl-section-header">Collected Field Features</div>
+        <div class="dl-userdata-list">${cards}</div>
+      </div>`;
+  }
+
   private gridWrapHtml(defs: BasemapDef[]): string {
+    if (this.activeGroup === USER_DATA_GROUP) return this.renderUserDataView();
     const toolbar = isSharedGroup(this.activeGroup) ? this.uploadToolbarHtml() : '';
     const labelText = this.activeGroup === 'all' ? 'All Sources' : this.activeGroup === 'basemaps' ? 'Standard Basemaps' : esc(this.activeGroup);
     return `
@@ -563,6 +621,11 @@ export class DataLibraryModal {
                 ${esc(folder)}
               </button>`;
             }).join('')}
+            <div class="dl-nav-section-label" style="margin-top:6px">Field Data</div>
+            <button class="dl-nav-item${this.activeView === 'library' && this.activeGroup === USER_DATA_GROUP ? ' active' : ''}" data-group="${USER_DATA_GROUP}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              User Data
+            </button>
             <div class="dl-nav-section-label" style="margin-top:6px">Overlay Layers</div>
             ${groups.map(g => {
               const icon = g === 'Raster Functions'

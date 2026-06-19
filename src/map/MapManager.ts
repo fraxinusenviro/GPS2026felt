@@ -921,6 +921,27 @@ export class MapManager {
     (this.map.getSource('collected-polygons') as maplibregl.GeoJSONSource)?.setData(toFC(polygons) as never);
     (this.map.getSource('wetland-plots') as maplibregl.GeoJSONSource)?.setData(toFC(wetlandPlots) as never);
 
+    // Explicitly sync the visibility layout property for collected-lines sub-layers
+    // (casing, dashed, dotted) so they disappear when the feature layer is toggled
+    // off — relying on empty source data alone isn't sufficient because Symbology
+    // Studio can leave those layers with opacity > 0 / filter = null.
+    if (layerPresets !== undefined) {
+      const linePresets = layerPresets.filter(
+        lp => lp.geometry_type === 'LineString' && !lp.id.endsWith('-wetlands')
+      );
+      const lineVis = linePresets.length === 0 || linePresets.some(lp => lp.visible !== false)
+        ? 'visible' : 'none';
+      for (const id of [
+        LAYER_IDS.COLLECTED_LINES,
+        'collected-lines-casing',
+        'collected-lines-dashed',
+        'collected-lines-dotted',
+        'collected-lines-labels',
+      ]) {
+        if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', lineVis);
+      }
+    }
+
     // Re-apply the wetland-plots layer's saved symbology + label visibility so it
     // survives data refreshes / reloads (paint persists, but reload needs it set).
     const wetlandLp = layerPresets?.find(lp => lp.id.endsWith('-wetlands'));
