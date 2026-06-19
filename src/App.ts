@@ -29,6 +29,7 @@ import { UndoManager } from './utils/UndoManager';
 import { SymbolRenderer } from './ui/SymbolRenderer';
 import { LayoutMode } from './ui/LayoutMode';
 import { DataLibraryModal } from './ui/DataLibraryModal';
+import type { UserDataEntry } from './ui/DataLibraryModal';
 import { MasterDataPanel } from './ui/MasterDataPanel';
 import { BackendClient } from './sync/BackendClient';
 import { SyncManager } from './sync/SyncManager';
@@ -1242,10 +1243,39 @@ export class App {
     this.setupMoreEventListeners();
   }
 
+  /** Build per-user collected feature counts for the User Data panel in the Data Library. */
+  private buildUserDataEntries(features: import('./types').FieldFeature[]): UserDataEntry[] {
+    const map = new Map<string, UserDataEntry>();
+    for (const f of features) {
+      const userId = f.created_by || 'UNKNOWN';
+      if (!map.has(userId)) {
+        map.set(userId, { userId, points: 0, lines: 0, polygons: 0, wetlands: 0, total: 0, lastUpdated: '' });
+      }
+      const e = map.get(userId)!;
+      const isWetland = f.layer_id?.endsWith('-wetlands') || !!f.wetland_data;
+      if (isWetland) {
+        e.wetlands++;
+      } else if (f.geometry_type === 'Point') {
+        e.points++;
+      } else if (f.geometry_type === 'LineString') {
+        e.lines++;
+      } else if (f.geometry_type === 'Polygon') {
+        e.polygons++;
+      }
+      e.total++;
+      if (!e.lastUpdated || (f.updated_at && f.updated_at > e.lastUpdated)) e.lastUpdated = f.updated_at;
+    }
+    return [...map.values()].sort((a, b) => b.total - a.total);
+  }
+
   /** Open the Data Library modal, optionally landing on a specific group. */
   private async openDataLibrary(initialGroup = 'all'): Promise<void> {
       this.closeAllPanels();
-      await this.reloadSharedDefs();
+      const [, allFeatures] = await Promise.all([
+        this.reloadSharedDefs(),
+        this.storage.getAllFeatures(),
+      ]);
+      const userDataEntries = this.buildUserDataEntries(allFeatures);
       this.dataLibraryModal.open({
         onAddToMap: (def) => {
           this.basemapManager.addDefToStack(def);
@@ -1346,6 +1376,7 @@ export class App {
         getSharedDefs: () => this.sharedDefsCache,
         onUploadShared: (data) => this.uploadSharedLayer(data),
         onDeleteShared: (sharedId) => this.deleteSharedLayer(sharedId),
+        getUserDataEntries: () => userDataEntries,
       }, initialGroup);
   }
 

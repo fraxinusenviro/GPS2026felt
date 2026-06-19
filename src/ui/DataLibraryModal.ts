@@ -7,6 +7,18 @@ import { EventBus } from '../utils/EventBus';
 // Cap on how many cards render at once (the NS REST catalogue is 1,000+ layers)
 const MAX_GRID_CARDS = 200;
 
+const USER_DATA_GROUP = 'user-data';
+
+export interface UserDataEntry {
+  userId: string;
+  points: number;
+  lines: number;
+  polygons: number;
+  wetlands: number;
+  total: number;
+  lastUpdated: string;
+}
+
 // ── Thumbnail type icons (public/layer-thumbs/type-*.png) ────────────────────
 // esri-imagery, esri-hybrid, osm, topo use live tile fetches (not listed here).
 // All others map to one of three generic type icons.
@@ -194,9 +206,10 @@ const RF_PARAM_SCHEMAS: Record<string, RFParamConfig[]> = {
 
 function getThumb(def: BasemapDef): { src: string; isTile: boolean } {
   if (def.id in LAYER_THUMBS) return { src: LAYER_THUMBS[def.id], isTile: false };
+  const url = def.url ?? '';
   // Fallback: any raster tile layer — grab a low-zoom tile
-  if (def.type === 'raster' && def.url.includes('{z}') && !def.url.startsWith('cog://')) {
-    const src = def.url.replace('{z}', '4').replace('{x}', '4').replace('{y}', '5').replace('{r}', '');
+  if (def.type === 'raster' && url.includes('{z}') && !url.startsWith('cog://')) {
+    const src = url.replace('{z}', '4').replace('{x}', '4').replace('{y}', '5').replace('{r}', '');
     return { src, isTile: true };
   }
   // Vector catalogue layers — generic geometry icon
@@ -208,7 +221,7 @@ function getThumb(def: BasemapDef): { src: string; isTile: boolean } {
 }
 
 function typeLabel(def: BasemapDef): string {
-  if (def.url.startsWith('cog://')) return 'COG Raster';
+  if ((def.url ?? '').startsWith('cog://')) return 'COG Raster';
   if (def.group === 'Raster Functions') return 'Raster Function';
   switch (def.type) {
     case 'raster':       return 'Raster';
@@ -219,6 +232,10 @@ function typeLabel(def: BasemapDef): string {
     case 'geojson':      return 'Vector (GeoJSON)';
     default:             return def.type;
   }
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Public interface ──────────────────────────────────────────────────────────
@@ -233,6 +250,8 @@ export interface DataLibraryCallbacks {
   getSharedDefs: () => BasemapDef[];
   onUploadShared: (data: { name: string; folder: string; file: File }) => Promise<void>;
   onDeleteShared: (sharedId: string) => Promise<void>;
+  // Per-user collected field data summary.
+  getUserDataEntries?: () => UserDataEntry[];
 }
 
 export class DataLibraryModal {
@@ -298,6 +317,7 @@ export class DataLibraryModal {
 
   private filteredDefs(): BasemapDef[] {
     let defs = this.allDefs;
+    if (this.activeGroup === USER_DATA_GROUP) return [];
     if (this.activeGroup !== 'all') {
       defs = this.activeGroup === 'basemaps'
         ? [...BASEMAPS]
@@ -396,7 +416,7 @@ export class DataLibraryModal {
               ${this.uploadOpen ? `
               <div class="dl-shared-form">
                 <input type="text" id="dl-up-name" class="dl-up-input" placeholder="Layer name" autocomplete="off" />
-                <input type="text" id="dl-up-folder" class="dl-up-input" placeholder="Folder (optional)" value="${folder}" autocomplete="off" />
+                <input type="text" id="dl-up-folder" class="dl-up-input" placeholder="Folder (optional)" value="${esc(folder)}" autocomplete="off" />
                 <input type="file" id="dl-up-file" class="dl-up-file" accept=".geojson,.json,.tif,.tiff,.pmtiles" />
                 <button class="dl-up-submit" id="dl-up-submit"${this.uploading ? ' disabled' : ''}>${this.uploading ? 'Uploading…' : 'Add to library'}</button>
               </div>` : ''}
@@ -433,26 +453,71 @@ export class DataLibraryModal {
         ? `<div class="dl-list">${items.map(d => this.renderListItem(d)).join('')}</div>`
         : `<div class="dl-grid">${items.map(d => this.renderCard(d)).join('')}</div>`;
     }
-    // For "All Sources" without search, group by section
-    const sections: Array<{ label: string; defs: BasemapDef[] }> = [
-      { label: 'Standard Basemaps', defs: BASEMAPS },
-      { label: 'Fraxinus Static Data', defs: this.sharedDefs },
-      ...this.groups.filter(g => g !== NS_REST_ALL_GROUP).map(g => ({
-        label: g,
-        defs: BASEMAP_OVERLAYS.filter(d => d.group === g),
-      })),
-    ].filter(s => s.defs.length > 0);
+    // For "All Sources" without search, group by section (each section capped at MAX_GRID_CARDS)
+    const sections: Array<{ label: string; defs: BasemapDef[]; total: number }> = [
+      { label: 'Standard Basemaps', defs: BASEMAPS, total: BASEMAPS.length },
+      { label: 'Fraxinus Static Data', defs: this.sharedDefs, total: this.sharedDefs.length },
+      ...this.groups.filter(g => g !== NS_REST_ALL_GROUP).map(g => {
+        const all = BASEMAP_OVERLAYS.filter(d => d.group === g);
+        return { label: g, defs: all, total: all.length };
+      }),
+    ]
+      .filter(s => s.defs.length > 0)
+      .map(s => ({ ...s, defs: s.defs.slice(0, MAX_GRID_CARDS) }));
     return sections.map(s => `
-      <div class="dl-section-header">${s.label}<span class="dl-count">${s.defs.length}</span></div>
+      <div class="dl-section-header">${s.label}<span class="dl-count">${s.total}</span></div>
       ${this.gridMode === 'list'
         ? `<div class="dl-list">${s.defs.map(d => this.renderListItem(d)).join('')}</div>`
         : `<div class="dl-grid dl-grid-section">${s.defs.map(d => this.renderCard(d)).join('')}</div>`
       }`).join('');
   }
 
+  private renderUserDataView(): string {
+    const entries = this.callbacks.getUserDataEntries?.() ?? [];
+    const geomIcon = (g: 'point' | 'line' | 'polygon') => {
+      if (g === 'point')   return `<svg viewBox="0 0 24 24" fill="currentColor" width="11" height="11"><circle cx="12" cy="12" r="5"/></svg>`;
+      if (g === 'line')    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="11" height="11"><line x1="4" y1="20" x2="20" y2="4"/></svg>`;
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><polygon points="12 2 22 18 2 18"/></svg>`;
+    };
+    const wetlandIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="M12 22V12"/><path d="M5 9c0-2.5 2-3 3.5-3 2 0 3 1 3 3s-1 3-3.5 3S5 11 5 9z"/><path d="M15.5 7c1 0 2.5.5 2.5 2.5S16 13 14 12"/></svg>`;
+    const formatDate = (iso: string) => iso ? iso.slice(0, 10) : '—';
+
+    const cards = entries.length === 0
+      ? `<div class="dl-empty">No field data collected yet.</div>`
+      : entries.map(e => `
+        <div class="dl-userdata-card">
+          <div class="dl-userdata-avatar">${esc(e.userId.slice(0, 2))}</div>
+          <div class="dl-userdata-info">
+            <div class="dl-userdata-userid">${esc(e.userId)}</div>
+            <div class="dl-userdata-stats">
+              ${e.points   > 0 ? `<span class="dl-uds dl-uds-point">${geomIcon('point')} ${e.points} pt${e.points !== 1 ? 's' : ''}</span>` : ''}
+              ${e.lines    > 0 ? `<span class="dl-uds dl-uds-line">${geomIcon('line')} ${e.lines} ln${e.lines !== 1 ? 's' : ''}</span>` : ''}
+              ${e.polygons > 0 ? `<span class="dl-uds dl-uds-poly">${geomIcon('polygon')} ${e.polygons} poly</span>` : ''}
+              ${e.wetlands > 0 ? `<span class="dl-uds dl-uds-wetland">${wetlandIcon} ${e.wetlands} plot${e.wetlands !== 1 ? 's' : ''}</span>` : ''}
+              ${e.total    === 0 ? `<span class="dl-uds">no features</span>` : ''}
+            </div>
+            <div class="dl-userdata-meta">
+              <span class="dl-uds-total">${e.total} feature${e.total !== 1 ? 's' : ''}</span>
+              <span class="dl-uds-date">last: ${formatDate(e.lastUpdated)}</span>
+            </div>
+          </div>
+        </div>`).join('');
+
+    return `
+      <div class="dl-grid-wrap">
+        <div class="dl-grid-label">
+          User Data
+          <span class="dl-count">${entries.length} user${entries.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="dl-section-header">Collected Field Features</div>
+        <div class="dl-userdata-list">${cards}</div>
+      </div>`;
+  }
+
   private gridWrapHtml(defs: BasemapDef[]): string {
+    if (this.activeGroup === USER_DATA_GROUP) return this.renderUserDataView();
     const toolbar = isSharedGroup(this.activeGroup) ? this.uploadToolbarHtml() : '';
-    const labelText = this.activeGroup === 'all' ? 'All Sources' : this.activeGroup === 'basemaps' ? 'Standard Basemaps' : this.activeGroup;
+    const labelText = this.activeGroup === 'all' ? 'All Sources' : this.activeGroup === 'basemaps' ? 'Standard Basemaps' : esc(this.activeGroup);
     return `
           <div class="dl-grid-wrap">
             ${toolbar}
@@ -462,7 +527,7 @@ export class DataLibraryModal {
               ${this.gridMode === 'card' ? '<span class="dl-flip-hint-global">tap preview to flip for details</span>' : ''}
             </div>
             ${defs.length === 0
-              ? `<div class="dl-empty">No layers match "<strong>${this.searchQuery}</strong>"</div>`
+              ? `<div class="dl-empty">No layers match "<strong>${esc(this.searchQuery)}</strong>"</div>`
               : `${this.sectionedGridHtml(defs)}
                  ${defs.length > MAX_GRID_CARDS ? `<div class="dl-empty">Showing the first ${MAX_GRID_CARDS} of ${defs.length} layers — use the search box to narrow down the list.</div>` : ''}`
             }
@@ -511,6 +576,18 @@ export class DataLibraryModal {
   }
 
   private render(): void {
+    try {
+      this.renderInner();
+    } catch (err) {
+      console.error('[DataLibraryModal] render error:', err);
+      this.overlay.innerHTML = `<div class="dl-modal" style="padding:32px;color:var(--color-text)">
+        <p>The Data Library failed to load. Please close and try again.</p>
+        <button onclick="this.closest('.dl-modal').parentElement.style.display='none'" style="margin-top:12px;padding:8px 16px;background:var(--color-accent);color:#fff;border:none;border-radius:6px;cursor:pointer">Close</button>
+      </div>`;
+    }
+  }
+
+  private renderInner(): void {
     const defs = this.filteredDefs();
     const groups = this.groups;
 
@@ -539,11 +616,16 @@ export class DataLibraryModal {
             </button>
             ${this.sharedSubfolders.map(folder => {
               const groupId = `${SHARED_GROUP_ROOT}: ${folder}`;
-              return `<button class="dl-nav-item dl-nav-subfolder${this.activeView === 'library' && this.activeGroup === groupId ? ' active' : ''}" data-group="${groupId}">
+              return `<button class="dl-nav-item dl-nav-subfolder${this.activeView === 'library' && this.activeGroup === groupId ? ' active' : ''}" data-group="${esc(groupId)}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                ${folder}
+                ${esc(folder)}
               </button>`;
             }).join('')}
+            <div class="dl-nav-section-label" style="margin-top:6px">Field Data</div>
+            <button class="dl-nav-item${this.activeView === 'library' && this.activeGroup === USER_DATA_GROUP ? ' active' : ''}" data-group="${USER_DATA_GROUP}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              User Data
+            </button>
             <div class="dl-nav-section-label" style="margin-top:6px">Overlay Layers</div>
             ${groups.map(g => {
               const icon = g === 'Raster Functions'
@@ -576,7 +658,7 @@ export class DataLibraryModal {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" class="dl-search-icon">
                 <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
-              <input type="text" id="dl-search" class="dl-search" placeholder="Search layers, descriptions…" value="${this.searchQuery}" autocomplete="off" />
+              <input type="text" id="dl-search" class="dl-search" placeholder="Search layers, descriptions…" value="${esc(this.searchQuery)}" autocomplete="off" />
               ${this.searchQuery ? '<button id="dl-search-clear" class="dl-search-clear" aria-label="Clear search">✕</button>' : ''}
             </div>
             <div class="dl-view-toggle" role="group" aria-label="View mode">

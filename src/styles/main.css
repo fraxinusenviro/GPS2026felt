@@ -236,14 +236,24 @@
 [data-theme="light"] .toolbar-section[data-sec="io"] > .toolbar-section-label:hover { background: rgba(51, 65, 85, 0.22); }
 [data-theme="light"] .toolbar-section[data-sec="io"]:not(.collapsed) > .toolbar-group { background: rgba(51, 65, 85, 0.05); }
 
-/* Tool buttons in light mode — darker text for legibility */
+/* Tool buttons in light mode — glow ring for active, no icon recolour */
 [data-theme="light"] .tool-btn { color: var(--color-text-muted); }
-[data-theme="light"] .tool-btn:hover,
-[data-theme="light"] .tool-btn.active { color: var(--color-accent); }
+[data-theme="light"] .tool-btn:hover { color: var(--color-accent); }
+[data-theme="light"] .tool-btn.active {
+  color: var(--color-text-muted);
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent) inset, 0 0 7px rgba(13, 122, 48, 0.35);
+}
 [data-theme="light"] .map-ctrl-btn { color: var(--color-text-muted); }
-[data-theme="light"] .map-ctrl-btn:hover,
+[data-theme="light"] .map-ctrl-btn:hover { color: var(--color-accent); }
 [data-theme="light"] .map-ctrl-btn.active,
-[data-theme="light"] .map-ctrl-btn[data-active="true"] { color: var(--color-accent); }
+[data-theme="light"] .map-ctrl-btn[data-active="true"] {
+  color: var(--color-text-muted);
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent) inset, 0 0 7px rgba(13, 122, 48, 0.35);
+}
 
 /* Modal / panel section headers in light mode */
 [data-theme="light"] .settings-section h4 {
@@ -258,13 +268,32 @@
   border-bottom-color: var(--color-accent);
 }
 
-/* Layer badges in light mode */
+/* Layer / geom badges in light mode — strong contrast on white */
 [data-theme="light"] .layer-badge,
 [data-theme="light"] .layer-type-badge,
 [data-theme="light"] .preset-geom-badge {
   background: rgba(22, 163, 74, 0.12);
   color: #15803d;
   border-color: rgba(22, 163, 74, 0.3);
+}
+
+/* Kind badges (vector/raster) — override dark-mode neon for light background */
+[data-theme="light"] .bm-ul-kind-badge.vector {
+  background: rgba(22, 101, 52, 0.12);
+  color: #166534;
+  border-color: rgba(22, 101, 52, 0.5);
+}
+[data-theme="light"] .bm-ul-kind-badge.raster {
+  background: rgba(29, 78, 216, 0.1);
+  color: #1d4ed8;
+  border-color: rgba(29, 78, 216, 0.4);
+}
+
+/* Base-map stack badge — accent already dark green in light mode, fine */
+[data-theme="light"] .bm-base-badge {
+  background: rgba(13, 122, 48, 0.1);
+  color: #0d7a30;
+  border-color: rgba(13, 122, 48, 0.45);
 }
 
 /* btn-primary and btn-outline in light mode */
@@ -3266,6 +3295,29 @@ input[type=color] {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+.bm-label-editable {
+  cursor: text;
+  border-radius: 3px;
+  padding: 1px 3px;
+  transition: background 0.12s;
+}
+.bm-label-editable:hover {
+  background: var(--color-accent-dim);
+  outline: 1px dashed var(--color-accent);
+}
+.bm-label-rename-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-family: var(--font);
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-accent);
+  border-radius: 3px;
+  padding: 1px 5px;
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent-dim);
 }
 .bm-layer-controls {
   display: flex;
@@ -7278,6 +7330,80 @@ input[type=color] {
   height: 1px;
   background: var(--color-border);
 }
+
+/* ── User Data panel ── */
+.dl-userdata-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+.dl-userdata-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+.dl-userdata-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-accent-dim);
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+.dl-userdata-info { flex: 1; min-width: 0; }
+.dl-userdata-userid {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 5px;
+}
+.dl-userdata-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 5px;
+}
+.dl-uds {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  background: var(--color-surface-3);
+}
+.dl-uds-point  { color: #60a5fa; border-color: rgba(96,165,250,0.4); background: rgba(96,165,250,0.1); }
+.dl-uds-line   { color: #f97316; border-color: rgba(249,115,22,0.4); background: rgba(249,115,22,0.1); }
+.dl-uds-poly   { color: #a78bfa; border-color: rgba(167,139,250,0.4); background: rgba(167,139,250,0.1); }
+.dl-uds-wetland{ color: #4ade80; border-color: rgba(74,222,128,0.4); background: rgba(74,222,128,0.1); }
+.dl-userdata-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+.dl-uds-total { font-weight: 600; }
+
+/* light mode overrides for user-data badges */
+[data-theme="light"] .dl-uds-point  { color: #1d4ed8; border-color: rgba(29,78,216,0.4); background: rgba(29,78,216,0.08); }
+[data-theme="light"] .dl-uds-line   { color: #c2410c; border-color: rgba(194,65,12,0.4); background: rgba(194,65,12,0.08); }
+[data-theme="light"] .dl-uds-poly   { color: #6d28d9; border-color: rgba(109,40,217,0.4); background: rgba(109,40,217,0.08); }
+[data-theme="light"] .dl-uds-wetland{ color: #166534; border-color: rgba(22,101,52,0.4); background: rgba(22,101,52,0.08); }
 
 /* ── Section headers in results pane ── */
 .dl-section-header {

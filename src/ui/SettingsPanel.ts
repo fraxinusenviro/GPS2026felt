@@ -15,7 +15,7 @@ export class SettingsPanel {
   private settings!: AppSettings;
   private storage = StorageManager.getInstance();
   private lastSyncStatus: SyncStatus | null = null;
-  private collapsedSections = new Set<string>(['gps', 'display', 'presets', 'quick-entry', 'integrations', 'sync', 'data']);
+  private collapsedSections = new Set<string>(['gps', 'display', 'presets', 'quick-entry', 'integrations', 'crs', 'sync', 'data']);
 
   constructor(private presetManager: PresetManager) {
     document.getElementById('btn-settings')?.addEventListener('click', () => {
@@ -166,6 +166,51 @@ export class SettingsPanel {
                   autocomplete="off" spellcheck="false" />
                 <span class="settings-hint">Used for uploading to Felt. Get from Felt → Workspace Settings → Developers → Create token.</span>
               </label>
+            </div>
+          </div>
+
+          <!-- Coordinate Reference Systems -->
+          <div class="settings-section" data-section="crs">
+            <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24ZM48.57,112H80.1A128.17,128.17,0,0,1,96,51.06,88.31,88.31,0,0,0,48.57,112ZM128,40c12.28,0,30.91,18.06,40.7,72H87.3C97.09,58.06,115.72,40,128,40ZM80.1,144H48.57A88.31,88.31,0,0,0,96,204.94,128.17,128.17,0,0,1,80.1,144Zm47.9,72c-12.28,0-30.91-18.06-40.7-72h81.4C158.91,197.94,140.28,216,128,216Zm32-11.06A128.17,128.17,0,0,1,175.9,144h31.53A88.31,88.31,0,0,1,160,204.94ZM175.9,112a128.17,128.17,0,0,1-15.9-60.94A88.31,88.31,0,0,1,207.43,112Z"/></svg>Coordinate Reference Systems${CHEVRON_SVG}</h4>
+            <div class="settings-section-body">
+              <p style="font-size:12px;color:var(--color-text-muted);margin-bottom:8px">CRS supported in this version. PROJ4 expansion is planned for future releases.</p>
+              <table style="width:100%;border-collapse:collapse;font-size:11px">
+                <thead>
+                  <tr style="color:var(--color-text-muted);text-align:left">
+                    <th style="padding:4px 6px 4px 0;border-bottom:1px solid var(--color-border)">EPSG</th>
+                    <th style="padding:4px 6px;border-bottom:1px solid var(--color-border)">Name</th>
+                    <th style="padding:4px 0 4px 6px;border-bottom:1px solid var(--color-border)">Use</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding:5px 6px 5px 0;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06))"><code>4326</code></td>
+                    <td style="padding:5px 6px;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06))">WGS 84</td>
+                    <td style="padding:5px 0 5px 6px;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06));color:var(--color-text-muted)">GPS / storage</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:5px 6px 5px 0;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06))"><code>3857</code></td>
+                    <td style="padding:5px 6px;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06))">Web Mercator</td>
+                    <td style="padding:5px 0 5px 6px;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06));color:var(--color-text-muted)">Map display</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:5px 6px 5px 0;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06))"><code>32618–20</code></td>
+                    <td style="padding:5px 6px;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06))">UTM 18–20N (WGS84)</td>
+                    <td style="padding:5px 0 5px 6px;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06));color:var(--color-text-muted)">Coordinate display</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:5px 6px 5px 0;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06))"><code>4617</code></td>
+                    <td style="padding:5px 6px;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06))">NAD83(CSRS)</td>
+                    <td style="padding:5px 0 5px 6px;border-bottom:1px solid var(--color-border-subtle,rgba(255,255,255,0.06));color:var(--color-text-muted)">Canadian datum</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:5px 6px 5px 0"><code>2950–54</code></td>
+                    <td style="padding:5px 6px">MTM (NAD83 CSRS)</td>
+                    <td style="padding:5px 0 5px 6px;color:var(--color-text-muted)">Quebec / Maritimes</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="settings-hint" style="margin-top:8px">All feature coordinates are stored in WGS84 (EPSG:4326). Re-projection via PROJ4 will be available in a future update.</p>
             </div>
           </div>
 
