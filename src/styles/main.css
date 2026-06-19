@@ -9766,9 +9766,9 @@ input[type=color] {
   transform: translate(2px, 2px);
 }
 
-/* Tool buttons — pill with ink border + offset shadow */
+/* Tool buttons — rounded-rect (NOT pill: these are narrow icon+label buttons) */
 [data-ui-style="topograph"] .tool-btn {
-  border-radius: var(--radius-full);
+  border-radius: var(--radius);
   background: var(--tg-paper);
   border: 2px solid var(--tg-ink);
   color: var(--tg-ink);
@@ -10080,4 +10080,303 @@ input[type=color] {
   background: var(--tg-paper);
   border: 2.5px solid var(--tg-ink);
   box-shadow: 5px 5px 0 var(--tg-ink);
+}
+
+/* ============================================================
+   Topograph Dark — auto-activates when Topograph + Dark theme
+   Inverts the palette: paper becomes deep warm brown, ink
+   becomes warm cream. Shadow is cream-tinted for visibility.
+   ============================================================ */
+
+[data-ui-style="topograph"][data-theme="dark"] {
+  /* Invert ink/paper */
+  --tg-ink:    #F2ECDF;
+  --tg-paper:  #1C1910;
+  --tg-paper2: #231F14;
+  --tg-paper3: #2A2619;
+  --tg-muted:  #8C8678;
+
+  /* Map onto app color system */
+  --color-bg:             #0F0D08;
+  --color-surface:        var(--tg-paper);
+  --color-surface-2:      var(--tg-paper2);
+  --color-surface-3:      var(--tg-paper3);
+  --color-surface-raised: rgba(242, 236, 223, 0.06);
+  --color-input-bg:       rgba(242, 236, 223, 0.06);
+  --color-glass-border:   rgba(242, 236, 223, 0.20);
+
+  --color-border:         rgba(242, 236, 223, 0.72);
+  --color-border-hover:   #F2ECDF;
+
+  --color-text:           #F2ECDF;
+  --color-text-dim:       #D4CEBD;
+  --color-text-muted:     #8C8678;
+
+  --color-overlay-sm:     rgba(242, 236, 223, 0.04);
+  --color-overlay-md:     rgba(242, 236, 223, 0.08);
+  --color-overlay-lg:     rgba(242, 236, 223, 0.13);
+
+  /* Cream-tinted hard offset shadows */
+  --shadow-sm:  2px 2px 0 rgba(242, 236, 223, 0.50);
+  --shadow:     3px 3px 0 rgba(242, 236, 223, 0.50);
+  --shadow-lg:  5px 5px 0 rgba(242, 236, 223, 0.50);
+}
+
+/* Dark body */
+[data-ui-style="topograph"][data-theme="dark"] body {
+  background: #0A0906;
+}
+
+/* Header — dark paper with cream bottom border */
+[data-ui-style="topograph"][data-theme="dark"] #header {
+  background: var(--tg-paper);
+  border-bottom: 2px solid var(--tg-ink);
+  box-shadow: 0 2px 0 var(--tg-ink);
+}
+
+/* Buttons — dark paper fill, cream border + shadow */
+[data-ui-style="topograph"][data-theme="dark"] .icon-btn,
+[data-ui-style="topograph"][data-theme="dark"] .tool-btn,
+[data-ui-style="topograph"][data-theme="dark"] .map-ctrl-btn {
+  background: var(--tg-paper2);
+  border: 2px solid rgba(242, 236, 223, 0.70);
+  color: var(--tg-ink);
+  box-shadow: 2px 2px 0 rgba(242, 236, 223, 0.40);
+}
+[data-ui-style="topograph"][data-theme="dark"] .icon-btn:hover,
+[data-ui-style="topograph"][data-theme="dark"] .tool-btn:hover,
+[data-ui-style="topograph"][data-theme="dark"] .map-ctrl-btn:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--tg-ink);
+  box-shadow: 1px 1px 0 rgba(242, 236, 223, 0.40);
+  transform: translate(1px, 1px);
+}
+[data-ui-style="topograph"][data-theme="dark"] .tool-btn.active,
+[data-ui-style="topograph"][data-theme="dark"] .map-ctrl-btn.active,
+[data-ui-style="topograph"][data-theme="dark"] .map-ctrl-btn[data-active="true"] {
+  background: var(--color-accent);
+  border-color: rgba(242, 236, 223, 0.80);
+  color: #fff;
+  box-shadow: 2px 2px 0 rgba(242, 236, 223, 0.40);
+}
+
+/* Primary / outline buttons */
+[data-ui-style="topograph"][data-theme="dark"] .btn-primary {
+  border: 2px solid rgba(242, 236, 223, 0.80);
+  box-shadow: 3px 3px 0 rgba(242, 236, 223, 0.40);
+}
+[data-ui-style="topograph"][data-theme="dark"] .btn-outline {
+  background: var(--tg-paper2);
+  color: var(--tg-ink);
+  border: 2px solid rgba(242, 236, 223, 0.65);
+  box-shadow: 3px 3px 0 rgba(242, 236, 223, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] .btn-outline:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--tg-ink);
+  color: var(--tg-ink);
+}
+
+/* Toolbars */
+[data-ui-style="topograph"][data-theme="dark"] #left-toolbar {
+  background: var(--tg-paper);
+  border: 2px solid rgba(242, 236, 223, 0.65);
+  border-left: none;
+  box-shadow: 3px 3px 0 rgba(242, 236, 223, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] #right-controls {
+  background: var(--tg-paper);
+  border: 2px solid rgba(242, 236, 223, 0.65);
+  border-right: none;
+  box-shadow: -3px 3px 0 rgba(242, 236, 223, 0.35);
+}
+
+/* Collapse buttons */
+[data-ui-style="topograph"][data-theme="dark"] .left-collapse-btn,
+[data-ui-style="topograph"][data-theme="dark"] .right-collapse-btn {
+  background: rgba(242, 236, 223, 0.07);
+  border: 1.5px solid rgba(242, 236, 223, 0.35);
+  color: var(--tg-ink);
+  box-shadow: 1.5px 1.5px 0 rgba(242, 236, 223, 0.25);
+}
+[data-ui-style="topograph"][data-theme="dark"] .left-collapse-btn:hover,
+[data-ui-style="topograph"][data-theme="dark"] .right-collapse-btn:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--tg-ink);
+}
+
+/* Toolbar section labels */
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section-label {
+  background: rgba(242, 236, 223, 0.06);
+  border: 1.5px solid rgba(242, 236, 223, 0.42);
+  color: var(--tg-ink);
+  box-shadow: 1.5px 1.5px 0 rgba(242, 236, 223, 0.25);
+}
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section-label:hover {
+  background: var(--color-accent-dim);
+  border-color: var(--tg-ink);
+  color: var(--tg-ink);
+}
+
+/* Toolbar section colour pills in dark mode */
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="gps"] > .toolbar-section-label {
+  color: #4ade80; border-color: rgba(74, 222, 128, 0.55); background: rgba(74, 222, 128, 0.10);
+  box-shadow: 1.5px 1.5px 0 rgba(74, 222, 128, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="gps"] > .toolbar-section-label:hover { background: rgba(74, 222, 128, 0.18); }
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="gps"]:not(.collapsed) > .toolbar-group { background: rgba(74, 222, 128, 0.04); }
+
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="sketch"] > .toolbar-section-label {
+  color: #38bdf8; border-color: rgba(56, 189, 248, 0.50); background: rgba(56, 189, 248, 0.10);
+  box-shadow: 1.5px 1.5px 0 rgba(56, 189, 248, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="sketch"] > .toolbar-section-label:hover { background: rgba(56, 189, 248, 0.18); }
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="sketch"]:not(.collapsed) > .toolbar-group { background: rgba(56, 189, 248, 0.04); }
+
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="edit"] > .toolbar-section-label {
+  color: #f59e0b; border-color: rgba(245, 158, 11, 0.50); background: rgba(245, 158, 11, 0.10);
+  box-shadow: 1.5px 1.5px 0 rgba(245, 158, 11, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="edit"] > .toolbar-section-label:hover { background: rgba(245, 158, 11, 0.18); }
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="edit"]:not(.collapsed) > .toolbar-group { background: rgba(245, 158, 11, 0.04); }
+
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="info"] > .toolbar-section-label {
+  color: #a78bfa; border-color: rgba(167, 139, 250, 0.50); background: rgba(167, 139, 250, 0.10);
+  box-shadow: 1.5px 1.5px 0 rgba(167, 139, 250, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="info"] > .toolbar-section-label:hover { background: rgba(167, 139, 250, 0.18); }
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="info"]:not(.collapsed) > .toolbar-group { background: rgba(167, 139, 250, 0.04); }
+
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="elev"] > .toolbar-section-label {
+  color: #2dd4bf; border-color: rgba(45, 212, 191, 0.50); background: rgba(45, 212, 191, 0.10);
+  box-shadow: 1.5px 1.5px 0 rgba(45, 212, 191, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="elev"] > .toolbar-section-label:hover { background: rgba(45, 212, 191, 0.18); }
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="elev"]:not(.collapsed) > .toolbar-group { background: rgba(45, 212, 191, 0.04); }
+
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="cache"] > .toolbar-section-label {
+  color: #fb923c; border-color: rgba(251, 146, 60, 0.50); background: rgba(251, 146, 60, 0.10);
+  box-shadow: 1.5px 1.5px 0 rgba(251, 146, 60, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="cache"] > .toolbar-section-label:hover { background: rgba(251, 146, 60, 0.18); }
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="cache"]:not(.collapsed) > .toolbar-group { background: rgba(251, 146, 60, 0.04); }
+
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="mapopt"] > .toolbar-section-label {
+  color: #fb7185; border-color: rgba(251, 113, 133, 0.50); background: rgba(251, 113, 133, 0.10);
+  box-shadow: 1.5px 1.5px 0 rgba(251, 113, 133, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="mapopt"] > .toolbar-section-label:hover { background: rgba(251, 113, 133, 0.18); }
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="mapopt"]:not(.collapsed) > .toolbar-group { background: rgba(251, 113, 133, 0.04); }
+
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="io"] > .toolbar-section-label {
+  color: #94a3b8; border-color: rgba(148, 163, 184, 0.50); background: rgba(148, 163, 184, 0.10);
+  box-shadow: 1.5px 1.5px 0 rgba(148, 163, 184, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="io"] > .toolbar-section-label:hover { background: rgba(148, 163, 184, 0.18); }
+[data-ui-style="topograph"][data-theme="dark"] .toolbar-section[data-sec="io"]:not(.collapsed) > .toolbar-group { background: rgba(148, 163, 184, 0.04); }
+
+/* Settings panel */
+[data-ui-style="topograph"][data-theme="dark"] .side-panel {
+  background: rgba(15, 13, 8, 0.65);
+}
+[data-ui-style="topograph"][data-theme="dark"] .side-panel-inner {
+  background: var(--tg-paper);
+  border: 2.5px solid rgba(242, 236, 223, 0.70);
+  box-shadow: 5px 5px 0 rgba(242, 236, 223, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] .panel-header {
+  background: var(--tg-paper2);
+  border-bottom: 2px solid rgba(242, 236, 223, 0.25);
+}
+[data-ui-style="topograph"][data-theme="dark"] .panel-close {
+  border: 1.5px solid rgba(242, 236, 223, 0.35);
+}
+[data-ui-style="topograph"][data-theme="dark"] .panel-close:hover {
+  background: rgba(242, 236, 223, 0.08);
+  border-color: var(--tg-ink);
+}
+[data-ui-style="topograph"][data-theme="dark"] .settings-section > h4,
+[data-ui-style="topograph"][data-theme="dark"] .settings-section > .section-toggle {
+  background: var(--tg-paper2);
+  color: var(--tg-ink);
+  border-bottom: 1.5px solid rgba(242, 236, 223, 0.18);
+}
+
+/* GPS badges */
+[data-ui-style="topograph"][data-theme="dark"] .gps-good {
+  color: #4ade80; background: rgba(74, 222, 128, 0.12);
+  border: 1.5px solid rgba(74, 222, 128, 0.50);
+  box-shadow: 1.5px 1.5px 0 rgba(74, 222, 128, 0.30);
+}
+[data-ui-style="topograph"][data-theme="dark"] .gps-fair {
+  color: #fbbf24; background: rgba(251, 191, 36, 0.12);
+  border: 1.5px solid rgba(251, 191, 36, 0.45);
+  box-shadow: 1.5px 1.5px 0 rgba(251, 191, 36, 0.25);
+}
+[data-ui-style="topograph"][data-theme="dark"] .gps-poor {
+  color: #f87171; background: rgba(248, 113, 113, 0.12);
+  border: 1.5px solid rgba(248, 113, 113, 0.45);
+  box-shadow: 1.5px 1.5px 0 rgba(248, 113, 113, 0.25);
+}
+[data-ui-style="topograph"][data-theme="dark"] .gps-unknown {
+  color: #8C8678; background: rgba(140, 134, 120, 0.12);
+  border: 1.5px solid rgba(140, 134, 120, 0.35);
+  box-shadow: none;
+}
+
+/* Layer badges */
+[data-ui-style="topograph"][data-theme="dark"] .layer-badge,
+[data-ui-style="topograph"][data-theme="dark"] .layer-type-badge,
+[data-ui-style="topograph"][data-theme="dark"] .preset-geom-badge {
+  background: rgba(242, 236, 223, 0.07);
+  color: var(--tg-ink);
+  border: 1.5px solid rgba(242, 236, 223, 0.35);
+  box-shadow: 1px 1px 0 rgba(242, 236, 223, 0.20);
+}
+
+/* Floating panels / drawers */
+[data-ui-style="topograph"][data-theme="dark"] .floating-panel,
+[data-ui-style="topograph"][data-theme="dark"] .layer-mgr-popover,
+[data-ui-style="topograph"][data-theme="dark"] .map-legend-drawer {
+  background: var(--tg-paper);
+  border: 2px solid rgba(242, 236, 223, 0.60);
+  box-shadow: 3px 3px 0 rgba(242, 236, 223, 0.30);
+}
+
+/* HUD / capture controls */
+[data-ui-style="topograph"][data-theme="dark"] #point-entry-hud,
+[data-ui-style="topograph"][data-theme="dark"] #capture-controls,
+[data-ui-style="topograph"][data-theme="dark"] .measure-hud {
+  background: var(--tg-paper);
+  border: 2px solid rgba(242, 236, 223, 0.60);
+  box-shadow: 3px 3px 0 rgba(242, 236, 223, 0.30);
+}
+
+/* Map identify popups */
+[data-ui-style="topograph"][data-theme="dark"] .fm-identify-popup .maplibregl-popup-content {
+  background: var(--tg-paper);
+  border: 2px solid rgba(242, 236, 223, 0.60);
+  box-shadow: 3px 3px 0 rgba(242, 236, 223, 0.30);
+}
+[data-ui-style="topograph"][data-theme="dark"] .fm-identify-popup .maplibregl-popup-tip {
+  border-top-color: var(--tg-paper);
+}
+
+/* Modals */
+[data-ui-style="topograph"][data-theme="dark"] .modal-overlay {
+  background: rgba(10, 9, 6, 0.60);
+}
+[data-ui-style="topograph"][data-theme="dark"] .modal,
+[data-ui-style="topograph"][data-theme="dark"] .cf-panel .side-panel-inner,
+[data-ui-style="topograph"][data-theme="dark"] .pf-panel .side-panel-inner {
+  background: var(--tg-paper);
+  border: 2.5px solid rgba(242, 236, 223, 0.70);
+  box-shadow: 5px 5px 0 rgba(242, 236, 223, 0.35);
+}
+
+/* Tab bar */
+[data-ui-style="topograph"][data-theme="dark"] .tab-btn { color: var(--tg-muted); }
+[data-ui-style="topograph"][data-theme="dark"] .tab-btn.active {
+  color: var(--tg-ink);
+  border-bottom-color: var(--tg-ink);
 }
