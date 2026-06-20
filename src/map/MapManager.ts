@@ -7,6 +7,7 @@ import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
 import { SymbolRenderer, renderIconImageData } from '../ui/SymbolRenderer';
 import { wetlandPlotColor } from '../wetlands/wetlandSurvey';
+import { getGroupColor } from '../inventory/inventorySurvey';
 import proj4 from 'proj4';
 
 // ---- Module-level COG colormap registry (mutable so ramp can be changed at runtime) ----
@@ -395,6 +396,18 @@ export class MapManager {
       data: { type: 'FeatureCollection', features: [] }
     });
 
+    // --- Inventory observations (dedicated source — independent TOC class) ---
+    this.map.addSource('inventory-points', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
+
+    // --- Inventory draft observations (in-progress survey preview) ---
+    this.map.addSource('inventory-draft', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
+
     // ---- Layers ----
 
     // User accuracy circle
@@ -613,6 +626,74 @@ export class MapManager {
       },
       paint: {
         'text-color': '#ffffff',
+        'text-halo-color': 'rgba(0,0,0,0.85)',
+        'text-halo-width': 2
+      }
+    });
+
+    // ---- Inventory observations — dedicated layers (taxon colour, mcode label) ----
+    this.map.addLayer({
+      id: 'inventory-points-circle',
+      type: 'circle',
+      source: 'inventory-points',
+      paint: {
+        'circle-radius': ['coalesce', ['get', 'size'], 7],
+        'circle-color': ['coalesce', ['get', 'color'], '#22c55e'],
+        'circle-stroke-color': ['coalesce', ['get', 'stroke_color'], '#ffffff'],
+        'circle-stroke-width': ['coalesce', ['get', 'stroke_width'], 2],
+        'circle-opacity': ['coalesce', ['get', 'fill_opacity'], 1],
+      }
+    });
+    this.map.addLayer({
+      id: 'inventory-points-labels',
+      type: 'symbol',
+      source: 'inventory-points',
+      layout: {
+        'text-field': ['get', 'label_text'],
+        'text-font': ['literal', ['Open Sans Regular', 'Arial Unicode MS Regular']],
+        'text-size': 11,
+        'text-offset': [0, 1.5],
+        'text-anchor': 'top',
+        'text-max-width': 10,
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': 'rgba(0,0,0,0.85)',
+        'text-halo-width': 2
+      }
+    });
+
+    // ---- Inventory draft observations — distinct provisional style ----
+    this.map.addLayer({
+      id: 'inventory-draft-circle',
+      type: 'circle',
+      source: 'inventory-draft',
+      paint: {
+        'circle-radius': 9,
+        'circle-color': ['coalesce', ['get', 'color'], '#22c55e'],
+        'circle-opacity': 0.3,
+        'circle-stroke-color': ['coalesce', ['get', 'color'], '#22c55e'],
+        'circle-stroke-width': 2.5,
+        'circle-stroke-opacity': 0.95,
+      }
+    });
+    this.map.addLayer({
+      id: 'inventory-draft-labels',
+      type: 'symbol',
+      source: 'inventory-draft',
+      layout: {
+        'text-field': ['get', 'label_text'],
+        'text-font': ['literal', ['Open Sans Regular', 'Arial Unicode MS Regular']],
+        'text-size': 10,
+        'text-offset': [0, 1.6],
+        'text-anchor': 'top',
+        'text-max-width': 10,
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': '#d1fae5',
         'text-halo-color': 'rgba(0,0,0,0.85)',
         'text-halo-width': 2
       }
@@ -837,6 +918,7 @@ export class MapManager {
     const lines: object[] = [];
     const polygons: object[] = [];
     const wetlandPlots: object[] = [];
+    const inventoryPoints: object[] = [];
 
     for (const f of features) {
       const lp = layerMap.get(f.layer_id);
@@ -876,6 +958,16 @@ export class MapManager {
         labelText = plotId;
       }
 
+      // Inventory observations render in their own layer: colour by taxon group,
+      // label by mcode. Survey/species context is promoted to feature properties
+      // so categorical symbology + labels can read them.
+      const isInventory = f.layer_id.endsWith('-inventory') || !!f.inventory_data;
+      const inv = f.inventory_data;
+      if (isInventory && inv) {
+        color = getGroupColor(inv.taxon);
+        labelText = inv.mcode || '';
+      }
+
       const geoFeature = {
         type: 'Feature',
         id: f.id,
@@ -888,6 +980,13 @@ export class MapManager {
           label_text: labelText,
           PLOT_ID: plotId,
           PLOT_TYPE: plotType,
+          // Inventory fields (present only on inventory observations)
+          taxon: inv?.taxon ?? '',
+          mcode: inv?.mcode ?? '',
+          commonName: inv?.commonName ?? '',
+          scientificName: inv?.scientificName ?? '',
+          srank: inv?.srank ?? '',
+          isSoCI: inv?.isSoCI ?? false,
           color,
           stroke_color: strokeColor,
           stroke_width: strokeWidth,
@@ -908,8 +1007,10 @@ export class MapManager {
         }
       };
 
-      // Wetland plots render in their OWN source/layers (independent TOC class).
-      if (isWetlandPlot) wetlandPlots.push(geoFeature);
+      // Wetland plots and inventory observations render in their OWN source/layers
+      // (independent TOC classes).
+      if (isInventory) inventoryPoints.push(geoFeature);
+      else if (isWetlandPlot) wetlandPlots.push(geoFeature);
       else if (f.geometry_type === 'Point') points.push(geoFeature);
       else if (f.geometry_type === 'LineString') lines.push(geoFeature);
       else if (f.geometry_type === 'Polygon') polygons.push(geoFeature);
@@ -920,6 +1021,7 @@ export class MapManager {
     (this.map.getSource('collected-lines') as maplibregl.GeoJSONSource)?.setData(toFC(lines) as never);
     (this.map.getSource('collected-polygons') as maplibregl.GeoJSONSource)?.setData(toFC(polygons) as never);
     (this.map.getSource('wetland-plots') as maplibregl.GeoJSONSource)?.setData(toFC(wetlandPlots) as never);
+    (this.map.getSource('inventory-points') as maplibregl.GeoJSONSource)?.setData(toFC(inventoryPoints) as never);
 
     // Explicitly sync the visibility layout property for collected-lines sub-layers
     // (casing, dashed, dotted) so they disappear when the feature layer is toggled
@@ -948,6 +1050,12 @@ export class MapManager {
     const wetlandFeatProps = wetlandPlots.map(p => ({ properties: (p as { properties: Record<string, unknown> }).properties }));
     this.setWetlandPlotSymbology(wetlandLp?.symbologyState ?? null, wetlandFeatProps);
     this.setLayerVisibility('wetland-plots-labels', wetlandLp?.show_labels !== false);
+
+    // Re-apply inventory symbology + label visibility for the same reason.
+    const inventoryLp = layerPresets?.find(lp => lp.id.endsWith('-inventory'));
+    const inventoryFeatProps = inventoryPoints.map(p => ({ properties: (p as { properties: Record<string, unknown> }).properties }));
+    this.setInventorySymbology(inventoryLp?.symbologyState ?? null, inventoryFeatProps);
+    this.setLayerVisibility('inventory-points-labels', inventoryLp?.show_labels !== false);
   }
 
   private colorCache: Map<string, string> = new Map();
@@ -1408,21 +1516,84 @@ export class MapManager {
     }
 
     if (!this.map.getLayer(circleId)) return;
-    if (!state) {
-      // Default — per-feature colour (by PLOT_TYPE, set in updateCollectedFeatures)
-      this.map.setPaintProperty(circleId, 'circle-color', ['coalesce', ['get', 'color'], '#14b8a6']);
-      this.map.setPaintProperty(circleId, 'circle-radius', ['coalesce', ['get', 'size'], 7]);
-      this.map.setPaintProperty(circleId, 'circle-opacity', ['coalesce', ['get', 'fill_opacity'], 1]);
-      this.map.setPaintProperty(circleId, 'circle-stroke-color', ['coalesce', ['get', 'stroke_color'], '#ffffff']);
-      this.map.setPaintProperty(circleId, 'circle-stroke-width', ['coalesce', ['get', 'stroke_width'], 2]);
-      return;
-    }
-    this.map.setPaintProperty(circleId, 'circle-color', buildColorExpression(features, state));
-    this.map.setPaintProperty(circleId, 'circle-opacity', state.opacity ?? 0.9);
+
+    // Default render (no saved state): categorical by PLOT_TYPE so each plot type
+    // gets its own colour. A user-applied state overrides this.
+    const effective: SymbologyState = state ?? { method: 'categorical', field: 'PLOT_TYPE', palette: 'Bold' };
+    // Guard: a categorical/graduated expression needs ≥1 category — with no
+    // features fall back to the per-feature `color` property (set by PLOT_TYPE).
+    const colorExpr = effective.method === 'single'
+      ? (effective.color ?? '#14b8a6')
+      : features.length === 0
+        ? ['coalesce', ['get', 'color'], '#14b8a6']
+        : buildColorExpression(features, effective);
+    this.map.setPaintProperty(circleId, 'circle-color', colorExpr as never);
+    this.map.setPaintProperty(circleId, 'circle-opacity', effective.opacity ?? 0.9);
     this.map.setPaintProperty(circleId, 'circle-radius',
-      state.method === 'proportional' ? buildRadiusExpression(features, state) : (state.size ?? 7));
-    this.map.setPaintProperty(circleId, 'circle-stroke-color', state.outlineColor ?? '#ffffff');
-    this.map.setPaintProperty(circleId, 'circle-stroke-width', state.outlineWidth ?? 1.5);
+      effective.method === 'proportional' ? buildRadiusExpression(features, effective) : (effective.size ?? 7));
+    this.map.setPaintProperty(circleId, 'circle-stroke-color', effective.outlineColor ?? '#ffffff');
+    this.map.setPaintProperty(circleId, 'circle-stroke-width', effective.outlineWidth ?? 1.5);
+  }
+
+  /**
+   * Apply symbology + labels to the dedicated inventory-observations layer.
+   * Default (no saved state) = categorical by taxon group, labelled by mcode.
+   */
+  setInventorySymbology(
+    state: SymbologyState | null,
+    features: { properties: Record<string, unknown> }[],
+  ): void {
+    if (!this.initialized) return;
+    const circleId = 'inventory-points-circle';
+    const labelId = 'inventory-points-labels';
+
+    // Labels: default to mcode (label_text); honour a chosen field.
+    if (this.map.getLayer(labelId)) {
+      const lf = state?.label_field;
+      this.map.setLayoutProperty(labelId, 'text-field',
+        lf ? ['coalesce', ['to-string', ['get', lf]], ''] : ['get', 'label_text']);
+      this.map.setLayoutProperty(labelId, 'text-size', state?.label_size ?? 11);
+      this.map.setPaintProperty(labelId, 'text-color', state?.label_color ?? '#ffffff');
+    }
+
+    if (!this.map.getLayer(circleId)) return;
+
+    // Default render: categorical by taxon (built from the supplied features).
+    const effective: SymbologyState = state ?? { method: 'categorical', field: 'taxon', palette: 'Bold' };
+    // Guard: with no features, fall back to the per-feature `color` (set by taxon).
+    const colorExpr = effective.method === 'single'
+      ? (effective.color ?? '#22c55e')
+      : features.length === 0
+        ? ['coalesce', ['get', 'color'], '#22c55e']
+        : buildColorExpression(features, effective);
+    this.map.setPaintProperty(circleId, 'circle-color', colorExpr as never);
+    this.map.setPaintProperty(circleId, 'circle-opacity', effective.opacity ?? 0.9);
+    this.map.setPaintProperty(circleId, 'circle-radius',
+      effective.method === 'proportional' ? buildRadiusExpression(features, effective) : (effective.size ?? 7));
+    this.map.setPaintProperty(circleId, 'circle-stroke-color', effective.outlineColor ?? '#ffffff');
+    this.map.setPaintProperty(circleId, 'circle-stroke-width', effective.outlineWidth ?? 2);
+  }
+
+  /** Live preview of an in-progress survey's observations (distinct draft style). */
+  setInventoryDraftObservations(
+    observations: Array<{ lat: number; lon: number; species: { taxon: string; mcode: string } }>,
+  ): void {
+    if (!this.initialized) return;
+    const feats = observations
+      .filter(o => Number.isFinite(o.lat) && Number.isFinite(o.lon))
+      .map(o => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [o.lon, o.lat] },
+        properties: { color: getGroupColor(o.species.taxon), label_text: o.species.mcode || '' },
+      }));
+    (this.map.getSource('inventory-draft') as maplibregl.GeoJSONSource)
+      ?.setData({ type: 'FeatureCollection', features: feats } as never);
+  }
+
+  clearInventoryDraft(): void {
+    if (!this.initialized) return;
+    (this.map.getSource('inventory-draft') as maplibregl.GeoJSONSource)
+      ?.setData({ type: 'FeatureCollection', features: [] } as never);
   }
 
   setImportedLayerSymbology(

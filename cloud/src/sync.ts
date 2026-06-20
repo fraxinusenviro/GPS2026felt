@@ -97,6 +97,20 @@ export async function handleSync(request: Request, env: Env, who: Identity, ctx?
     if (ctx) ctx.waitUntil(rebuild); else await rebuild;
   }
 
+  // Feature DELETES carry only { id, deleted, updated_at } — no layer_id/*_data — so
+  // the targeted checks above can't tell which master a deleted row belonged to.
+  // Rebuild both masters on any feature delete so removals propagate immediately
+  // (rather than waiting for the 5-min cron). Best-effort, off the response path.
+  const hasFeatureDelete = (items as Array<{ kind: string; e: Record<string, unknown> }>)
+    .some(({ kind, e }) => kind === 'features' && e.deleted === true);
+  if (appliedTotal > 0 && hasFeatureDelete) {
+    const rebuild = Promise.allSettled([
+      rebuildWetlandMaster(env, who.email),
+      rebuildInventoryMaster(env, who.email),
+    ]).then((rs) => rs.forEach((r) => { if (r.status === 'rejected') console.error('[master] post-delete rebuild failed:', r.reason); }));
+    if (ctx) ctx.waitUntil(rebuild); else await rebuild;
+  }
+
   return json({
     applied,
     skipped: items.length - appliedTotal,

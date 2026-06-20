@@ -106,6 +106,7 @@ export class InventoryManager {
     await this.storage.saveInventorySurvey(this.active);
     this.hud.show(this.active);
     this.showAddObsButton();
+    this.updateDraftPreview();
     EventBus.emit('toast', { message: 'Survey started — timer running', type: 'success', duration: 1800 });
   }
 
@@ -116,6 +117,13 @@ export class InventoryManager {
     this.hud.show(draft);
     this.hud.setPauseLabel(!!draft.pausedAt);
     this.showAddObsButton();
+    this.updateDraftPreview();
+  }
+
+  /** Push the active survey's observations to the map's draft-preview layer. */
+  private updateDraftPreview(): void {
+    if (this.active) this.mapManager.setInventoryDraftObservations(realObservations(this.active));
+    else this.mapManager.clearInventoryDraft();
   }
 
   // ── Observations ──────────────────────────────────────────────────
@@ -146,6 +154,7 @@ export class InventoryManager {
     await this.storage.saveInventorySurvey(this.active);
     this.hud.setSurvey(this.active);
     this.hud.update();
+    this.updateDraftPreview();
     EventBus.emit('toast', { message: `Added: ${sp.commonName || sp.mcode || sp.taxon}`, type: 'success', duration: 1400 });
   }
 
@@ -155,6 +164,7 @@ export class InventoryManager {
     await this.storage.saveInventorySurvey(this.active);
     this.hud.setSurvey(this.active);
     this.hud.update();
+    this.updateDraftPreview();
   }
 
   private async updateNotes(obsId: string, notes: string): Promise<void> {
@@ -189,6 +199,7 @@ export class InventoryManager {
     await this.storage.saveInventorySurvey(this.active);
     this.hud.hide();
     this.hideAddObsButton();
+    this.mapManager.clearInventoryDraft();
     this.active = null;
     EventBus.emit('toast', { message: 'Draft saved', type: 'success', duration: 1800 });
   }
@@ -238,6 +249,7 @@ export class InventoryManager {
     await this.storage.deleteInventorySurvey(survey.id);
     this.hud.hide();
     this.hideAddObsButton();
+    this.mapManager.clearInventoryDraft();
     this.active = null;
     await this.refreshProjectLayers();
     void this.renderLegend();
