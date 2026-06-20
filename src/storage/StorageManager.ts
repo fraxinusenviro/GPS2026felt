@@ -225,7 +225,10 @@ export class StorageManager {
 
   async getAppSettings(): Promise<AppSettings> {
     const settings = await this.getSetting('app_settings');
-    return settings ?? { ...DEFAULT_SETTINGS };
+    // Backfill any keys absent from older stored settings with their defaults
+    // (e.g. the inventory species-DB toggles added later — vascular/non-vascular/
+    // vertebrates default ON). Stored values always win for keys they define.
+    return settings ? { ...DEFAULT_SETTINGS, ...settings } : { ...DEFAULT_SETTINGS };
   }
 
   async saveAppSettings(settings: AppSettings): Promise<void> {
