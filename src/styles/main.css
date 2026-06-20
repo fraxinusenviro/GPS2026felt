@@ -5912,6 +5912,14 @@ input[type=color] {
   text-align: center;
   flex-shrink: 0;
 }
+/* Class symbol doubles as the symbology-editor launcher (replaces the old ⊛ button). */
+.fd-geom-symbol {
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color 0.1s ease, background 0.1s ease, transform 0.1s ease;
+}
+.fd-geom-symbol:hover { color: var(--color-accent); background: var(--color-accent-dim); transform: scale(1.15); }
+.fd-geom-symbol:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
 .fd-geom-label {
   font-size: 11px;
   font-weight: 700;

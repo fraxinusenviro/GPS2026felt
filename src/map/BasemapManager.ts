@@ -1947,7 +1947,7 @@ export class BasemapManager {
               ${l.bounds ? `<button class="bm-adj-toggle bm-ul-zoom" data-ulid="${l.id}" title="Zoom to layer">${zoomSvg}</button>` : ''}
               ${canStack ? `<button class="bm-add-btn bm-ul-stack" data-ulid="${l.id}" title="Add to active stack" style="width:22px;height:22px;font-size:14px">+</button>` : ''}
               ${canStyle ? `<button class="bm-adj-toggle bm-ul-symbology" data-ulid="${l.id}" title="Edit symbology">⊛</button>` : ''}
-              ${canStyle ? `<button class="bm-adj-toggle bm-ul-attrs" data-ulid="${l.id}" title="Attribute table" style="font-size:13px">⊞</button>` : ''}
+              ${canStyle ? `<button class="bm-adj-toggle bm-ul-attrs" data-ulid="${l.id}" title="Attribute table"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM40,112H80v32H40Zm56,0H216v32H96ZM216,64V96H40V64ZM40,160H80v32H40Zm176,32H96V160H216v32Z"/></svg></button>` : ''}
               <button class="bm-del-btn bm-ul-del" data-ulid="${l.id}" title="Remove layer">✕</button>
             </div>
           </div>
@@ -2046,21 +2046,23 @@ export class BasemapManager {
     const labelOnSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="11" height="11"><path d="M216,48H40A16,16,0,0,0,24,64V224a15.84,15.84,0,0,0,9.25,14.5A16.05,16.05,0,0,0,40,240a15.89,15.89,0,0,0,10.25-3.78l.09-.07L83,208H216a16,16,0,0,0,16-16V64A16,16,0,0,0,216,48ZM84,140a12,12,0,1,1,12-12A12,12,0,0,1,84,140Zm44,0a12,12,0,1,1,12-12A12,12,0,0,1,128,140Zm44,0a12,12,0,1,1,12-12A12,12,0,0,1,172,140Z"/></svg>`;
 
     const geomGroups: Array<{ id: string; label: string; icon: string; geomType: 'Point' | 'LineString' | 'Polygon' }> = [
-      { id: 'Point',      label: 'Points',   icon: '●', geomType: 'Point' },
-      { id: 'LineString', label: 'Lines',    icon: '╌', geomType: 'LineString' },
-      { id: 'Polygon',    label: 'Polygons', icon: '▭', geomType: 'Polygon' },
+      { id: 'Point',      label: 'Points (General)',   icon: '●', geomType: 'Point' },
+      { id: 'LineString', label: 'Lines (General)',    icon: '╌', geomType: 'LineString' },
+      { id: 'Polygon',    label: 'Polygons (General)', icon: '▭', geomType: 'Polygon' },
     ];
 
     const isWetland = (f: FieldFeature) => f.layer_id?.endsWith('-wetlands') || !!f.wetland_data;
+    const isInventory = (f: FieldFeature) => f.layer_id?.endsWith('-inventory') || !!f.inventory_data;
 
     const body = geomGroups.map(({ id, label, icon, geomType }) => {
-      // Wetland plots are their own class below — keep them out of the Point group.
+      // Wetland plots and inventory observations are their own classes below —
+      // keep them out of the generic geometry groups.
       const layerPreset = this.featureLayerPresets.find(lp =>
-        lp.geometry_type === geomType && !lp.id.endsWith('-wetlands'));
+        lp.geometry_type === geomType && !lp.id.endsWith('-wetlands') && !lp.id.endsWith('-inventory'));
       const types = this.typePresets.filter(p => p.geometry_type === geomType || p.geometry_type === 'all');
 
-      // Count features in this geometry group (excluding wetland plots)
-      const groupCount = this.collectedFeatures.filter(f => f.geometry_type === geomType && !isWetland(f)).length;
+      // Count features in this geometry group (excluding wetland plots + inventory)
+      const groupCount = this.collectedFeatures.filter(f => f.geometry_type === geomType && !isWetland(f) && !isInventory(f)).length;
 
       if (types.length === 0 && groupCount === 0) return '';
 
@@ -2091,10 +2093,9 @@ export class BasemapManager {
         <div class="fd-geom-group" data-fd-geom="${geomType}">
           <div class="fd-geom-header fd-geom-collapsible" data-fd-collapse="${geomType}">
             <span class="fd-geom-chevron${isGroupCollapsed ? ' fd-collapsed' : ''}">▾</span>
-            <span class="fd-geom-icon">${icon}</span>
+            <span class="fd-geom-icon fd-geom-symbol" data-fd-symbology="${geomType}" title="Edit symbology" role="button" tabindex="0" onclick="event.stopPropagation()">${icon}</span>
             <span class="fd-geom-label">${label}</span>
             ${groupCount > 0 ? `<span class="fd-geom-count">${groupCount}</span>` : ''}
-            <button class="fd-symbology-btn" data-fd-symbology="${geomType}" title="Edit symbology" onclick="event.stopPropagation()">⊛</button>
             <button class="vis-tog fd-group-vis fd-vis-lg${layerVis ? ' active' : ''}" data-fd-group="${layerPreset?.id ?? ''}" title="Toggle group" onclick="event.stopPropagation()"></button>
           </div>
           <div class="fd-geom-body${isGroupCollapsed ? ' fd-geom-body-collapsed' : ''}">
@@ -2110,12 +2111,26 @@ export class BasemapManager {
       <div class="fd-geom-group" data-fd-geom="WetlandPlot">
         <div class="fd-geom-header fd-geom-collapsible" data-fd-collapse="WetlandPlot">
           <span class="fd-geom-chevron${this.collapsedFdGroups.has('WetlandPlot') ? ' fd-collapsed' : ''}">▾</span>
-          <span class="fd-geom-icon">◆</span>
+          <span class="fd-geom-icon fd-geom-symbol" data-fd-symbology="WetlandPlot" title="Edit symbology" role="button" tabindex="0" onclick="event.stopPropagation()">◆</span>
           <span class="fd-geom-label">Wetland Plots</span>
           ${wetlandFeats.length > 0 ? `<span class="fd-geom-count">${wetlandFeats.length}</span>` : ''}
-          <button class="fd-symbology-btn" data-fd-symbology="WetlandPlot" title="Edit symbology" onclick="event.stopPropagation()">⊛</button>
           <button class="fd-label-btn${wetlandPreset?.show_labels !== false ? ' active' : ''}" data-fd-wetland-label="1" title="Toggle labels" onclick="event.stopPropagation()">${labelOnSvg}</button>
           <button class="vis-tog fd-group-vis fd-vis-lg${wetlandPreset?.visible !== false ? ' active' : ''}" data-fd-wetland-vis="1" title="Toggle Wetland Plots" onclick="event.stopPropagation()"></button>
+        </div>
+      </div>` : '';
+
+    // Inventory Observations — dedicated class (own map layers; taxon colour, mcode label)
+    const inventoryFeats = this.collectedFeatures.filter(isInventory);
+    const inventoryPreset = this.featureLayerPresets.find(lp => lp.id.endsWith('-inventory'));
+    const inventoryGroup = (inventoryFeats.length > 0 || inventoryPreset) ? `
+      <div class="fd-geom-group" data-fd-geom="Inventory">
+        <div class="fd-geom-header fd-geom-collapsible" data-fd-collapse="Inventory">
+          <span class="fd-geom-chevron${this.collapsedFdGroups.has('Inventory') ? ' fd-collapsed' : ''}">▾</span>
+          <span class="fd-geom-icon fd-geom-symbol" data-fd-symbology="Inventory" title="Edit symbology" role="button" tabindex="0" onclick="event.stopPropagation()">◉</span>
+          <span class="fd-geom-label">Inventory Observations</span>
+          ${inventoryFeats.length > 0 ? `<span class="fd-geom-count">${inventoryFeats.length}</span>` : ''}
+          <button class="fd-label-btn${inventoryPreset?.show_labels !== false ? ' active' : ''}" data-fd-inventory-label="1" title="Toggle labels" onclick="event.stopPropagation()">${labelOnSvg}</button>
+          <button class="vis-tog fd-group-vis fd-vis-lg${inventoryPreset?.visible !== false ? ' active' : ''}" data-fd-inventory-vis="1" title="Toggle Inventory Observations" onclick="event.stopPropagation()"></button>
         </div>
       </div>` : '';
 
@@ -2133,7 +2148,7 @@ export class BasemapManager {
 
     const fdLabel = (this.userId ? this.userId.toUpperCase() : 'Field') + ' Data';
     return this.sectionToggle('field-data', fdLabel, hint) +
-      this.sectionBody('field-data', `<div class="fd-body">${body}${wetlandGroup}${untypedRow}</div>`);
+      this.sectionBody('field-data', `<div class="fd-body">${body}${wetlandGroup}${inventoryGroup}${untypedRow}</div>`);
   }
 
   private wireFieldData(container: HTMLElement): void {
@@ -2249,6 +2264,34 @@ export class BasemapManager {
           return;
         }
 
+        // Inventory Observations — dedicated class (taxon colour, mcode label).
+        if (key === 'Inventory') {
+          const preset = this.featureLayerPresets.find(lp => lp.id.endsWith('-inventory'));
+          const feats = this.collectedFeatures
+            .filter(f => f.layer_id?.endsWith('-inventory') || !!f.inventory_data)
+            .map(f => ({
+              properties: {
+                taxon: f.inventory_data?.taxon ?? '',
+                mcode: f.inventory_data?.mcode ?? '',
+                commonName: f.inventory_data?.commonName ?? '',
+                srank: f.inventory_data?.srank ?? '',
+                type: f.type, elevation: f.elevation, accuracy: f.accuracy,
+              } as Record<string, unknown>,
+            }));
+          this.symbologyStudio.open({
+            title: 'Inventory Observations',
+            geomType: 'point',
+            features: feats,
+            initialState: preset?.symbologyState,
+            onApply: (state: SymbologyState) => {
+              if (preset) preset.symbologyState = state;
+              this.mapManager.setInventorySymbology(state, feats);
+              if (preset) this.onFeatureLayerChange?.(preset);
+            },
+          });
+          return;
+        }
+
         const geomType = key as GeometryType;
         const geomStr = geomType === 'Point' ? 'point' : geomType === 'LineString' ? 'line' : 'polygon';
         const features = this.collectedFeatures
@@ -2297,6 +2340,27 @@ export class BasemapManager {
       lp.show_labels = lp.show_labels === false;
       btn.classList.toggle('active', lp.show_labels !== false);
       this.mapManager.setLayerVisibility('wetland-plots-labels', lp.show_labels !== false);
+      this.onFeatureLayerChange?.(lp);
+    });
+
+    // Inventory Observations — group visibility
+    container.querySelector<HTMLButtonElement>('[data-fd-inventory-vis]')?.addEventListener('click', (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const lp = this.featureLayerPresets.find(l => l.id.endsWith('-inventory'));
+      if (!lp) return;
+      lp.visible = !(lp.visible !== false);
+      btn.classList.toggle('active', lp.visible !== false);
+      this.onFeatureLayerChange?.(lp);
+    });
+
+    // Inventory Observations — labels toggle
+    container.querySelector<HTMLButtonElement>('[data-fd-inventory-label]')?.addEventListener('click', (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const lp = this.featureLayerPresets.find(l => l.id.endsWith('-inventory'));
+      if (!lp) return;
+      lp.show_labels = lp.show_labels === false;
+      btn.classList.toggle('active', lp.show_labels !== false);
+      this.mapManager.setLayerVisibility('inventory-points-labels', lp.show_labels !== false);
       this.onFeatureLayerChange?.(lp);
     });
   }
@@ -2641,7 +2705,7 @@ export class BasemapManager {
           <button class="vis-tog bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}"></button>
           ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
           <button class="bm-dup-btn" data-iid="${layer.instanceId}" title="Duplicate layer" style="background:none;border:1px solid var(--color-border);border-radius:4px;color:var(--color-text-dim);cursor:pointer;padding:2px 5px;font-size:12px;flex-shrink:0">⧉</button>
-          ${ltype === 'geojson' ? `<button class="bm-adj-toggle bm-stack-attrs" data-iid="${layer.instanceId}" title="Attribute table" style="font-size:13px">⊞</button>` : ''}
+          ${ltype === 'geojson' ? `<button class="bm-adj-toggle bm-stack-attrs" data-iid="${layer.instanceId}" title="Attribute table"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM40,112H80v32H40Zm56,0H216v32H96ZM216,64V96H40V64ZM40,160H80v32H40Zm176,32H96V160H216v32Z"/></svg></button>` : ''}
           ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
         </div>
         ${isVectorLayer ? vecStylePanel : isHrdem ? hrdemAdjPanel : isCogContour ? cogContourAdjPanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
