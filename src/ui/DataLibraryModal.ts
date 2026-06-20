@@ -15,6 +15,7 @@ export interface UserDataEntry {
   lines: number;
   polygons: number;
   wetlands: number;
+  inventory: number;
   total: number;
   lastUpdated: string;
 }
@@ -480,6 +481,7 @@ export class DataLibraryModal {
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><polygon points="12 2 22 18 2 18"/></svg>`;
     };
     const wetlandIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="M12 22V12"/><path d="M5 9c0-2.5 2-3 3.5-3 2 0 3 1 3 3s-1 3-3.5 3S5 11 5 9z"/><path d="M15.5 7c1 0 2.5.5 2.5 2.5S16 13 14 12"/></svg>`;
+    const inventoryIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
     const formatDate = (iso: string) => iso ? iso.slice(0, 10) : '—';
 
     const cards = entries.length === 0
@@ -494,6 +496,7 @@ export class DataLibraryModal {
               ${e.lines    > 0 ? `<span class="dl-uds dl-uds-line">${geomIcon('line')} ${e.lines} ln${e.lines !== 1 ? 's' : ''}</span>` : ''}
               ${e.polygons > 0 ? `<span class="dl-uds dl-uds-poly">${geomIcon('polygon')} ${e.polygons} poly</span>` : ''}
               ${e.wetlands > 0 ? `<span class="dl-uds dl-uds-wetland">${wetlandIcon} ${e.wetlands} plot${e.wetlands !== 1 ? 's' : ''}</span>` : ''}
+              ${e.inventory > 0 ? `<span class="dl-uds dl-uds-inventory">${inventoryIcon} ${e.inventory} obs</span>` : ''}
               ${e.total    === 0 ? `<span class="dl-uds">no features</span>` : ''}
             </div>
             <div class="dl-userdata-meta">

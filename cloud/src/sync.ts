@@ -10,6 +10,7 @@
 import type { Env, Identity, SyncEntity, EntityKind } from './types';
 import { ENTITY_KINDS, TABLES } from './types';
 import { rebuildWetlandMaster, pushHasWetlandFeatures } from './wetlandMaster';
+import { rebuildInventoryMaster, pushHasInventoryFeatures } from './inventoryMaster';
 import { json, bad } from './http';
 
 type SyncBody = Partial<Record<EntityKind, SyncEntity[]>>;
@@ -86,6 +87,13 @@ export async function handleSync(request: Request, env: Env, who: Identity, ctx?
   if (appliedTotal > 0 && pushHasWetlandFeatures(items as Array<{ kind: string; e: Record<string, unknown> }>)) {
     const rebuild = rebuildWetlandMaster(env, who.email).catch(
       (err) => console.error('[wetland-master] post-sync rebuild failed:', err));
+    if (ctx) ctx.waitUntil(rebuild); else await rebuild;
+  }
+
+  // If inventory observations changed, refresh the Master File in the background (best-effort).
+  if (appliedTotal > 0 && pushHasInventoryFeatures(items as Array<{ kind: string; e: Record<string, unknown> }>)) {
+    const rebuild = rebuildInventoryMaster(env, who.email).catch(
+      (err) => console.error('[inventory-master] post-sync rebuild failed:', err));
     if (ctx) ctx.waitUntil(rebuild); else await rebuild;
   }
 

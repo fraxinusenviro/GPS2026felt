@@ -21,6 +21,7 @@ import { handleSync, handleChanges, handleSharedLayers } from './sync';
 import { signUpload, signDownload, putBlob, getBlob } from './blobs';
 import { reconcileStaticLayers } from './reconcile';
 import { rebuildWetlandMaster } from './wetlandMaster';
+import { rebuildInventoryMaster } from './inventoryMaster';
 import { handleAlmanac } from './almanac';
 import { json, bad, html, corsHeaders } from './http';
 
@@ -36,6 +37,7 @@ function isApiPath(path: string): boolean {
     path === '/uploads/sign' ||
     path === '/admin/reconcile' ||
     path === '/admin/wetland-master' ||
+    path === '/admin/inventory-master' ||
     path === '/shared-layers' ||
     path.startsWith('/blobs/')
   );
@@ -70,6 +72,11 @@ export default {
     ctx.waitUntil(rebuildWetlandMaster(env).then(
       (r) => console.log(`[wetland-master] ${r.plots} plot(s)`),
       (err) => console.error('[wetland-master] failed:', err)
+    ));
+    // Keep the inventory-observations Master File in the Data Library up to date.
+    ctx.waitUntil(rebuildInventoryMaster(env).then(
+      (r) => console.log(`[inventory-master] ${r.observations} observation(s)`),
+      (err) => console.error('[inventory-master] failed:', err)
     ));
   },
 };
@@ -112,6 +119,11 @@ async function route(request: Request, env: Env, url: URL, ctx: ExecutionContext
     // Manual rebuild of the wetland-plots Master File (cron + post-sync run it too).
     if (path === '/admin/wetland-master' && method === 'POST') {
       return json(await rebuildWetlandMaster(env, who.email));
+    }
+
+    // Manual rebuild of the inventory-observations Master File (cron + post-sync run it too).
+    if (path === '/admin/inventory-master' && method === 'POST') {
+      return json(await rebuildInventoryMaster(env, who.email));
     }
 
     if (path.startsWith('/blobs/')) {

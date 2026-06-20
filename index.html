@@ -145,6 +145,24 @@
           </div>
         </div>
         <div class="toolbar-separator"></div>
+        <div class="toolbar-section collapsed" data-sec="inventory">
+          <button class="toolbar-section-label" aria-expanded="false">INVENTORY</button>
+          <div class="toolbar-group">
+            <button id="btn-inventory-new" class="tool-btn" title="New Survey — start a timed biodiversity inventory survey">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M184,72H40A16,16,0,0,0,24,88V200a16,16,0,0,0,16,16H184a16,16,0,0,0,16-16V88A16,16,0,0,0,184,72Zm0,128H40V88H184V200ZM232,56V176a8,8,0,0,1-16,0V56H64a8,8,0,0,1,0-16H216A16,16,0,0,1,232,56ZM128,112a8,8,0,0,1,8,8v16h16a8,8,0,0,1,0,16H136v16a8,8,0,0,1-16,0V152H104a8,8,0,0,1,0-16h16V120A8,8,0,0,1,128,112Z"/></svg>
+              <span class="tool-btn-label">New Survey</span>
+            </button>
+            <button id="btn-inventory-drafts" class="tool-btn" title="Drafts — resume or delete in-progress surveys">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M227.31,73.37,182.63,28.68a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.68,147.31,64l24-24L216,84.68Z"/></svg>
+              <span class="tool-btn-label">Drafts</span>
+            </button>
+            <button id="btn-inventory-submitted" class="tool-btn" title="Submitted — browse submitted surveys; export reports & data">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M224,48H32A16,16,0,0,0,16,64V88a16,16,0,0,0,8,13.84V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V101.84A16,16,0,0,0,240,88V64A16,16,0,0,0,224,48ZM216,200H40V104H216ZM224,88H32V64H224V88ZM152,144a8,8,0,0,1-8,8H112a8,8,0,0,1,0-16h32A8,8,0,0,1,152,144Z"/></svg>
+              <span class="tool-btn-label">Submitted</span>
+            </button>
+          </div>
+        </div>
+        <div class="toolbar-separator"></div>
         <div class="toolbar-section collapsed" data-sec="sketch">
           <button class="toolbar-section-label" aria-expanded="false">SKETCH</button>
           <div class="toolbar-group">
@@ -292,6 +310,7 @@
           <button id="map-legend-close" class="map-legend-close" aria-label="Close legend">✕</button>
         </div>
         <div id="user-data-legend" class="map-legend-user"></div>
+        <div id="inventory-data-legend" class="map-legend-user"></div>
         <div id="map-legend-body" class="map-legend-body"></div>
       </div>
 
@@ -380,6 +399,12 @@
           <span id="quick-entry-label">Quick Entry</span>
         </button>
       </div>
+
+      <!-- Inventory Add-Observation button (shown only while a survey is active) -->
+      <button id="inv-add-obs-btn" class="inv-add-obs-btn" style="display:none" title="Add inventory observation (long-press for tap-to-place mode)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+        <span class="inv-add-obs-label">Add Obs</span>
+      </button>
 
       <!-- Persistent Point Entry HUD (gps-point and sketch-point tools) -->
       <div id="point-entry-hud" style="display:none">
@@ -477,6 +502,36 @@
 
     <div id="basemap-panel" class="floating-panel" style="display:none"></div>
     <div id="feature-editor-panel" class="floating-panel" style="display:none"></div>
+
+    <!-- Inventory in-progress HUD (collapsible) -->
+    <div id="inv-hud" class="inv-hud" style="display:none">
+      <div class="inv-hud-header">
+        <span class="inv-hud-title">INVENTORY</span>
+        <span id="inv-hud-timer" class="inv-hud-timer">00:00:00</span>
+        <button id="inv-hud-collapse" class="inv-hud-collapse" title="Collapse / expand" aria-label="Collapse">▾</button>
+      </div>
+      <div class="inv-hud-body">
+        <div id="inv-hud-stats" class="inv-hud-stats">
+          <div class="inv-stat"><strong id="inv-stat-unique">0</strong><span>Species</span></div>
+          <div class="inv-stat"><strong id="inv-stat-total">0</strong><span>Obs</span></div>
+          <div class="inv-stat"><strong id="inv-stat-soci-sp">0 spp</strong><span>SoCI</span></div>
+          <div class="inv-stat"><strong id="inv-stat-since">—</strong><span>Since last</span></div>
+        </div>
+        <canvas id="inv-species-curve" class="inv-species-curve"></canvas>
+        <div class="inv-obs-list-header">
+          <span>Observations</span>
+          <button id="inv-hud-sort" class="inv-hud-sort" title="Change sort order">NEW→OLD</button>
+        </div>
+        <div id="inv-obs-empty" class="inv-obs-empty">No observations yet — tap “Add Obs”.</div>
+        <div id="inv-obs-list" class="inv-obs-list"></div>
+      </div>
+      <div class="inv-hud-footer">
+        <button id="inv-hud-add" class="btn-primary btn-sm">+ Add Obs</button>
+        <button id="inv-hud-pause" class="btn-outline btn-sm">⏸ Pause</button>
+        <button id="inv-hud-savedraft" class="btn-outline btn-sm">Save Draft</button>
+        <button id="inv-hud-submit" class="btn-primary btn-sm">Submit</button>
+      </div>
+    </div>
     <div id="stats-panel" class="floating-panel stats-panel" style="display:none"></div>
 
     <!-- Toast notifications -->
@@ -490,6 +545,11 @@
     <!-- Data Library Modal -->
     <div id="data-library-overlay" style="display:none"></div>
   </div>
+
+  <!-- Inventory species databases (vertebrates/vascular/nonvascular eager; invertebrates lazy-loaded). -->
+  <script src="./db/db-vertebrates.js"></script>
+  <script src="./db/db-vascular.js"></script>
+  <script src="./db/db-nonvascular.js"></script>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

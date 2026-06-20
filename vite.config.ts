@@ -16,8 +16,16 @@ export default defineConfig({
       registerType: 'autoUpdate',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,wasm}'],
+        // The invertebrate species DB (~2.5MB) is off by default and loaded on
+        // demand — keep it out of the precache and cache it at runtime instead.
+        globIgnores: ['**/db-invertebrates.js'],
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         runtimeCaching: [
+          {
+            urlPattern: /\/db\/db-invertebrates\.js$/i,
+            handler: 'CacheFirst',
+            options: { cacheName: 'inventory-db', expiration: { maxEntries: 1, maxAgeSeconds: 90 * 24 * 3600 } }
+          },
           {
             urlPattern: /^https:\/\/.*\.arcgisonline\.com\/.*/i,
             handler: 'NetworkFirst',

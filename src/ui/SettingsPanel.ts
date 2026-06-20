@@ -15,7 +15,7 @@ export class SettingsPanel {
   private settings!: AppSettings;
   private storage = StorageManager.getInstance();
   private lastSyncStatus: SyncStatus | null = null;
-  private collapsedSections = new Set<string>(['gps', 'display', 'presets', 'quick-entry', 'integrations', 'crs', 'sync', 'data']);
+  private collapsedSections = new Set<string>(['gps', 'display', 'presets', 'quick-entry', 'integrations', 'inventory', 'crs', 'sync', 'data']);
 
   constructor(private presetManager: PresetManager) {
     document.getElementById('btn-settings')?.addEventListener('click', () => {
@@ -173,6 +173,9 @@ export class SettingsPanel {
               </label>
             </div>
           </div>
+
+          <!-- Inventory -->
+          ${this.renderInventorySection()}
 
           <!-- Coordinate Reference Systems -->
           <div class="settings-section" data-section="crs">
@@ -355,6 +358,65 @@ export class SettingsPanel {
     });
   }
 
+  private renderInventorySection(): string {
+    const s = this.settings;
+    const rpt = s.inventory_report ?? {
+      title: 'Biodiversity Inventory Report', subtitle: '-', sortOrder: 'time',
+      includeMap: false, includeCurve: false, labelObsNumbers: true, colorScheme: 'fraxinus',
+      fields: { family: true, code: true, scientificName: true, srank: true, sprot: true, nprot: true, grank: true, latitude: true, longitude: true, time: true, notes: true },
+    };
+    const ck = (v: boolean | undefined) => (v ? 'checked' : '');
+    const opt = (val: string, cur: string, label: string) => `<option value="${val}" ${val === cur ? 'selected' : ''}>${label}</option>`;
+    const fieldToggle = (key: string, label: string) =>
+      `<label class="toggle-label"><span>${label}</span><input type="checkbox" id="s-inv-fld-${key}" ${ck((rpt.fields as unknown as Record<string, boolean>)[key])} /><span class="toggle-slider"></span></label>`;
+    return `
+          <div class="settings-section" data-section="inventory">
+            <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z"/></svg>Inventory${CHEVRON_SVG}</h4>
+            <div class="settings-section-body">
+              <p class="settings-hint" style="margin-bottom:6px">Species databases (ACCDC Nova Scotia) used by the inventory species search.</p>
+              <label class="toggle-label"><span>Vertebrates</span><input type="checkbox" id="s-inv-db-vert" ${ck(s.inventory_db_vertebrates)} /><span class="toggle-slider"></span></label>
+              <label class="toggle-label"><span>Vascular plants</span><input type="checkbox" id="s-inv-db-vasc" ${ck(s.inventory_db_vascular)} /><span class="toggle-slider"></span></label>
+              <label class="toggle-label"><span>Non-vascular plants</span><input type="checkbox" id="s-inv-db-nvas" ${ck(s.inventory_db_nonvascular)} /><span class="toggle-slider"></span></label>
+              <label class="toggle-label"><span>Invertebrates <small>(~2.5&nbsp;MB, loads on enable)</small></span><input type="checkbox" id="s-inv-db-invt" ${ck(s.inventory_db_invertebrates)} /><span class="toggle-slider"></span></label>
+
+              <p class="settings-hint" style="margin:10px 0 6px">Report</p>
+              <label>Title<input type="text" id="s-inv-rpt-title" value="${(rpt.title || '').replace(/"/g, '&quot;')}" /></label>
+              <label>Subtitle<input type="text" id="s-inv-rpt-subtitle" value="${(rpt.subtitle || '').replace(/"/g, '&quot;')}" /></label>
+              <label>Sort order
+                <select id="s-inv-rpt-sort">
+                  ${opt('time', rpt.sortOrder, 'Time recorded')}
+                  ${opt('family', rpt.sortOrder, 'Family')}
+                  ${opt('commonName', rpt.sortOrder, 'Common name')}
+                  ${opt('scientificName', rpt.sortOrder, 'Scientific name')}
+                </select>
+              </label>
+              <label>Colour scheme
+                <select id="s-inv-rpt-scheme">
+                  ${opt('fraxinus', rpt.colorScheme, 'Fraxinus (green)')}
+                  ${opt('slate', rpt.colorScheme, 'Slate (blue)')}
+                  ${opt('terracotta', rpt.colorScheme, 'Terracotta')}
+                </select>
+              </label>
+              <p class="settings-hint" style="margin:8px 0 4px">Report columns</p>
+              ${fieldToggle('family', 'Family')}
+              ${fieldToggle('code', 'Code (mcode)')}
+              ${fieldToggle('scientificName', 'Scientific name')}
+              ${fieldToggle('srank', 'S-Rank')}
+              ${fieldToggle('sprot', 'Provincial status')}
+              ${fieldToggle('nprot', 'COSEWIC')}
+              ${fieldToggle('grank', 'G-Rank')}
+              ${fieldToggle('latitude', 'Latitude')}
+              ${fieldToggle('longitude', 'Longitude')}
+              ${fieldToggle('time', 'Time')}
+              ${fieldToggle('notes', 'Notes')}
+              <p class="settings-hint" style="margin:8px 0 4px">Report extras</p>
+              <label class="toggle-label"><span>Include satellite overview map</span><input type="checkbox" id="s-inv-rpt-map" ${ck(rpt.includeMap)} /><span class="toggle-slider"></span></label>
+              <label class="toggle-label"><span>Include species–time curve</span><input type="checkbox" id="s-inv-rpt-curve" ${ck(rpt.includeCurve)} /><span class="toggle-slider"></span></label>
+              <label class="toggle-label"><span>Label observation numbers</span><input type="checkbox" id="s-inv-rpt-labels" ${ck(rpt.labelObsNumbers)} /><span class="toggle-slider"></span></label>
+            </div>
+          </div>`;
+  }
+
   private async save(): Promise<void> {
     const get = <T extends HTMLElement>(id: string) => this.panel.querySelector<T>(`#${id}`);
 
@@ -391,6 +453,33 @@ export class SettingsPanel {
     const feltKey = (get<HTMLInputElement>('s-felt-key')?.value ?? '').trim();
     if (feltKey) localStorage.setItem('felt_key', feltKey);
     else localStorage.removeItem('felt_key');
+
+    // Inventory: species databases + report settings
+    this.settings.inventory_db_vertebrates = get<HTMLInputElement>('s-inv-db-vert')?.checked ?? true;
+    this.settings.inventory_db_vascular = get<HTMLInputElement>('s-inv-db-vasc')?.checked ?? true;
+    this.settings.inventory_db_nonvascular = get<HTMLInputElement>('s-inv-db-nvas')?.checked ?? true;
+    this.settings.inventory_db_invertebrates = get<HTMLInputElement>('s-inv-db-invt')?.checked ?? false;
+    const fld = (k: string) => get<HTMLInputElement>(`s-inv-fld-${k}`)?.checked ?? true;
+    this.settings.inventory_report = {
+      title: (get<HTMLInputElement>('s-inv-rpt-title')?.value ?? 'Biodiversity Inventory Report').trim() || 'Biodiversity Inventory Report',
+      subtitle: (get<HTMLInputElement>('s-inv-rpt-subtitle')?.value ?? '-').trim() || '-',
+      sortOrder: (get<HTMLSelectElement>('s-inv-rpt-sort')?.value ?? 'time') as 'time' | 'family' | 'commonName' | 'scientificName',
+      colorScheme: (get<HTMLSelectElement>('s-inv-rpt-scheme')?.value ?? 'fraxinus') as 'fraxinus' | 'slate' | 'terracotta',
+      includeMap: get<HTMLInputElement>('s-inv-rpt-map')?.checked ?? false,
+      includeCurve: get<HTMLInputElement>('s-inv-rpt-curve')?.checked ?? false,
+      labelObsNumbers: get<HTMLInputElement>('s-inv-rpt-labels')?.checked ?? true,
+      fields: {
+        family: fld('family'), code: fld('code'), scientificName: fld('scientificName'),
+        srank: fld('srank'), sprot: fld('sprot'), nprot: fld('nprot'), grank: fld('grank'),
+        latitude: fld('latitude'), longitude: fld('longitude'), time: fld('time'), notes: fld('notes'),
+      },
+    };
+    // Rebuild the cached species list to reflect DB toggle changes.
+    const { invalidateSpeciesList, loadInvertebratesDB } = await import('../inventory/inventorySurvey');
+    invalidateSpeciesList();
+    if (this.settings.inventory_db_invertebrates && !window.DB_INVERTEBRATES) {
+      void loadInvertebratesDB(import.meta.env.BASE_URL);
+    }
 
     // Cloud sync config — App relays {enabled, url} to the SyncManager.
     const syncEnabled = get<HTMLInputElement>('s-sync-enabled')?.checked ?? false;

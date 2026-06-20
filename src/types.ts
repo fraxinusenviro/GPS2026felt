@@ -31,6 +31,100 @@ export interface FieldFeature {
   photos: string[];             // base64 photo data URLs
   project_id: string;           // owning project ID
   wetland_data?: WetlandSurvey; // Wetland delineation survey (only on wetland-plot features)
+  inventory_data?: InventoryFeatureData; // Biodiversity inventory observation (only on inventory features)
+}
+
+// ---- Biodiversity inventory (ported from the NSINV app) ----
+// Each observation becomes a point FieldFeature in the per-project
+// "{projectId}-inventory" layer. The survey context is denormalized onto every
+// observation feature (inventory_data) so a submitted survey reconstructs by
+// grouping features on inventory_data.surveyId — this rides through IndexedDB
+// and cloud sync inside the feature's JSON doc (no backend change required).
+export interface SpeciesRecord {
+  elcode: string;
+  taxon: string;
+  taxonGroup: string;
+  family: string;
+  mcode: string;
+  commonName: string;
+  scientificName: string;
+  srank: string;
+  grank?: string;
+  nrank?: string;
+  nprot?: string | null;
+  sprot?: string | null;
+  noteRank?: string | null;
+  commonNameFr?: string;
+}
+
+export interface InventoryObservation {
+  id: string;
+  species: SpeciesRecord;
+  timestamp: number;
+  lat: number;
+  lon: number;
+  notes: string;
+}
+
+export interface InventorySurvey {
+  id: string;
+  surveyID: string;
+  siteName: string;
+  surveyor: string;
+  locale: string;
+  county: string;
+  date: string;
+  reportNote: string;
+  startTime: number;
+  endTime: number | null;
+  pausedAt: number | null;
+  pausedDuration: number;
+  status: 'draft' | 'submitted';
+  project_id: string;
+  observations: InventoryObservation[];
+}
+
+// Per-observation survey context denormalized onto each FieldFeature.
+export interface InventoryFeatureData {
+  surveyId: string;
+  surveyID: string;
+  siteName: string;
+  surveyor: string;
+  locale: string;
+  county: string;
+  date: string;
+  startTime: number;
+  endTime: number | null;
+  elcode: string;
+  mcode: string;
+  taxon: string;
+  taxonGroup: string;
+  family: string;
+  commonName: string;
+  scientificName: string;
+  srank: string;
+  sprot: string | null;
+  nprot: string | null;
+  grank: string;
+  isSoCI: boolean;
+  obsTimestamp: number;
+}
+
+// Inventory report configuration (mirrors NSINV report settings).
+export interface InventoryReportFields {
+  family: boolean; code: boolean; scientificName: boolean;
+  srank: boolean; sprot: boolean; nprot: boolean; grank: boolean;
+  latitude: boolean; longitude: boolean; time: boolean; notes: boolean;
+}
+export interface InventoryReportSettings {
+  title: string;
+  subtitle: string;
+  sortOrder: 'time' | 'family' | 'commonName' | 'scientificName';
+  includeMap: boolean;
+  includeCurve: boolean;
+  labelObsNumbers: boolean;
+  colorScheme: 'fraxinus' | 'slate' | 'terracotta';
+  fields: InventoryReportFields;
 }
 
 // ---- Wetland delineation survey (ported from the WETLANDS app) ----
@@ -224,6 +318,12 @@ export interface AppSettings {
   font_family?: 'default' | 'oswald';
   theme_color?: string;
   ui_style?: 'default' | 'topograph';
+  // ---- Inventory module ----
+  inventory_db_vertebrates?: boolean;
+  inventory_db_vascular?: boolean;
+  inventory_db_nonvascular?: boolean;
+  inventory_db_invertebrates?: boolean;  // large (~2.5MB) — off by default, lazy-loaded
+  inventory_report?: InventoryReportSettings;
 }
 
 // ---- GPS State ----

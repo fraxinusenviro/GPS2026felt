@@ -35,6 +35,7 @@ import { BackendClient } from './sync/BackendClient';
 import { SyncManager } from './sync/SyncManager';
 import { userIdFromEmail, USERID_SOURCE_KEY } from './utils/userId';
 import { WetlandsManager } from './wetlands/WetlandsManager';
+import { InventoryManager } from './inventory/InventoryManager';
 import { AttributeTablePanel } from './ui/AttributeTablePanel';
 import type { SharedLayer, BasemapDef, ImportedLayer } from './types';
 import { sharedLayerToDef } from './data/sharedLayerDefs';
@@ -81,6 +82,7 @@ export class App {
   private layoutMode!: LayoutMode;
   private syncManager!: SyncManager;
   private wetlandsManager!: WetlandsManager;
+  private inventoryManager!: InventoryManager;
 
   private settings!: AppSettings;
   private features: FieldFeature[] = [];
@@ -170,6 +172,12 @@ export class App {
       () => this.settings,
       () => this.refreshProjectLayers(),
     );
+    this.inventoryManager = new InventoryManager(
+      this.mapManager,
+      this.captureManager,
+      () => this.settings,
+      () => this.refreshProjectLayers(),
+    );
     this.geometryEditor = new GeometryEditor(this.mapManager);
     this.importDataPanel = new ImportDataPanel(this.importManager, this.mapManager);
     this.cachePanel = new CachePanel(this.mapManager, this.importManager);
@@ -229,6 +237,7 @@ export class App {
     const headerProjName = document.getElementById('header-project-name');
     if (headerProjName && activeProject) headerProjName.textContent = activeProject.name;
     void this.wetlandsManager.renderLegend();
+    void this.inventoryManager.renderLegend();
 
     this.applySettings(this.settings);
     this.captureManager.startGPSWatch();
@@ -357,6 +366,7 @@ export class App {
     this.projectLayerPresets = await this.storage.getLayersByProject(activeId);
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     void this.wetlandsManager.renderLegend();
+    void this.inventoryManager.renderLegend();
   }
 
   /** True if the incoming stack's layers differ from what's currently on the map. */
@@ -1279,11 +1289,14 @@ export class App {
     for (const f of features) {
       const userId = f.created_by || 'UNKNOWN';
       if (!map.has(userId)) {
-        map.set(userId, { userId, points: 0, lines: 0, polygons: 0, wetlands: 0, total: 0, lastUpdated: '' });
+        map.set(userId, { userId, points: 0, lines: 0, polygons: 0, wetlands: 0, inventory: 0, total: 0, lastUpdated: '' });
       }
       const e = map.get(userId)!;
       const isWetland = f.layer_id?.endsWith('-wetlands') || !!f.wetland_data;
-      if (isWetland) {
+      const isInventory = f.layer_id?.endsWith('-inventory') || !!f.inventory_data;
+      if (isInventory) {
+        e.inventory++;
+      } else if (isWetland) {
         e.wetlands++;
       } else if (f.geometry_type === 'Point') {
         e.points++;
@@ -1430,6 +1443,17 @@ export class App {
     });
     document.getElementById('btn-wetlands-report')?.addEventListener('click', () => {
       void this.wetlandsManager.openReportPicker();
+    });
+
+    // INVENTORY group (left toolbar)
+    document.getElementById('btn-inventory-new')?.addEventListener('click', () => {
+      this.inventoryManager.startNewSurvey();
+    });
+    document.getElementById('btn-inventory-drafts')?.addEventListener('click', () => {
+      void this.inventoryManager.openDrafts();
+    });
+    document.getElementById('btn-inventory-submitted')?.addEventListener('click', () => {
+      void this.inventoryManager.openSubmitted();
     });
 
 
@@ -2500,6 +2524,7 @@ export class App {
     this.projectLayerPresets = await this.storage.getLayersByProject(id);
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     void this.wetlandsManager.renderLegend();
+    void this.inventoryManager.renderLegend();
 
     // Update UI
     this.captureManager.setSettings(this.settings);
