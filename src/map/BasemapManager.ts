@@ -351,6 +351,8 @@ export class BasemapManager {
           if (Array.isArray(parsed.collapsed)) {
             this.collapsedSections = new Set(parsed.collapsed);
           }
+          const sharedRestored = parsed.stack.filter(l => l.defId?.startsWith('shared:')).length;
+          console.info(`[BasemapManager] initForProject(${projectId}): restored ${parsed.stack.length} layer(s) from localStorage (${sharedRestored} shared-library)`);
           this.rebuildMap();
           return;
         }
@@ -359,6 +361,7 @@ export class BasemapManager {
 
     // No usable localStorage data for this project; use the stored project stack
     if (fallbackStackJson) {
+      console.info(`[BasemapManager] initForProject(${projectId}): no localStorage match — falling back to project JSON`);
       this.setActiveProjectStack(fallbackStackJson);
     }
   }
@@ -399,6 +402,13 @@ export class BasemapManager {
         this.stack = parsed.stack;
         if (Array.isArray(parsed.collapsed)) {
           this.collapsedSections = new Set(parsed.collapsed);
+        }
+        const sharedCount = parsed.stack.filter(l => l.defId?.startsWith('shared:')).length;
+        const proj = projectId ?? this.currentProjectId ?? '?';
+        if (sharedCount > 0) {
+          console.info(`[BasemapManager] setActiveProjectStack(${proj}): accepted ${sharedCount} shared-library layer(s) — treated as public references, no ownership check`);
+        } else {
+          console.info(`[BasemapManager] setActiveProjectStack(${proj}): loaded ${parsed.stack.length} layer(s), none shared-library`);
         }
         this.rebuildMap();
         // Mirror to localStorage but don't re-persist to the project/cloud —
@@ -864,6 +874,9 @@ export class BasemapManager {
       }
     }
     this.stack.unshift(base);
+    if (base.defId.startsWith('shared:')) {
+      console.info(`[BasemapManager] shared layer added: "${base.label}" (${base.defId}) — stored as shared-library reference (url=${base.url}, type=${base.type ?? 'raster'})`);
+    }
     this.rebuildMap();
     this.saveStack();
   }
@@ -1057,7 +1070,19 @@ export class BasemapManager {
         stack.push(layer);
       }
       if (stack.length === 0) return;
-      this.stack = stack;
+      // Shared/static-library layers carry state (url, vector_config, symbologyState,
+      // etc.) that cannot be compacted into the URL param, so getUrlStackParam()
+      // intentionally excludes them. Re-insert any that are already in the active
+      // stack before applying the URL set — otherwise every page refresh with a URL
+      // hash silently discards shared layers the user had added to the project.
+      const sharedLayers = this.stack.filter(l => l.defId.startsWith('shared:'));
+      if (sharedLayers.length > 0) {
+        console.info(
+          `[BasemapManager] restoreFromUrlStack: re-inserting ${sharedLayers.length} shared layer(s) ` +
+          `excluded from URL encoding: ${sharedLayers.map(l => l.label).join(', ')}`
+        );
+      }
+      this.stack = [...sharedLayers, ...stack];
       this.rebuildMap();
       this.saveStack();
     } catch { /* ignore malformed */ }
