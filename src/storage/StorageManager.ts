@@ -8,9 +8,11 @@ import {
   STORE_FEATURES, STORE_SETTINGS, STORE_PRESETS,
   STORE_LAYERS, STORE_CONNECTIONS, STORE_IMPORTED,
   STORE_TILES, STORE_ONLINE_LAYERS, STORE_TILE_CACHES, STORE_PROJECTS, STORE_SHARED_LAYERS,
+  STORE_INVENTORY_SURVEYS,
   DEFAULT_SETTINGS, DEFAULT_LAYER_PRESETS, DEFAULT_CONNECTIONS,
   DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack
 } from '../constants';
+import type { InventorySurvey } from '../types';
 
 /**
  * Optional sink for local writes, used by the cloud sync layer to record which
@@ -119,6 +121,15 @@ export class StorageManager {
           // Org-shared data library layers (synced; bytes in R2).
           if (!db.objectStoreNames.contains(STORE_SHARED_LAYERS)) {
             db.createObjectStore(STORE_SHARED_LAYERS, { keyPath: 'id' });
+          }
+        }
+
+        if (oldVersion < 6) {
+          // Device-local inventory draft surveys (in-progress timer state).
+          // Intentionally NOT synced — submitted observations sync as features.
+          if (!db.objectStoreNames.contains(STORE_INVENTORY_SURVEYS)) {
+            const is = db.createObjectStore(STORE_INVENTORY_SURVEYS, { keyPath: 'id' });
+            is.createIndex('by_status', 'status');
           }
         }
       }
@@ -458,6 +469,25 @@ export class StorageManager {
   async deleteSharedLayer(id: string): Promise<void> {
     await this.db.delete(STORE_SHARED_LAYERS, id);
     if (!this.applyingRemote) this.syncHook?.mark('shared_layers', id, 'delete', new Date().toISOString());
+  }
+
+  // ---- Inventory draft surveys (device-local; intentionally NOT synced) ----
+  // Submitted surveys are not stored here — their observations live in the
+  // features store (carrying inventory_data) and sync via the normal pipeline.
+  async saveInventorySurvey(survey: InventorySurvey): Promise<void> {
+    await this.db.put(STORE_INVENTORY_SURVEYS, survey);
+  }
+
+  async getInventorySurvey(id: string): Promise<InventorySurvey | undefined> {
+    return this.db.get(STORE_INVENTORY_SURVEYS, id);
+  }
+
+  async getAllInventorySurveys(): Promise<InventorySurvey[]> {
+    return this.db.getAll(STORE_INVENTORY_SURVEYS);
+  }
+
+  async deleteInventorySurvey(id: string): Promise<void> {
+    await this.db.delete(STORE_INVENTORY_SURVEYS, id);
   }
 
   // ---- Export all data for backup ----

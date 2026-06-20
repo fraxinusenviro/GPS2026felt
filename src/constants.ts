@@ -25,6 +25,25 @@ export const DEFAULT_SETTINGS: AppSettings = {
   font_family: 'default',
   theme_color: '#4ade80',
   ui_style: 'default',
+  // ---- Inventory module ----
+  inventory_db_vertebrates: true,
+  inventory_db_vascular: true,
+  inventory_db_nonvascular: true,
+  inventory_db_invertebrates: false,   // large (~2.5MB) — lazy-loaded on first enable
+  inventory_report: {
+    title: 'Biodiversity Inventory Report',
+    subtitle: '-',
+    sortOrder: 'time',
+    includeMap: false,
+    includeCurve: false,
+    labelObsNumbers: true,
+    colorScheme: 'fraxinus',
+    fields: {
+      family: true, code: true, scientificName: true,
+      srank: true, sprot: true, nprot: true, grank: true,
+      latitude: true, longitude: true, time: true, notes: true,
+    },
+  },
 };
 
 // ---- Basemap Definitions ----
@@ -873,7 +892,7 @@ export const LAYER_IDS = {
 
 // ---- Storage Keys ----
 export const DB_NAME = 'FieldMapper2026';
-export const DB_VERSION = 5;
+export const DB_VERSION = 6;
 export const STORE_FEATURES = 'features';
 export const STORE_SETTINGS = 'settings';
 export const STORE_PRESETS = 'presets';
@@ -885,6 +904,7 @@ export const STORE_ONLINE_LAYERS = 'online_layers';
 export const STORE_TILE_CACHES = 'tile_caches';
 export const STORE_PROJECTS = 'projects';
 export const STORE_SHARED_LAYERS = 'shared_layers';
+export const STORE_INVENTORY_SURVEYS = 'inventory_surveys';  // device-local draft surveys (not synced)
 
 // ---- Project defaults ----
 
@@ -898,6 +918,10 @@ export function DEFAULT_PROJECT_LAYER_PRESETS(projectId: string): LayerPreset[] 
     // export and sync as their own layer. The rich survey data lives in each
     // feature's wetland_data field. Dark teal matches the WETLANDS report accent.
     { id: `${projectId}-wetlands`, name: 'Wetland Plots', geometry_type: 'Point', color: '#0b6b50', stroke_color: '#ffffff', stroke_width: 2, fill_opacity: 0.9, types: [], project_id: projectId, visible: true },
+    // Biodiversity inventory observations — separate layer so they render, export
+    // and sync on their own. Species + survey context live in each feature's
+    // inventory_data field. Bright green accent matches the INVENTORY module.
+    { id: `${projectId}-inventory`, name: 'Inventory Observations', geometry_type: 'Point', color: '#22c55e', stroke_color: '#ffffff', stroke_width: 2, fill_opacity: 0.9, types: [], project_id: projectId, visible: true },
   ];
 }
 
