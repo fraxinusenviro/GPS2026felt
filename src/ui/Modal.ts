@@ -12,6 +12,7 @@ interface ModalOptions {
 export class Modal {
   private overlay = document.getElementById('modal-overlay')!;
   private content = document.getElementById('modal-content')!;
+  private hideTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     EventBus.on<ModalOptions>('show-modal', (opts) => {
@@ -24,6 +25,10 @@ export class Modal {
   }
 
   show(opts: ModalOptions): void {
+    // Cancel any pending hide so a freshly-opened modal isn't torn down by the
+    // close animation of the one it replaced (e.g. Drafts list → species search).
+    if (this.hideTimer) { clearTimeout(this.hideTimer); this.hideTimer = null; }
+
     const cancelBtn = (opts.cancelLabel !== undefined || opts.onCancel !== undefined)
       ? `<button class="btn-outline" id="modal-cancel">${opts.cancelLabel ?? 'Cancel'}</button>`
       : '';
@@ -62,6 +67,7 @@ export class Modal {
 
   hide(): void {
     this.overlay.classList.remove('open');
-    setTimeout(() => { this.overlay.style.display = 'none'; }, 200);
+    if (this.hideTimer) clearTimeout(this.hideTimer);
+    this.hideTimer = setTimeout(() => { this.overlay.style.display = 'none'; this.hideTimer = null; }, 200);
   }
 }
