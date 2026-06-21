@@ -1,14 +1,15 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import type {
   FieldFeature, AppSettings, TypePreset, LayerPreset,
-  SavedConnection, ImportedLayer, OnlineLayer, TileCacheRecord, Project, SharedLayer
+  SavedConnection, ImportedLayer, OnlineLayer, TileCacheRecord, Project, SharedLayer,
+  ProjectMap
 } from '../types';
 import {
   DB_NAME, DB_VERSION,
   STORE_FEATURES, STORE_SETTINGS, STORE_PRESETS,
   STORE_LAYERS, STORE_CONNECTIONS, STORE_IMPORTED,
   STORE_TILES, STORE_ONLINE_LAYERS, STORE_TILE_CACHES, STORE_PROJECTS, STORE_SHARED_LAYERS,
-  STORE_INVENTORY_SURVEYS,
+  STORE_INVENTORY_SURVEYS, STORE_PROJECT_MAPS,
   DEFAULT_SETTINGS, DEFAULT_LAYER_PRESETS, DEFAULT_CONNECTIONS,
   DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack
 } from '../constants';
@@ -21,7 +22,7 @@ import type { InventorySurvey } from '../types';
  */
 export interface StorageSyncHook {
   mark(
-    kind: 'projects' | 'features' | 'layer_presets' | 'type_presets' | 'shared_layers',
+    kind: 'projects' | 'features' | 'layer_presets' | 'type_presets' | 'shared_layers' | 'project_maps',
     id: string,
     op: 'upsert' | 'delete',
     updatedAt: string
@@ -132,10 +133,19 @@ export class StorageManager {
             is.createIndex('by_status', 'status');
           }
         }
+
+        if (oldVersion < 7) {
+          // Named map views within a project (multiple maps per project).
+          if (!db.objectStoreNames.contains(STORE_PROJECT_MAPS)) {
+            const ms = db.createObjectStore(STORE_PROJECT_MAPS, { keyPath: 'id' });
+            ms.createIndex('by_project', 'project_id');
+          }
+        }
       }
     });
 
     await this.seedDefaults();
+    await this.seedMapsFromProjects();
   }
 
   private async seedDefaults(): Promise<void> {
@@ -453,6 +463,88 @@ export class StorageManager {
   async deleteProject(id: string): Promise<void> {
     await this.db.delete(STORE_PROJECTS, id);
     if (!this.applyingRemote) this.syncHook?.mark('projects', id, 'delete', new Date().toISOString());
+  }
+
+  // ---- Project Maps ----
+  async getMap(id: string): Promise<ProjectMap | undefined> {
+    return this.db.get(STORE_PROJECT_MAPS, id);
+  }
+
+  async getMapsByProject(projectId: string): Promise<ProjectMap[]> {
+    return this.db.getAllFromIndex(STORE_PROJECT_MAPS, 'by_project', projectId);
+  }
+
+  async getAllMaps(): Promise<ProjectMap[]> {
+    return this.db.getAll(STORE_PROJECT_MAPS);
+  }
+
+  async saveMap(map: ProjectMap): Promise<void> {
+    if (!this.applyingRemote) map.updated_at = new Date().toISOString();
+    await this.db.put(STORE_PROJECT_MAPS, map);
+    if (!this.applyingRemote) this.syncHook?.mark('project_maps', map.id, 'upsert', map.updated_at);
+  }
+
+  async deleteMap(id: string): Promise<void> {
+    await this.db.delete(STORE_PROJECT_MAPS, id);
+    if (!this.applyingRemote) this.syncHook?.mark('project_maps', id, 'delete', new Date().toISOString());
+  }
+
+  async deleteMapsByProject(projectId: string): Promise<void> {
+    const tx = this.db.transaction(STORE_PROJECT_MAPS, 'readwrite');
+    const index = tx.store.index('by_project');
+    let cursor = await index.openCursor(projectId);
+    while (cursor) {
+      await cursor.delete();
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+  }
+
+  async getMapCountByProject(projectId: string): Promise<number> {
+    return this.db.countFromIndex(STORE_PROJECT_MAPS, 'by_project', projectId);
+  }
+
+  /** One-time migration: for each Project that has no maps yet, create one from its legacy map fields. */
+  private async seedMapsFromProjects(): Promise<void> {
+    const projects = await this.getAllProjects();
+    const settings = await this.getAppSettings();
+    let updatedSettings = false;
+
+    for (const project of projects) {
+      const existingMaps = await this.getMapsByProject(project.id);
+      if (existingMaps.length > 0) continue;
+
+      const now = project.updated_at ?? project.created_at ?? new Date().toISOString();
+      const map: ProjectMap = {
+        id: crypto.randomUUID(),
+        project_id: project.id,
+        name: project.name,
+        basemap_stack_json: project.basemap_stack_json ?? buildDefaultProjectStack(),
+        user_layer_views: project.user_layer_views,
+        map_center: project.map_center ?? [-63.5, 45.0],
+        map_zoom: project.map_zoom ?? 10,
+        default_layer_id: project.default_layer_id ?? '',
+        created_at: project.created_at ?? now,
+        updated_at: now,
+      };
+      // Save without triggering the sync hook (this is a local migration).
+      this.applyingRemote = true;
+      try {
+        await this.db.put(STORE_PROJECT_MAPS, map);
+      } finally {
+        this.applyingRemote = false;
+      }
+
+      // Point active_map_id at the migrated map for the active project.
+      if (!settings.active_map_id && project.id === (settings.active_project_id || 'default')) {
+        settings.active_map_id = map.id;
+        updatedSettings = true;
+      }
+    }
+
+    if (updatedSettings) {
+      await this.saveSetting('app_settings', settings);
+    }
   }
 
   // ---- Shared data library layers (org-shared; synced) ----

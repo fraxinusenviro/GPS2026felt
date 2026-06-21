@@ -2,11 +2,11 @@
  * Cloud sync types (Phase 2/3 PWA ↔ Cloudflare backend).
  */
 
-import type { FieldFeature, Project, LayerPreset, TypePreset, SharedLayer } from '../types';
+import type { FieldFeature, Project, LayerPreset, TypePreset, SharedLayer, ProjectMap } from '../types';
 
 /** Entity kinds the backend syncs. Matches cloud/src/types.ts ENTITY_KINDS. */
-export type SyncKind = 'projects' | 'features' | 'layer_presets' | 'type_presets' | 'shared_layers';
-export const SYNC_KINDS: SyncKind[] = ['projects', 'features', 'layer_presets', 'type_presets', 'shared_layers'];
+export type SyncKind = 'projects' | 'features' | 'layer_presets' | 'type_presets' | 'shared_layers' | 'project_maps';
+export const SYNC_KINDS: SyncKind[] = ['projects', 'features', 'layer_presets', 'type_presets', 'shared_layers', 'project_maps'];
 
 export type SyncOp = 'upsert' | 'delete';
 
@@ -30,6 +30,7 @@ export interface ChangesResponse {
   layer_presets: Array<LayerPreset & RemoteMeta>;
   type_presets: Array<TypePreset & RemoteMeta>;
   shared_layers: Array<SharedLayer & RemoteMeta>;
+  project_maps: Array<ProjectMap & RemoteMeta>;
 }
 
 /** Metadata the backend attaches to every row it returns. */
