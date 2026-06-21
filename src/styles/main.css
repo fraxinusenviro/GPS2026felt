@@ -10454,33 +10454,13 @@ input[type=color] {
 .toolbar-section[data-sec="inventory"] > .toolbar-section-label:hover { background: rgba(134,239,172,0.2); }
 .toolbar-section[data-sec="inventory"]:not(.collapsed) > .toolbar-group { background: rgba(134,239,172,0.04); }
 
-/* Map-face Add Obs button (mirrors quick-entry-btn, sits above it) */
+/* Inventory Add-Observation button — lives in the quick-entry strip and reuses
+   .quick-entry-btn sizing/layout; only the green theme + tap-mode are overridden. */
 .inv-add-obs-btn {
-  position: absolute;
-  bottom: 168px;
-  right: 16px;
-  z-index: 65;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  width: 72px;
-  height: 72px;
-  border-radius: 14px;
-  border: 3px solid #22c55e;
+  border-color: #22c55e;
   background: linear-gradient(135deg, #15803d, #22c55e);
   color: #04210f;
-  font-weight: 700;
-  font-size: 9px;
-  cursor: pointer;
-  box-shadow: 0 4px 20px rgba(34,197,94,0.45), var(--shadow);
-  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.15s ease;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
-.inv-add-obs-btn svg { width: 22px; height: 22px; }
-.inv-add-obs-btn:active { transform: scale(0.92); }
 .inv-add-obs-btn.tap-mode {
   background: linear-gradient(135deg, #166534, #16a34a);
   outline: 3px solid #ffffff;

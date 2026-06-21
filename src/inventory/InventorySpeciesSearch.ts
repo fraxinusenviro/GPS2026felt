@@ -69,8 +69,11 @@ export class InventorySpeciesSearch {
       this.onPick?.(sp);
     });
 
-    // Defer focus a tick so it lands after the modal's open transition starts.
-    setTimeout(() => input.focus(), 0);
+    // Focus synchronously — open()→wire() runs inside the Add-Obs tap handler, so
+    // a synchronous focus preserves the user gesture and pops the mobile keyboard.
+    // (A deferred setTimeout/rAF focus would break the gesture and the on-screen
+    // keyboard would not appear on iOS/Android.)
+    input.focus();
   }
 
   private filter(q: string): void {
