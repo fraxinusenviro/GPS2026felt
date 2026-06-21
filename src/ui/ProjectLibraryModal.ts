@@ -125,7 +125,7 @@ export class ProjectLibraryModal {
                     <button class="pl-sidebar-item pl-sidebar-proj-btn${this.selectedProjectId === p.id ? ' active' : ''}"
                             data-proj-expand="${p.id}">
                       <span class="pl-proj-dot" style="background:${color}"></span>
-                      <span class="pl-sidebar-proj-name">${escHtml(p.name)}</span>
+                      <span class="pl-sidebar-proj-name" title="${escHtml(p.name)}">${escHtml(p.name)}</span>
                       <span class="pl-sidebar-count">${maps.length}</span>
                       <span class="pl-sidebar-chevron">${isExpanded ? '▾' : '▸'}</span>
                     </button>
@@ -395,7 +395,7 @@ export class ProjectLibraryModal {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
         await this.callbacks.onLoadMap(btn.dataset.mapOpen!);
-        void this.render();
+        this.close();
       });
     });
 
@@ -425,7 +425,7 @@ export class ProjectLibraryModal {
         btn.disabled = true;
         btn.textContent = 'Opening…';
         await this.callbacks.onLoadMap(btn.dataset.openMap!);
-        void this.render();
+        this.close();
       });
     });
 
@@ -603,7 +603,7 @@ export class ProjectLibraryModal {
 
   private async handleOpenAllData(): Promise<void> {
     await this.callbacks.onLoadMap(ALL_DATA_MAP_ID);
-    void this.render();
+    this.close();
   }
 
   private filterProjects(projects: Project[]): Project[] {

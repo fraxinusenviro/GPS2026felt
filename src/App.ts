@@ -2285,6 +2285,14 @@ export class App {
     document.querySelectorAll<HTMLButtonElement>('.tool-btn[data-tool]').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tool === activeTool);
     });
+    // Highlight the section header that contains the active tool
+    document.querySelectorAll<HTMLElement>('.toolbar-section').forEach(sec => {
+      sec.classList.remove('has-active-tool');
+    });
+    if (activeTool && activeTool !== 'none') {
+      const activeBtn = document.querySelector<HTMLElement>(`.tool-btn[data-tool="${activeTool}"]`);
+      activeBtn?.closest('.toolbar-section')?.classList.add('has-active-tool');
+    }
   }
 
   private updateButtonState(btnId: string, active: boolean): void {

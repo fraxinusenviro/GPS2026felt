@@ -628,11 +628,14 @@ button, input, select, textarea, optgroup {
 /* Legend pill in the left toolbar */
 .legend-pill { gap: 6px; }
 .legend-pill[data-sec="legend"] {
-  color: #fbbf24; border-color: rgba(251,191,36,0.4); background: rgba(251,191,36,0.12);
+  color: var(--color-accent); border-color: rgba(94,232,144,0.35); background: var(--color-accent-dim);
 }
-.legend-pill[data-sec="legend"]:hover { background: rgba(251,191,36,0.22); }
+.legend-pill[data-sec="legend"]:hover { background: rgba(94,232,144,0.22); }
 .legend-pill[data-sec="legend"].active {
-  background: rgba(251,191,36,0.28); border-color: rgba(251,191,36,0.7);
+  background: rgba(94,232,144,0.28); border-color: var(--color-accent);
+}
+.toolbar-section.has-active-tool > .toolbar-section-label {
+  color: var(--color-accent); border-color: rgba(94,232,144,0.35); background: var(--color-accent-dim);
 }
 .legend-pill::after { display: none !important; }
 .legend-pill-text { flex: 1; text-align: left; }
@@ -10661,7 +10664,8 @@ input[type=color] {
 .pl-all-data { font-weight: 500; }
 .pl-sidebar-icon { font-size: 14px; flex-shrink: 0; }
 .pl-proj-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.pl-sidebar-proj-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-sidebar-proj-name { flex: 1; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.pl-sidebar-proj-btn { align-items: flex-start; }
 .pl-sidebar-count { font-size: 11px; color: var(--color-text-muted); flex-shrink: 0; }
 .pl-sidebar-chevron { font-size: 10px; color: var(--color-text-muted); flex-shrink: 0; }
 .pl-sidebar-maps { padding-left: 12px; }
