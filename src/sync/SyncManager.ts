@@ -84,18 +84,20 @@ export class SyncManager implements StorageSyncHook {
   private async bootstrapIfNeeded(): Promise<void> {
     if (!this.enabled || localStorage.getItem(LS_BOOTSTRAPPED) === '1') return;
     const now = new Date().toISOString();
-    const [projects, features, layers, types, shared] = await Promise.all([
+    const [projects, features, layers, types, shared, maps] = await Promise.all([
       this.storage.getAllProjects(),
       this.storage.getAllFeatures(),
       this.storage.getAllLayerPresets(),
       this.storage.getAllTypePresets(),
       this.storage.getAllSharedLayers(),
+      this.storage.getAllMaps(),
     ]);
     for (const p of projects) this.mark('projects', p.id, 'upsert', p.updated_at ?? now);
     for (const f of features) this.mark('features', f.id, 'upsert', f.updated_at ?? now);
     for (const l of layers) this.mark('layer_presets', l.id, 'upsert', now);
     for (const t of types) this.mark('type_presets', t.id, 'upsert', now);
     for (const s of shared) this.mark('shared_layers', s.id, 'upsert', s.updated_at ?? now);
+    for (const m of maps) this.mark('project_maps', m.id, 'upsert', m.updated_at ?? now);
     localStorage.setItem(LS_BOOTSTRAPPED, '1');
   }
 
@@ -151,7 +153,7 @@ export class SyncManager implements StorageSyncHook {
     if (!this.client || this.dirty.size === 0) return;
     const entries = [...this.dirty.values()];
     const body: Record<SyncKind, Record<string, unknown>[]> = {
-      projects: [], features: [], layer_presets: [], type_presets: [], shared_layers: [],
+      projects: [], features: [], layer_presets: [], type_presets: [], shared_layers: [], project_maps: [],
     };
 
     for (const e of entries) {
@@ -199,6 +201,11 @@ export class SyncManager implements StorageSyncHook {
         const s = await this.storage.getSharedLayer(e.id);
         if (!s) return { id: e.id, deleted: true, updated_at: e.updated_at };
         return { ...s, updated_at: s.updated_at ?? e.updated_at };
+      }
+      case 'project_maps': {
+        const m = await this.storage.getMap(e.id);
+        if (!m) return { id: e.id, deleted: true, updated_at: e.updated_at };
+        return { ...m, updated_at: m.updated_at ?? e.updated_at };
       }
     }
   }
@@ -269,6 +276,7 @@ export class SyncManager implements StorageSyncHook {
       case 'layer_presets': await this.storage.saveLayerPreset(clean as never); break;
       case 'type_presets': await this.storage.saveTypePreset(clean as never); break;
       case 'shared_layers': await this.storage.saveSharedLayer(clean as never); break;
+      case 'project_maps': await this.storage.saveMap(clean as never); break;
     }
     return true;
   }
@@ -280,6 +288,7 @@ export class SyncManager implements StorageSyncHook {
       case 'layer_presets': return this.storage.getLayerPreset(id);
       case 'type_presets': return this.storage.getTypePreset(id);
       case 'shared_layers': return this.storage.getSharedLayer(id);
+      case 'project_maps': return this.storage.getMap(id);
     }
   }
 
@@ -290,6 +299,7 @@ export class SyncManager implements StorageSyncHook {
       case 'layer_presets': await this.storage.deleteLayerPreset(id); break;
       case 'type_presets': await this.storage.deleteTypePreset(id); break;
       case 'shared_layers': await this.storage.deleteSharedLayer(id); break;
+      case 'project_maps': await this.storage.deleteMap(id); break;
     }
   }
 

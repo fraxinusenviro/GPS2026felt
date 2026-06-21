@@ -1,4 +1,4 @@
-import type { AppSettings, FieldFeature, ToolMode, GeometryType, GeoJSONGeometry, LayerPreset, GPSState, ProjectBundle } from './types';
+import type { AppSettings, FieldFeature, ToolMode, GeometryType, GeoJSONGeometry, LayerPreset, GPSState, ProjectBundle, ProjectMap } from './types';
 import { StorageManager } from './storage/StorageManager';
 import { MapManager } from './map/MapManager';
 import { BasemapManager } from './map/BasemapManager';
@@ -15,6 +15,7 @@ import { ImportDataPanel } from './ui/ImportDataPanel';
 import { ExportPanel } from './ui/ExportPanel';
 import { CachePanel } from './ui/CachePanel';
 import { ProjectPanel } from './ui/ProjectPanel';
+import { ProjectLibraryModal, ALL_DATA_MAP_ID } from './ui/ProjectLibraryModal';
 import { Toast } from './ui/Toast';
 import { Modal } from './ui/Modal';
 import { LogConsole } from './ui/LogConsole';
@@ -58,6 +59,9 @@ export class App {
   private exportPanel!: ExportPanel;
   private cachePanel!: CachePanel;
   private projectPanel!: ProjectPanel;
+  private projectLibraryModal!: ProjectLibraryModal;
+  private activeMapId = '';     // currently loaded ProjectMap.id (or ALL_DATA_MAP_ID)
+  private allDataMode = false;  // true when the "All Data" virtual map is active
   private toast!: Toast;
   private modal!: Modal;
   private logConsole!: LogConsole;
@@ -220,22 +224,49 @@ export class App {
     this.statsPanel = new StatsPanel();
     this.dataLibraryModal = new DataLibraryModal();
     this.masterDataPanel = new MasterDataPanel();
+    this.projectLibraryModal = new ProjectLibraryModal();
 
-    // Load project-scoped data
-    const activeProjectId = this.settings.active_project_id || 'default';
+    // Resolve the active project and map.
+    // Prefer active_map_id (new model); fall back to active_project_id (legacy).
+    const activeMapId = this.settings.active_map_id;
+    let activeProjectId = this.settings.active_project_id || 'default';
+    let activeMap: ProjectMap | undefined;
+
+    if (activeMapId && activeMapId !== ALL_DATA_MAP_ID) {
+      activeMap = await this.storage.getMap(activeMapId);
+      if (activeMap) activeProjectId = activeMap.project_id;
+    }
+
+    if (!activeMap) {
+      // Fall back: pick the most-recently updated map for the active project
+      const maps = await this.storage.getMapsByProject(activeProjectId);
+      maps.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      activeMap = maps[0];
+    }
+
+    if (activeMap) {
+      this.activeMapId = activeMap.id;
+      this.settings.active_map_id = activeMap.id;
+      activeProjectId = activeMap.project_id;
+    }
+
     const activeProject = await this.storage.getProject(activeProjectId);
-    // Prefer localStorage (most-recent session state) over the project's IndexedDB snapshot.
-    // Falls back to the project JSON only when localStorage has no data for this project.
-    this.basemapManager.initForProject(activeProjectId, activeProject ? this.projectStackForUser(activeProject) : undefined);
-    // Persist user-driven stack changes (layers/symbology/labels) to the active
-    // project so they sync across devices.
+
+    // For the basemap stack: prefer the active map's per-user view, then the map's shared stack,
+    // then localStorage (session snapshot), then project fallback.
+    const uid = this.settings.user_id || 'USER';
+    const mapStack = activeMap
+      ? (activeMap.user_layer_views?.[uid] ?? activeMap.basemap_stack_json)
+      : (activeProject ? this.projectStackForUser(activeProject) : undefined);
+
+    this.basemapManager.initForProject(activeProjectId, mapStack);
+    // Persist user-driven stack changes (layers/symbology/labels) to the active map.
     this.basemapManager.onStackPersist = (stackJson) => this.persistStackToProject(stackJson);
     this.features = await this.storage.getFeaturesByProject(activeProjectId);
     this.projectLayerPresets = await this.storage.getLayersByProject(activeProjectId);
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     this.projectPanel.setActiveProjectId(activeProjectId);
-    const headerProjName = document.getElementById('header-project-name');
-    if (headerProjName && activeProject) headerProjName.textContent = activeProject.name;
+    this.updateHeaderNames(activeProject?.name, activeMap?.name);
     void this.wetlandsManager.renderLegend();
     void this.inventoryManager.renderLegend();
 
@@ -265,13 +296,17 @@ export class App {
       this.mapManager.resetNorthPitch();
     });
 
-    // Restore view: a URL permalink wins; otherwise fall back to the project's
-    // last-recorded extent (and finally the map's built-in default).
+    // Restore view: URL permalink wins → per-user viewport on active map → map shared defaults → project defaults.
     const appliedPermalink = this.restorePermalinkView();
-    if (!appliedPermalink && activeProject?.map_center && typeof activeProject.map_zoom === 'number') {
-      const [lng, lat] = activeProject.map_center;
-      if (Number.isFinite(lat) && Number.isFinite(lng)) {
-        this.mapManager.flyTo(lat, lng, activeProject.map_zoom);
+    if (!appliedPermalink) {
+      const userViewport = activeMap?.user_viewports?.[uid];
+      const center = userViewport?.center ?? activeMap?.map_center ?? activeProject?.map_center;
+      const zoom = userViewport?.zoom ?? activeMap?.map_zoom ?? activeProject?.map_zoom;
+      if (center && typeof zoom === 'number') {
+        const [lng, lat] = center;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          this.mapManager.flyTo(lat, lng, zoom);
+        }
       }
     }
 
@@ -410,29 +445,41 @@ export class App {
     } catch { return false; }
   }
 
-  /** Debounced: persist the basemap stack to the active project (→ cloud sync). */
+  /** Debounced: persist the basemap stack to the active map (and project for compat). */
   private persistStackToProject(stackJson: string): void {
-    // Don't persist while previewing another user's view (read-only).
-    if (this.viewingAsUser) return;
+    // Don't persist while previewing another user's view (read-only) or in All Data mode.
+    if (this.viewingAsUser || this.allDataMode) return;
     if (this.stackPersistTimer) clearTimeout(this.stackPersistTimer);
     this.stackPersistTimer = setTimeout(() => {
       void (async () => {
-        const id = this.settings.active_project_id || 'default';
+        const projectId = this.settings.active_project_id || 'default';
         const uid = this.settings.user_id || 'USER';
-        const project = await this.storage.getProject(id);
+
+        // Save to the active ProjectMap (per-user layer view).
+        if (this.activeMapId && this.activeMapId !== ALL_DATA_MAP_ID) {
+          const map = await this.storage.getMap(this.activeMapId);
+          if (map) {
+            if (map.user_layer_views?.[uid] !== stackJson) {
+              map.user_layer_views = { ...(map.user_layer_views ?? {}), [uid]: stackJson };
+              map.basemap_stack_json = stackJson;
+              await this.storage.saveMap(map);
+            }
+          }
+        }
+
+        // Also keep the project record in sync (backward compat + cloud sync of project).
+        const project = await this.storage.getProject(projectId);
         if (!project) return;
         if (project.basemap_stack_json === stackJson && project.user_layer_views?.[uid] === stackJson) return;
-        // Save this user's personal view, and keep the shared baseline in step.
         project.user_layer_views = { ...(project.user_layer_views ?? {}), [uid]: stackJson };
         project.basemap_stack_json = stackJson;
         project.updated_at = new Date().toISOString();
-        // Diagnostic: confirm shared layers are in the payload being written.
         try {
           const sharedCount = (JSON.parse(stackJson) as { stack?: Array<{ defId: string }> })
             .stack?.filter(l => l.defId?.startsWith('shared:')).length ?? 0;
-          console.info(`[App] persistStackToProject: writing project "${id}" for user "${uid}" — ${sharedCount} shared-library layer(s) in payload`);
+          console.info(`[App] persistStackToProject: writing project "${projectId}" for user "${uid}" — ${sharedCount} shared-library layer(s) in payload`);
         } catch { /* non-fatal */ }
-        await this.storage.saveProject(project); // marks dirty → syncs (LWW)
+        await this.storage.saveProject(project);
       })();
     }, 1500);
   }
@@ -1564,7 +1611,19 @@ export class App {
 
     document.getElementById('btn-project')?.addEventListener('click', () => {
       this.closeAllPanels();
-      this.projectPanel.toggle();
+      this.projectLibraryModal.open({
+        onLoadMap: (mapId) => this.loadMap(mapId),
+        onLoadProject: (projectId) => this.loadProject(projectId),
+        onCreateProject: (name, desc, templateId) => this.createProject(name, desc, templateId),
+        onCreateMap: (projectId, name) => this.createMap(projectId, name),
+        onDeleteProject: (id) => this.deleteProject(id),
+        onDeleteMap: (id) => this.deleteMap(id),
+        onRenameProject: (id, name) => this.renameProject(id, name),
+        onRenameMap: (id, name) => this.renameMap(id, name),
+        onDuplicateMap: (id) => this.duplicateMap(id),
+        onExportBundle: (projectId) => EventBus.emit('export-project-bundle', { projectId }),
+        getActiveMapId: () => this.activeMapId,
+      });
     });
 
     // PID search bar
@@ -2236,10 +2295,26 @@ export class App {
 
   private viewSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** Persist the current map view onto the active project (debounced). */
+  /** Persist the current viewport onto the active map (per-user) and project (debounced). */
   private saveProjectViewDebounced(lng: number, lat: number, zoom: number): void {
+    if (this.allDataMode) return;
     if (this.viewSaveTimer) clearTimeout(this.viewSaveTimer);
     this.viewSaveTimer = setTimeout(async () => {
+      const uid = this.settings.user_id || 'USER';
+
+      // Save to the active ProjectMap as a per-user viewport override.
+      if (this.activeMapId && this.activeMapId !== ALL_DATA_MAP_ID) {
+        const map = await this.storage.getMap(this.activeMapId);
+        if (map) {
+          map.user_viewports = {
+            ...(map.user_viewports ?? {}),
+            [uid]: { center: [lng, lat], zoom },
+          };
+          await this.storage.saveMap(map);
+        }
+      }
+
+      // Also keep project map_center/map_zoom in sync for legacy compat.
       const id = this.settings.active_project_id || 'default';
       const proj = await this.storage.getProject(id);
       if (!proj) return;
@@ -2521,79 +2596,219 @@ export class App {
     if (name) name.textContent = active?.name ?? '—';
   }
 
+  /** Update the header breadcrumb showing "ProjectName / MapName". */
+  private updateHeaderNames(projectName?: string, mapName?: string): void {
+    const projEl = document.getElementById('header-project-name');
+    const mapEl = document.getElementById('header-map-name');
+    const sepProj = document.getElementById('header-crumb-sep');
+    const sepMap = document.getElementById('header-map-sep');
+
+    if (projEl) projEl.textContent = projectName ?? '';
+    if (sepProj) sepProj.style.display = projectName ? '' : 'none';
+
+    if (mapEl) mapEl.textContent = mapName ?? '';
+    if (sepMap) sepMap.style.display = mapName ? '' : 'none';
+  }
+
   // ============================================================
-  // Project management
+  // Map management (the new primary navigation unit)
   // ============================================================
-  async loadProject(id: string): Promise<void> {
-    // If previewing another user's view, exit it WITHOUT saving the ephemeral
-    // (other user's) stack as mine — my own view was already persisted on entry.
+
+  /** Load a specific ProjectMap by ID. Handles the special "All Data" virtual map. */
+  async loadMap(mapId: string): Promise<void> {
+    if (mapId === ALL_DATA_MAP_ID) {
+      this.allDataMode = true;
+      this.activeMapId = ALL_DATA_MAP_ID;
+      this.settings.active_map_id = ALL_DATA_MAP_ID;
+      await this.storage.saveAppSettings(this.settings);
+
+      // Load ALL features from all projects (read-only overview)
+      this.features = await this.storage.getAllFeatures();
+      const allLayers = await this.storage.getAllLayerPresets();
+      this.mapManager.updateCollectedFeatures(this.features, allLayers, this.presetManager.getPresets());
+      this.updateHeaderNames(undefined, 'All Data');
+      this.projectLibraryModal.refreshIfOpen();
+
+      EventBus.emit('toast', { message: 'All Data — read-only overview', type: 'success', duration: 2000 });
+      return;
+    }
+
+    const map = await this.storage.getMap(mapId);
+    if (!map) return;
+
+    const projectId = map.project_id;
     const wasPreviewing = !!this.viewingAsUser;
-    if (wasPreviewing) {
-      this.viewingAsUser = null;
-      this.basemapManager.setViewOnly(false);
+    if (wasPreviewing) { this.viewingAsUser = null; this.basemapManager.setViewOnly(false); }
+
+    // Save current map's stack before switching (unless previewing or in All Data mode).
+    if (!wasPreviewing && this.activeMapId && this.activeMapId !== ALL_DATA_MAP_ID && !this.allDataMode) {
+      const currentMap = await this.storage.getMap(this.activeMapId);
+      if (currentMap) {
+        const uid = this.settings.user_id || 'USER';
+        const json = this.basemapManager.getCurrentStackJson();
+        currentMap.user_layer_views = { ...(currentMap.user_layer_views ?? {}), [uid]: json };
+        currentMap.basemap_stack_json = json;
+        await this.storage.saveMap(currentMap);
+      }
     }
 
-    // Save current stack to the current project before switching
-    const currentProject = await this.storage.getProject(this.settings.active_project_id || 'default');
-    if (currentProject && !wasPreviewing) {
-      const uid = this.settings.user_id || 'USER';
-      const json = this.basemapManager.getCurrentStackJson();
-      try {
-        const sharedCount = (JSON.parse(json) as { stack?: Array<{ defId: string }> })
-          .stack?.filter(l => l.defId?.startsWith('shared:')).length ?? 0;
-        console.info(`[App] loadProject: saving project "${currentProject.id}" for user "${uid}" before switch — ${sharedCount} shared-library layer(s) in stack`);
-      } catch { /* non-fatal */ }
-      currentProject.user_layer_views = { ...(currentProject.user_layer_views ?? {}), [uid]: json };
-      currentProject.basemap_stack_json = json;
-      currentProject.updated_at = new Date().toISOString();
-      await this.storage.saveProject(currentProject);
+    this.allDataMode = false;
+    this.activeMapId = mapId;
+
+    // If switching projects, reload features and layers.
+    const projectChanged = projectId !== (this.settings.active_project_id || 'default');
+    if (projectChanged) {
+      this.settings.active_project_id = projectId;
+      this.features = await this.storage.getFeaturesByProject(projectId);
+      this.projectLayerPresets = await this.storage.getLayersByProject(projectId);
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+      void this.wetlandsManager.renderLegend();
+      void this.inventoryManager.renderLegend();
     }
 
-    const project = await this.storage.getProject(id);
-    if (!project) return;
+    // Restore this map's basemap stack (user's personal view → shared stack).
+    const uid = this.settings.user_id || 'USER';
+    const stackJson = map.user_layer_views?.[uid] ?? map.basemap_stack_json;
+    if (stackJson) this.basemapManager.setActiveProjectStack(stackJson, projectId);
 
-    // Switch active project in settings
-    this.settings.active_project_id = id;
-    this.settings.default_layer_id = project.default_layer_id;
+    // Restore viewport: per-user override → map shared defaults.
+    const userViewport = map.user_viewports?.[uid];
+    const center = userViewport?.center ?? map.map_center;
+    const zoom = userViewport?.zoom ?? map.map_zoom;
+    if (center && typeof zoom === 'number') {
+      const [lng, lat] = center;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) this.mapManager.flyTo(lat, lng, zoom);
+    }
+
+    // Update settings
+    this.settings.active_map_id = mapId;
+    this.settings.default_layer_id = map.default_layer_id;
     await this.storage.saveAppSettings(this.settings);
 
-    // Restore basemap stack for the new project (this user's personal view)
-    if (project.basemap_stack_json) {
-      this.basemapManager.setActiveProjectStack(this.projectStackForUser(project), id);
-    }
-
-    // Load project features and layers
-    this.features = await this.storage.getFeaturesByProject(id);
-    this.projectLayerPresets = await this.storage.getLayersByProject(id);
-    this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
-    void this.wetlandsManager.renderLegend();
-    void this.inventoryManager.renderLegend();
-
     // Update UI
+    const project = await this.storage.getProject(projectId);
     this.captureManager.setSettings(this.settings);
     this.updateActiveLayerIndicator();
-    this.projectPanel.setActiveProjectId(id);
+    this.projectPanel.setActiveProjectId(projectId);
     this.projectPanel.refresh();
-    const projNameEl = document.getElementById('header-project-name');
-    if (projNameEl) projNameEl.textContent = project.name;
+    this.updateHeaderNames(project?.name, map.name);
+    this.projectLibraryModal.refreshIfOpen();
 
-    // Force basemap panel to re-render with new project's layer presets
+    // Force basemap panel refresh if open
     const basemapPanel = document.getElementById('basemap-panel');
     if (basemapPanel && basemapPanel.style.display !== 'none') {
       basemapPanel.style.display = 'none';
       document.getElementById('btn-basemap')?.click();
     }
 
-    // Fly to saved map view
-    if (project.map_center && project.map_zoom) {
-      this.mapManager.flyTo(project.map_center[1], project.map_center[0], project.map_zoom);
+    EventBus.emit('toast', { message: `Map: ${map.name}`, type: 'success', duration: 2000 });
+  }
+
+  /** Create a new map within a project, cloning the current basemap stack as its starting point. */
+  async createMap(projectId: string, name: string): Promise<void> {
+    const now = new Date().toISOString();
+    const uid = this.settings.user_id || 'USER';
+
+    // Use the current stack as the new map's starting point if we're in the same project.
+    const currentStack = this.settings.active_project_id === projectId
+      ? this.basemapManager.getCurrentStackJson()
+      : buildDefaultProjectStack();
+
+    // Copy active layer preset id (or use project's first layer).
+    const layers = await this.storage.getLayersByProject(projectId);
+    const defaultLayerId = layers[0]?.id ?? '';
+
+    // Inherit the current map's viewport as the new map's shared defaults.
+    const center = this.mapManager.getCenter();
+    const zoom = this.mapManager.getZoom();
+
+    const newMap: ProjectMap = {
+      id: crypto.randomUUID(),
+      project_id: projectId,
+      name,
+      basemap_stack_json: currentStack,
+      user_layer_views: { [uid]: currentStack },
+      map_center: [center.lng, center.lat],
+      map_zoom: zoom,
+      default_layer_id: defaultLayerId,
+      created_at: now,
+      updated_at: now,
+    };
+    await this.storage.saveMap(newMap);
+    await this.loadMap(newMap.id);
+  }
+
+  async deleteMap(mapId: string): Promise<void> {
+    const map = await this.storage.getMap(mapId);
+    if (!map) return;
+    await this.storage.deleteMap(mapId);
+
+    // If deleted map was active, switch to another map in same project.
+    if (this.activeMapId === mapId) {
+      const remainingMaps = await this.storage.getMapsByProject(map.project_id);
+      remainingMaps.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+      if (remainingMaps.length > 0) {
+        await this.loadMap(remainingMaps[0].id);
+      } else {
+        // Last map deleted — load project's first available, or All Data.
+        const allMaps = await this.storage.getAllMaps();
+        if (allMaps.length > 0) {
+          allMaps.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+          await this.loadMap(allMaps[0].id);
+        } else {
+          await this.loadMap(ALL_DATA_MAP_ID);
+        }
+      }
+    }
+    this.projectLibraryModal.refreshIfOpen();
+  }
+
+  async renameMap(mapId: string, name: string): Promise<void> {
+    const map = await this.storage.getMap(mapId);
+    if (!map) return;
+    map.name = name;
+    await this.storage.saveMap(map);
+    if (this.activeMapId === mapId) {
+      const project = await this.storage.getProject(this.settings.active_project_id || 'default');
+      this.updateHeaderNames(project?.name, name);
+    }
+    this.projectLibraryModal.refreshIfOpen();
+  }
+
+  async duplicateMap(mapId: string): Promise<void> {
+    const src = await this.storage.getMap(mapId);
+    if (!src) return;
+    const now = new Date().toISOString();
+    const copy: ProjectMap = {
+      ...src,
+      id: crypto.randomUUID(),
+      name: `${src.name} (copy)`,
+      created_at: now,
+      updated_at: now,
+      user_layer_views: {},
+      user_viewports: {},
+    };
+    await this.storage.saveMap(copy);
+    EventBus.emit('toast', { message: `"${copy.name}" created`, type: 'success', duration: 2000 });
+    this.projectLibraryModal.refreshIfOpen();
+  }
+
+  // ============================================================
+  // Project management
+  // ============================================================
+  async loadProject(id: string): Promise<void> {
+    // Load the most-recently updated map for this project.
+    const maps = await this.storage.getMapsByProject(id);
+    maps.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    if (maps.length > 0) {
+      await this.loadMap(maps[0].id);
+      return;
     }
 
-    EventBus.emit('toast', {
-      message: `Project: ${project.name}`,
-      type: 'success',
-      duration: 2000,
-    });
+    // No maps exist yet (edge case post-migration) — create a default one.
+    const project = await this.storage.getProject(id);
+    if (!project) return;
+    await this.createMap(id, project.name);
   }
 
   async createProject(name: string, description: string, templateId?: string): Promise<void> {
@@ -2610,6 +2825,7 @@ export class App {
       ? BasemapManager.buildStackJson(template.stackSpecs)
       : buildDefaultProjectStack();
 
+    const uid = this.settings.user_id || 'USER';
     const project = {
       id,
       name,
@@ -2622,13 +2838,29 @@ export class App {
       map_zoom: 10,
     };
     await this.storage.saveProject(project);
-    await this.loadProject(id);
+
+    // Create a default map for this project.
+    const defaultMap: ProjectMap = {
+      id: crypto.randomUUID(),
+      project_id: id,
+      name,
+      basemap_stack_json,
+      user_layer_views: { [uid]: basemap_stack_json },
+      map_center: [-63.5, 45.0],
+      map_zoom: 10,
+      default_layer_id: presets[0].id,
+      created_at: now,
+      updated_at: now,
+    };
+    await this.storage.saveMap(defaultMap);
+    await this.loadMap(defaultMap.id);
   }
 
   async deleteProject(id: string): Promise<void> {
     await this.storage.deleteFeaturesByProject(id);
     await this.storage.deleteLayersByProject(id);
     await this.storage.deleteImportedLayersByProject(id);
+    await this.storage.deleteMapsByProject(id);
     await this.storage.deleteProject(id);
 
     // If deleted project was active, switch to default
@@ -2636,6 +2868,7 @@ export class App {
       await this.loadProject('default');
     }
     this.projectPanel.refresh();
+    this.projectLibraryModal.refreshIfOpen();
   }
 
   async renameProject(id: string, name: string): Promise<void> {
@@ -2645,7 +2878,10 @@ export class App {
     project.updated_at = new Date().toISOString();
     await this.storage.saveProject(project);
     this.projectPanel.refresh();
+    this.projectLibraryModal.refreshIfOpen();
     if ((this.settings.active_project_id || 'default') === id) {
+      const activeMap = this.activeMapId ? await this.storage.getMap(this.activeMapId) : undefined;
+      this.updateHeaderNames(name, activeMap?.name);
       EventBus.emit('toast', { message: `Project renamed to "${name}"`, type: 'success', duration: 2000 });
     }
   }
@@ -2657,13 +2893,19 @@ export class App {
     const now = new Date().toISOString();
     const copy = { ...src, id: newId, name: `${src.name} (copy)`, created_at: now, updated_at: now, user_layer_views: {} };
     await this.storage.saveProject(copy);
-    // Copy layer presets from source project, assigning new ids and project_id
+    // Copy layer presets
     const srcPresets = await this.storage.getLayersByProject(id);
     for (const lp of srcPresets) {
       await this.storage.saveLayerPreset({ ...lp, id: crypto.randomUUID(), project_id: newId });
     }
+    // Copy maps
+    const srcMaps = await this.storage.getMapsByProject(id);
+    for (const m of srcMaps) {
+      await this.storage.saveMap({ ...m, id: crypto.randomUUID(), project_id: newId, created_at: now, updated_at: now, user_layer_views: {}, user_viewports: {} });
+    }
     EventBus.emit('toast', { message: `"${copy.name}" created`, type: 'success', duration: 2000 });
     this.projectPanel.refresh();
+    this.projectLibraryModal.refreshIfOpen();
   }
 
   async importProjectBundle(bundle: ProjectBundle, mode: 'new' | 'merge'): Promise<void> {

@@ -173,11 +173,30 @@ export interface Project {
   description: string;
   created_at: string;
   updated_at: string;
-  default_layer_id: string;     // active sketch layer for this project
+  color?: string;               // project accent color for visual identity in the library
+  // Legacy map-state fields — kept for backward compat; new map state lives in ProjectMap.
+  default_layer_id: string;     // active sketch layer (mirrors active ProjectMap.default_layer_id)
   basemap_stack_json: string;   // JSON-serialized StackLayer[] from BasemapManager (shared baseline)
   user_layer_views?: Record<string, string>; // per-user (user_id → stack JSON) symbology/visibility
   map_center: [number, number]; // [lng, lat]
   map_zoom: number;
+}
+
+// ---- ProjectMap — a named, saveable view within a Project ----
+// Projects own the data (features, layer presets); maps own the view (basemap
+// stack, viewport, active sketch layer). One project can have many maps.
+export interface ProjectMap {
+  id: string;
+  project_id: string;               // owning Project.id (features/layers scoped here)
+  name: string;
+  basemap_stack_json: string;       // shared canonical basemap stack for this map
+  user_layer_views?: Record<string, string>;  // per-user overrides (userId → stack JSON)
+  user_viewports?: Record<string, { center: [number, number]; zoom: number }>; // per-user viewport
+  map_center: [number, number];     // shared default viewport [lng, lat]
+  map_zoom: number;
+  default_layer_id: string;        // active sketch layer for capture in this map
+  created_at: string;
+  updated_at: string;
 }
 
 // ---- GeoJSON minimal types (typed for clarity) ----
@@ -297,7 +316,8 @@ export interface LayerPreset {
 export interface AppSettings {
   user_id: string;              // User initials / ID for point_id generation
   default_layer_id: string;
-  active_project_id: string;    // currently loaded project
+  active_project_id: string;    // currently loaded project (for feature/layer scoping)
+  active_map_id?: string;       // currently loaded map within the project
   gps_distance_tolerance: number;  // metres between GPS stream points
   gps_time_tolerance: number;      // seconds between GPS stream points
   gps_min_accuracy: number;        // minimum GPS accuracy to accept (m)
