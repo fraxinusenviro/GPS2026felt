@@ -222,7 +222,7 @@ export class SyncManager implements StorageSyncHook {
       this.storage.beginRemote();
       try {
         for (const kind of SYNC_KINDS) {
-          for (const entity of res[kind] as unknown as Array<Record<string, unknown> & RemoteMeta>) {
+          for (const entity of (res[kind] ?? []) as unknown as Array<Record<string, unknown> & RemoteMeta>) {
             if (await this.applyRemote(kind, entity)) applied++;
           }
         }
