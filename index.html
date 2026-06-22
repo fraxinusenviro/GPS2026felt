@@ -41,17 +41,6 @@
         </button>
       </div>
       <div id="header-right">
-        <div id="hud-coords">
-          <div id="hud-latlon">---, ---</div>
-          <div id="hud-utm">---</div>
-        </div>
-        <div id="gps-badge" class="gps-badge gps-unknown" title="GPS Accuracy">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M232,120h-8.34A96.14,96.14,0,0,0,136,32.34V24a8,8,0,0,0-16,0v8.34A96.14,96.14,0,0,0,32.34,120H24a8,8,0,0,0,0,16h8.34A96.14,96.14,0,0,0,120,223.66V232a8,8,0,0,0,16,0v-8.34A96.14,96.14,0,0,0,223.66,136H232a8,8,0,0,0,0-16Zm-32,16h7.6A80.15,80.15,0,0,1,136,207.6V200a8,8,0,0,0-16,0v7.6A80.15,80.15,0,0,1,48.4,136H56a8,8,0,0,0,0-16H48.4A80.15,80.15,0,0,1,120,48.4V56a8,8,0,0,0,16,0V48.4A80.15,80.15,0,0,1,207.6,120H200a8,8,0,0,0,0,16Zm-32-8a40,40,0,1,1-40-40A40,40,0,0,1,168,128Z"/></svg>
-          <span id="gps-accuracy-text">--</span>
-        </div>
-        <button id="btn-hud-toggle" class="icon-btn" title="Toggle HUD Source">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
-        </button>
         <button id="btn-theme-toggle" class="icon-btn" title="Toggle Light/Dark Mode" aria-label="Toggle theme">
           <!-- Moon icon shown in dark mode; JS swaps to sun in light mode -->
           <svg id="theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -59,6 +48,18 @@
         </button>
       </div>
     </header>
+
+    <!-- Secondary Header — coordinate HUD + GPS badge -->
+    <div id="sub-header">
+      <div id="hud-coords">
+        <div id="hud-latlon">---, ---</div>
+        <div id="hud-utm">---</div>
+      </div>
+      <div id="gps-badge" class="gps-badge gps-unknown" title="GPS Accuracy">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M232,120h-8.34A96.14,96.14,0,0,0,136,32.34V24a8,8,0,0,0-16,0v8.34A96.14,96.14,0,0,0,32.34,120H24a8,8,0,0,0,0,16h8.34A96.14,96.14,0,0,0,120,223.66V232a8,8,0,0,0,16,0v-8.34A96.14,96.14,0,0,0,223.66,136H232a8,8,0,0,0,0-16Zm-32,16h7.6A80.15,80.15,0,0,1,136,207.6V200a8,8,0,0,0-16,0v7.6A80.15,80.15,0,0,1,48.4,136H56a8,8,0,0,0,0-16H48.4A80.15,80.15,0,0,1,120,48.4V56a8,8,0,0,0,16,0V48.4A80.15,80.15,0,0,1,207.6,120H200a8,8,0,0,0,0,16Zm-32-8a40,40,0,1,1-40-40A40,40,0,0,1,168,128Z"/></svg>
+        <span id="gps-accuracy-text">--</span>
+      </div>
+    </div>
 
     <!-- Map Container -->
     <div id="map-container">
@@ -354,6 +355,10 @@
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M248,121.58a15.76,15.76,0,0,1-11.29,15l-.2.06-78,21.84-21.84,78-.06.2a15.77,15.77,0,0,1-15,11.29h-.3a15.77,15.77,0,0,1-15.07-10.67L41,61.41a1,1,0,0,1-.05-.16A16,16,0,0,1,61.25,40.9l.16.05,175.92,65.26A15.78,15.78,0,0,1,248,121.58Z"/></svg>
           <span class="tool-btn-label">Follow</span>
         </button>
+        <button id="btn-hud-toggle" class="map-ctrl-btn" title="Coord source: Crosshair">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
+          <span class="tool-btn-label" id="hud-toggle-label">X-HAIR</span>
+        </button>
         <button id="btn-crosshair" class="map-ctrl-btn" title="Toggle Crosshair" data-active="true">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M176,136h23.54A72.11,72.11,0,0,1,136,199.54V176a8,8,0,0,0-16,0v23.54A72.11,72.11,0,0,1,56.46,136H80a8,8,0,0,0,0-16H56.46A72.11,72.11,0,0,1,120,56.46V80a8,8,0,0,0,16,0V56.46A72.11,72.11,0,0,1,199.54,120H176a8,8,0,0,0,0,16Zm56-8A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>
           <span class="tool-btn-label">Crosshair</span>
@@ -368,12 +373,12 @@
         </button>
         <div class="ctrl-separator"></div>
         <button id="north-arrow" class="map-ctrl-btn north-arrow-btn" title="Reset North">
-          <svg id="north-arrow-svg" viewBox="0 0 24 24" width="34" height="34" xmlns="http://www.w3.org/2000/svg">
-            <polygon points="12,2 16,18 12,15 8,18" fill="#ef4444" stroke="none"/>
-            <polygon points="12,22 8,6 12,9 16,6" fill="rgba(255,255,255,0.3)" stroke="none"/>
-            <text x="12" y="13.5" text-anchor="middle" font-size="5" fill="#fff" font-family="sans-serif" font-weight="bold">N</text>
+          <svg id="north-arrow-svg" viewBox="0 0 24 24" width="40" height="40" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="12" r="11" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+            <polygon points="12,2 17,19 12,15.5 7,19" fill="#ef4444" stroke="none"/>
+            <polygon points="12,22 7,5 12,8.5 17,5" fill="rgba(255,255,255,0.32)" stroke="none"/>
+            <text x="12" y="14" text-anchor="middle" font-size="5.5" fill="#fff" font-family="sans-serif" font-weight="bold">N</text>
           </svg>
-          <span class="tool-btn-label">North</span>
         </button>
         </div><!-- /right-controls-body -->
       </div>

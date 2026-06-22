@@ -197,6 +197,7 @@ export interface ProjectMap {
   default_layer_id: string;        // active sketch layer for capture in this map
   created_at: string;
   updated_at: string;
+  created_by?: string;             // user_id of map creator
 }
 
 // ---- GeoJSON minimal types (typed for clarity) ----

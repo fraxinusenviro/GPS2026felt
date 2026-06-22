@@ -106,8 +106,11 @@ export class HUD {
   private updateToggleButton(): void {
     const btn = document.getElementById('btn-hud-toggle');
     if (!btn) return;
-    btn.title = this.hudSource === 'user' ? 'Showing: GPS Location' : 'Showing: Crosshair';
-    btn.classList.toggle('active', this.hudSource === 'user');
+    const isGps = this.hudSource === 'user';
+    btn.title = isGps ? 'Coord source: GPS location' : 'Coord source: Crosshair';
+    btn.classList.toggle('active', isGps);
+    const label = document.getElementById('hud-toggle-label');
+    if (label) label.textContent = isGps ? 'GPS' : 'X-HAIR';
   }
 
   private updateDisplay(lat: number, lon: number): void {
