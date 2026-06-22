@@ -535,9 +535,26 @@ button, input, select, textarea, optgroup {
   background: none;
   border: none;
   cursor: pointer;
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
 }
-#sub-header #hud-latlon { font-size: 11px; }
-#sub-header #hud-utm { font-size: 9px; }
+#sub-header #hud-latlon {
+  font-size: 13px;
+  color: #fff;
+  font-weight: 500;
+}
+#sub-header #hud-latlon::after {
+  content: '|';
+  margin: 0 7px;
+  color: rgba(255, 255, 255, 0.30);
+  font-weight: 300;
+}
+#sub-header #hud-utm {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.80);
+  font-weight: 400;
+}
 #sub-header .gps-badge {
   padding: 2px 7px;
   font-size: 11px;
