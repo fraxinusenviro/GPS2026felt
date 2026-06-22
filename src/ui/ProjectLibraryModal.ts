@@ -78,14 +78,12 @@ export class ProjectLibraryModal {
     const selectedProject = projects.find(p => p.id === this.selectedProjectId) ?? null;
     const mapsForSelected = this.selectedProjectId ? (mapsByProject.get(this.selectedProjectId) ?? []) : [];
 
-    // Feature counts per layer — fetched only when showing a project detail
-    let featuresByLayer = new Map<string, number>();
+    // Total feature count for the selected project (shown in project header only)
+    let projectFeatureCount = 0;
     if (this.view === 'project-detail' && this.selectedProjectId) {
       try {
         const features = await this.storage.getFeaturesByProject(this.selectedProjectId);
-        for (const f of features) {
-          featuresByLayer.set(f.layer_id, (featuresByLayer.get(f.layer_id) ?? 0) + 1);
-        }
+        projectFeatureCount = features.length;
       } catch { /* non-fatal */ }
     }
 
@@ -143,7 +141,7 @@ export class ProjectLibraryModal {
 
           <main class="pl-main">
             ${this.view === 'projects' ? this.renderProjectsView(projects, mapsByProject, activeMapId) : ''}
-            ${this.view === 'project-detail' && selectedProject ? this.renderProjectDetailView(selectedProject, mapsForSelected, activeMapId, featuresByLayer) : ''}
+            ${this.view === 'project-detail' && selectedProject ? this.renderProjectDetailView(selectedProject, mapsForSelected, activeMapId, projectFeatureCount) : ''}
             ${this.view === 'new-project' ? this.renderNewProjectForm() : ''}
             ${this.view === 'new-map' && selectedProject ? this.renderNewMapForm(selectedProject) : ''}
           </main>
@@ -224,11 +222,10 @@ export class ProjectLibraryModal {
     project: Project,
     maps: ProjectMap[],
     activeMapId: string,
-    featuresByLayer: Map<string, number>,
+    totalFeatures: number,
   ): string {
     const color = project.color ?? projectColor(project.id);
     const isRenaming = this.renamingId === project.id && this.renamingKind === 'project';
-    const totalFeatures = [...featuresByLayer.values()].reduce((a, b) => a + b, 0);
 
     return `
       <div class="pl-detail-header" style="border-left: 4px solid ${color}">
@@ -266,24 +263,20 @@ export class ProjectLibraryModal {
         </div>
         ${maps.length === 0
           ? `<p class="pl-empty">No maps yet. Create one to get started.</p>`
-          : maps.map(m => this.renderDetailMapCard(m, activeMapId, featuresByLayer)).join('')
+          : maps.map(m => this.renderDetailMapCard(m, activeMapId)).join('')
         }
       </div>`;
   }
 
-  private renderDetailMapCard(m: ProjectMap, activeMapId: string, featuresByLayer: Map<string, number>): string {
+  private renderDetailMapCard(m: ProjectMap, activeMapId: string): string {
     const isActive = m.id === activeMapId;
     const isRenaming = this.renamingId === m.id && this.renamingKind === 'map';
 
-    // Collect unique user IDs from user_viewports and user_layer_views
     const userSet = new Set<string>([
       ...Object.keys(m.user_viewports ?? {}),
       ...Object.keys(m.user_layer_views ?? {}),
     ]);
     const userList = [...userSet].filter(Boolean);
-
-    // Feature count: features on the map's default layer (closest available proxy)
-    const featureCount = m.default_layer_id ? (featuresByLayer.get(m.default_layer_id) ?? 0) : 0;
 
     return `
       <div class="pl-detail-map-card${isActive ? ' pl-map-active' : ''}" data-map-id="${m.id}">
@@ -312,7 +305,6 @@ export class ProjectLibraryModal {
           ${userList.length > 0
             ? `<div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Users</span><span>${userList.map(u => `<span class="pl-user-avatar" title="${escHtml(u)}">${escHtml(u.slice(0,2).toUpperCase())}</span>`).join('')}</span></div>`
             : ''}
-          <div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Features</span><span>${featureCount}</span></div>
           <div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Created</span><span>${formatDate(m.created_at)}</span></div>
           <div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Updated</span><span>${formatDate(m.updated_at)}</span></div>
         </div>
