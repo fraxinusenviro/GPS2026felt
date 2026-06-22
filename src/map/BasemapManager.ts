@@ -16,6 +16,8 @@ import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
 import { StylePicker } from '../ui/StylePicker';
 import { renderSwatchDataUrl, renderLineSwatchDataUrl, renderPolygonSwatchDataUrl } from '../ui/SymbolRenderer';
+import { WETLAND_PLOT_COLOR, UPLAND_PLOT_COLOR } from '../wetlands/wetlandSurvey';
+import { getGroupColor, TAXON_GROUP_MAP } from '../inventory/inventorySurvey';
 import { CutFillLayer } from './CutFillLayer';
 import { sampleElevationBilinear } from '../lib/cutFillEngine';
 import { CutFillRunStore, type CutFillRun } from './CutFillRunStore';
@@ -2132,31 +2134,72 @@ export class BasemapManager {
     // Wetland Plots — dedicated class (own map layers + symbology/labeling)
     const wetlandFeats = this.collectedFeatures.filter(isWetland);
     const wetlandPreset = this.featureLayerPresets.find(lp => lp.id.endsWith('-wetlands'));
+    const wetlandUpland = wetlandFeats.filter(f => String(f.wetland_data?.PLOT_TYPE ?? '').toLowerCase().includes('upland')).length;
+    const wetlandWet = wetlandFeats.length - wetlandUpland;
+    const wetlandCollapsed = this.collapsedFdGroups.has('WetlandPlot');
+    const wetlandSwatches = `
+      <div class="fd-type-row">
+        <span class="fd-swatch-dot" style="background:${WETLAND_PLOT_COLOR}"></span>
+        <span class="fd-type-label">Wetland Plot</span>
+        <span class="fd-type-count">${wetlandWet > 0 ? wetlandWet : '—'}</span>
+      </div>
+      <div class="fd-type-row">
+        <span class="fd-swatch-dot" style="background:${UPLAND_PLOT_COLOR}"></span>
+        <span class="fd-type-label">Upland Plot</span>
+        <span class="fd-type-count">${wetlandUpland > 0 ? wetlandUpland : '—'}</span>
+      </div>`;
     const wetlandGroup = (wetlandFeats.length > 0 || wetlandPreset) ? `
       <div class="fd-geom-group" data-fd-geom="WetlandPlot">
         <div class="fd-geom-header fd-geom-collapsible" data-fd-collapse="WetlandPlot">
-          <span class="fd-geom-chevron${this.collapsedFdGroups.has('WetlandPlot') ? ' fd-collapsed' : ''}">▾</span>
+          <span class="fd-geom-chevron${wetlandCollapsed ? ' fd-collapsed' : ''}">▾</span>
           <span class="fd-geom-icon fd-geom-symbol" data-fd-symbology="WetlandPlot" title="Edit symbology" role="button" tabindex="0" onclick="event.stopPropagation()">◆</span>
           <span class="fd-geom-label">Wetland Plots</span>
           ${wetlandFeats.length > 0 ? `<span class="fd-geom-count">${wetlandFeats.length}</span>` : ''}
           <button class="fd-label-btn${wetlandPreset?.show_labels !== false ? ' active' : ''}" data-fd-wetland-label="1" title="Toggle labels" onclick="event.stopPropagation()">${labelOnSvg}</button>
           <button class="vis-tog fd-group-vis fd-vis-lg${wetlandPreset?.visible !== false ? ' active' : ''}" data-fd-wetland-vis="1" title="Toggle Wetland Plots" onclick="event.stopPropagation()"></button>
         </div>
+        <div class="fd-geom-body${wetlandCollapsed ? ' fd-geom-body-collapsed' : ''}">${wetlandSwatches}</div>
       </div>` : '';
 
     // Inventory Observations — dedicated class (own map layers; taxon colour, mcode label)
     const inventoryFeats = this.collectedFeatures.filter(isInventory);
     const inventoryPreset = this.featureLayerPresets.find(lp => lp.id.endsWith('-inventory'));
+    const inventoryCollapsed = this.collapsedFdGroups.has('Inventory');
+    // Group observations by taxon group to mirror the map's per-group colouring.
+    const invGroups = new Map<string, { color: string; count: number }>();
+    for (const f of inventoryFeats) {
+      const taxon = f.inventory_data?.taxon ?? '';
+      const group = TAXON_GROUP_MAP[taxon] || taxon || 'Unknown';
+      const entry = invGroups.get(group) ?? { color: getGroupColor(taxon), count: 0 };
+      entry.count++;
+      invGroups.set(group, entry);
+    }
+    const soci = inventoryFeats.filter(f => f.inventory_data?.isSoCI).length;
+    const inventorySwatches = (invGroups.size > 0
+      ? [...invGroups.entries()].sort((a, b) => b[1].count - a[1].count).map(([group, { color, count }]) => `
+        <div class="fd-type-row">
+          <span class="fd-swatch-dot" style="background:${color}"></span>
+          <span class="fd-type-label">${escHtml(group)}</span>
+          <span class="fd-type-count">${count}</span>
+        </div>`).join('')
+      : `<div class="fd-type-row"><span class="fd-swatch-dot" style="background:#22c55e"></span><span class="fd-type-label">Observations</span><span class="fd-type-count">—</span></div>`)
+      + (soci > 0 ? `
+        <div class="fd-type-row">
+          <span class="fd-swatch-dot" style="background:#dc2626"></span>
+          <span class="fd-type-label">SoCI</span>
+          <span class="fd-type-count">${soci}</span>
+        </div>` : '');
     const inventoryGroup = (inventoryFeats.length > 0 || inventoryPreset) ? `
       <div class="fd-geom-group" data-fd-geom="Inventory">
         <div class="fd-geom-header fd-geom-collapsible" data-fd-collapse="Inventory">
-          <span class="fd-geom-chevron${this.collapsedFdGroups.has('Inventory') ? ' fd-collapsed' : ''}">▾</span>
+          <span class="fd-geom-chevron${inventoryCollapsed ? ' fd-collapsed' : ''}">▾</span>
           <span class="fd-geom-icon fd-geom-symbol" data-fd-symbology="Inventory" title="Edit symbology" role="button" tabindex="0" onclick="event.stopPropagation()">◉</span>
           <span class="fd-geom-label">Inventory Observations</span>
           ${inventoryFeats.length > 0 ? `<span class="fd-geom-count">${inventoryFeats.length}</span>` : ''}
           <button class="fd-label-btn${inventoryPreset?.show_labels !== false ? ' active' : ''}" data-fd-inventory-label="1" title="Toggle labels" onclick="event.stopPropagation()">${labelOnSvg}</button>
           <button class="vis-tog fd-group-vis fd-vis-lg${inventoryPreset?.visible !== false ? ' active' : ''}" data-fd-inventory-vis="1" title="Toggle Inventory Observations" onclick="event.stopPropagation()"></button>
         </div>
+        <div class="fd-geom-body${inventoryCollapsed ? ' fd-geom-body-collapsed' : ''}">${inventorySwatches}</div>
       </div>` : '';
 
     // Untyped features row

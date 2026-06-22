@@ -174,6 +174,7 @@ export interface Project {
   created_at: string;
   updated_at: string;
   color?: string;               // project accent color for visual identity in the library
+  thumbnail_url?: string;       // size-reduced preview image (JPEG data URL) for the library card
   // Legacy map-state fields — kept for backward compat; new map state lives in ProjectMap.
   default_layer_id: string;     // active sketch layer (mirrors active ProjectMap.default_layer_id)
   basemap_stack_json: string;   // JSON-serialized StackLayer[] from BasemapManager (shared baseline)
@@ -198,6 +199,7 @@ export interface ProjectMap {
   created_at: string;
   updated_at: string;
   created_by?: string;             // user_id of map creator
+  thumbnail_url?: string;          // size-reduced preview image (JPEG data URL) for map rows
 }
 
 // ---- GeoJSON minimal types (typed for clarity) ----

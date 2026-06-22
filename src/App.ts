@@ -1673,6 +1673,10 @@ export class App {
       this.layoutMode.startExtentSelection();
     });
 
+    document.getElementById('btn-save-preview')?.addEventListener('click', () => {
+      void this.captureMapPreview();
+    });
+
     document.getElementById('btn-share')?.addEventListener('click', () => {
       this.shareCurrentView();
     });
@@ -2506,6 +2510,80 @@ export class App {
       this.snapshotDownload(out);
     };
     logoImg.src = '/logo.png';
+  }
+
+  /**
+   * Capture a size-reduced preview of the current map view and let the user
+   * assign it to the active map, the active project, or both. Stored as a small
+   * JPEG data URL on the ProjectMap / Project records (rides through sync).
+   */
+  private async captureMapPreview(): Promise<void> {
+    const src = this.mapManager.getCanvas();
+    if (!src.width || !src.height) {
+      EventBus.emit('toast', { message: 'Map not ready for preview', type: 'error' });
+      return;
+    }
+
+    // Downscale to a thumbnail (max 360px on the long edge) and encode as JPEG.
+    const maxEdge = 360;
+    const scale = Math.min(1, maxEdge / Math.max(src.width, src.height));
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.round(src.width * scale));
+    out.height = Math.max(1, Math.round(src.height * scale));
+    const ctx = out.getContext('2d')!;
+    ctx.drawImage(src, 0, 0, out.width, out.height);
+
+    let dataUrl: string;
+    try {
+      dataUrl = out.toDataURL('image/jpeg', 0.72);
+    } catch (err) {
+      EventBus.emit('toast', { message: `Preview failed: ${(err as Error).message}`, type: 'error' });
+      return;
+    }
+
+    const projectId = this.settings.active_project_id || 'default';
+    const mapId = this.activeMapId;
+    const hasMap = !!mapId && mapId !== ALL_DATA_MAP_ID;
+
+    EventBus.emit('show-modal', {
+      title: 'Save Preview',
+      confirmLabel: 'Save Preview',
+      cancelLabel: 'Cancel',
+      html: `
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <img src="${dataUrl}" alt="Map preview" style="width:100%;border-radius:8px;border:1px solid var(--color-border)" />
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:${hasMap ? 'pointer' : 'not-allowed'};opacity:${hasMap ? '1' : '0.5'}">
+              <input type="radio" name="preview-target" value="map" ${hasMap ? 'checked' : 'disabled'} />
+              <span>This map only</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="radio" name="preview-target" value="project" ${hasMap ? '' : 'checked'} />
+              <span>This project only</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:${hasMap ? 'pointer' : 'not-allowed'};opacity:${hasMap ? '1' : '0.5'}">
+              <input type="radio" name="preview-target" value="both" ${hasMap ? '' : 'disabled'} />
+              <span>Both map and project</span>
+            </label>
+          </div>
+        </div>`,
+      onConfirm: async () => {
+        const sel = document.querySelector<HTMLInputElement>('input[name="preview-target"]:checked')?.value ?? 'project';
+        const assignMap = (sel === 'map' || sel === 'both') && hasMap;
+        const assignProject = sel === 'project' || sel === 'both';
+
+        if (assignMap) {
+          const map = await this.storage.getMap(mapId);
+          if (map) { map.thumbnail_url = dataUrl; await this.storage.saveMap(map); }
+        }
+        if (assignProject) {
+          const project = await this.storage.getProject(projectId);
+          if (project) { project.thumbnail_url = dataUrl; await this.storage.saveProject(project); }
+        }
+        this.projectLibraryModal.refreshIfOpen();
+        EventBus.emit('toast', { message: 'Preview saved', type: 'success', duration: 2000 });
+      },
+    });
   }
 
   private snapshotDownload(canvas: HTMLCanvasElement): void {
