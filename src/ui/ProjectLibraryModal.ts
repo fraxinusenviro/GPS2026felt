@@ -288,46 +288,48 @@ export class ProjectLibraryModal {
 
     return `
       <div class="pl-detail-map-card${isActive ? ' pl-map-active' : ''}" data-map-id="${m.id}">
-        <div class="pl-detail-map-header">
-          <div class="pl-map-thumb">
-            ${m.thumbnail_url
-              ? `<img class="pl-map-thumb-img" src="${m.thumbnail_url}" alt="${escHtml(m.name)} preview" />`
-              : `<span class="pl-map-thumb-icon">🗺</span>`}
-          </div>
-          <div class="pl-detail-map-title-row">
-            ${isRenaming
-              ? `<input class="pl-rename-input" id="pl-rename-input-${m.id}" value="${escHtml(m.name)}" maxlength="60" />
-                 <button class="btn btn-sm btn-primary" data-save-rename-map="${m.id}">Save</button>
-                 <button class="btn btn-sm btn-secondary" data-cancel-rename>✕</button>`
-              : `<span class="pl-detail-map-name">${escHtml(m.name)}</span>
-                 ${isActive ? `<span class="pl-active-badge">Active</span>` : ''}`
-            }
-          </div>
-          ${!isRenaming ? `
-          <div class="pl-card-menu-wrap">
-            <button class="pl-card-menu-btn" data-menu-id="map-${m.id}" title="More options">⋯</button>
-            <div class="pl-card-dropdown" id="pl-menu-map-${m.id}" style="display:none">
-              <button data-rename-map="${m.id}">✏ Rename</button>
-              <button data-dupe-map="${m.id}">⧉ Duplicate</button>
-              <button data-delete-map="${m.id}" class="pl-danger-item">🗑 Delete</button>
+        <div class="pl-map-thumb">
+          ${m.thumbnail_url
+            ? `<img class="pl-map-thumb-img" src="${m.thumbnail_url}" alt="${escHtml(m.name)} preview" />`
+            : `<span class="pl-map-thumb-icon">🗺</span>`}
+        </div>
+        <div class="pl-detail-map-content">
+          <div class="pl-detail-map-header">
+            <div class="pl-detail-map-title-row">
+              ${isRenaming
+                ? `<input class="pl-rename-input" id="pl-rename-input-${m.id}" value="${escHtml(m.name)}" maxlength="60" />
+                   <button class="btn btn-sm btn-primary" data-save-rename-map="${m.id}">Save</button>
+                   <button class="btn btn-sm btn-secondary" data-cancel-rename>✕</button>`
+                : `<span class="pl-detail-map-name">${escHtml(m.name)}</span>
+                   ${isActive ? `<span class="pl-active-badge">Active</span>` : ''}`
+              }
             </div>
-          </div>` : ''}
-        </div>
-        <div class="pl-detail-map-meta">
-          ${m.created_by
-            ? `<div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Creator</span><span>${escHtml(m.created_by)}</span></div>`
-            : ''}
-          ${userList.length > 0
-            ? `<div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Users</span><span>${userList.map(u => `<span class="pl-user-avatar" title="${escHtml(u)}">${escHtml(u.slice(0,2).toUpperCase())}</span>`).join('')}</span></div>`
-            : ''}
-          <div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Created</span><span>${formatDate(m.created_at)}</span></div>
-          <div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Updated</span><span>${formatDate(m.updated_at)}</span></div>
-        </div>
-        <div class="pl-detail-map-footer">
-          <button class="btn btn-sm ${isActive ? 'btn-secondary' : 'btn-primary'}"
-                  data-open-map="${m.id}" ${isActive ? 'disabled' : ''}>
-            ${isActive ? 'Active' : 'Open'}
-          </button>
+            ${!isRenaming ? `
+            <div class="pl-card-menu-wrap">
+              <button class="pl-card-menu-btn" data-menu-id="map-${m.id}" title="More options">⋯</button>
+              <div class="pl-card-dropdown" id="pl-menu-map-${m.id}" style="display:none">
+                <button data-rename-map="${m.id}">✏ Rename</button>
+                <button data-dupe-map="${m.id}">⧉ Duplicate</button>
+                <button data-delete-map="${m.id}" class="pl-danger-item">🗑 Delete</button>
+              </div>
+            </div>` : ''}
+          </div>
+          <div class="pl-detail-map-meta">
+            ${m.created_by
+              ? `<div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Creator</span><span>${escHtml(m.created_by)}</span></div>`
+              : ''}
+            ${userList.length > 0
+              ? `<div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Users</span><span>${userList.map(u => `<span class="pl-user-avatar" title="${escHtml(u)}">${escHtml(u.slice(0,2).toUpperCase())}</span>`).join('')}</span></div>`
+              : ''}
+            <div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Created</span><span>${formatDate(m.created_at)}</span></div>
+            <div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Updated</span><span>${formatDate(m.updated_at)}</span></div>
+          </div>
+          <div class="pl-detail-map-footer">
+            <button class="btn btn-sm ${isActive ? 'btn-secondary' : 'btn-primary'}"
+                    data-open-map="${m.id}" ${isActive ? 'disabled' : ''}>
+              ${isActive ? 'Active' : 'Open'}
+            </button>
+          </div>
         </div>
       </div>`;
   }
