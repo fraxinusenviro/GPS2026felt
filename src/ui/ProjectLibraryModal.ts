@@ -33,7 +33,7 @@ export class ProjectLibraryModal {
   private view: View = 'projects';
   private selectedProjectId: string | null = null;
   private searchQuery = '';
-  private gridMode: 'card' | 'list' = 'card';
+  private sortMode: 'name' | 'updated' | 'created' = 'name';
   private renamingId: string | null = null;
   private renamingKind: 'project' | 'map' | null = null;
 
@@ -48,6 +48,7 @@ export class ProjectLibraryModal {
     this.searchQuery = '';
     this.renamingId = null;
     this.renamingKind = null;
+    this.sortMode = 'name';
     void this.render();
     this.overlay.style.display = 'flex';
     requestAnimationFrame(() => this.overlay.classList.add('pl-open'));
@@ -101,11 +102,6 @@ export class ProjectLibraryModal {
             }
           </div>
           <div class="pl-header-right">
-            ${this.view === 'projects'
-              ? `<button class="pl-view-toggle ${this.gridMode === 'card' ? 'active' : ''}" id="pl-grid-card" title="Card view">▦</button>
-                 <button class="pl-view-toggle ${this.gridMode === 'list' ? 'active' : ''}" id="pl-grid-list" title="List view">☰</button>`
-              : ''
-            }
             <button class="pl-close-btn" id="pl-close">✕</button>
           </div>
         </div>
@@ -156,6 +152,11 @@ export class ProjectLibraryModal {
     return `
       <div class="pl-main-toolbar">
         <input class="pl-search" id="pl-search" type="text" placeholder="Search projects…" value="${escHtml(this.searchQuery)}" />
+        <select id="pl-sort" class="pl-sort-select">
+          <option value="name" ${this.sortMode === 'name' ? 'selected' : ''}>Name A→Z</option>
+          <option value="updated" ${this.sortMode === 'updated' ? 'selected' : ''}>Last Updated</option>
+          <option value="created" ${this.sortMode === 'created' ? 'selected' : ''}>Date Created</option>
+        </select>
       </div>
       <div class="pl-all-data-card${activeMapId === ALL_DATA_MAP_ID ? ' active' : ''}" id="pl-all-data-card">
         <div class="pl-all-data-icon">🌐</div>
@@ -170,7 +171,7 @@ export class ProjectLibraryModal {
       </div>
       ${filtered.length === 0
         ? `<p class="pl-empty">No projects yet. Create one to get started.</p>`
-        : `<div class="pl-grid${this.gridMode === 'list' ? ' pl-list' : ''}">
+        : `<div class="pl-grid">
             ${filtered.map(p => this.renderProjectCard(p, mapsByProject.get(p.id) ?? [], activeMapId)).join('')}
            </div>`
       }`;
@@ -185,7 +186,10 @@ export class ProjectLibraryModal {
 
     return `
       <div class="pl-card pl-project-card" data-project-id="${p.id}">
-        <div class="pl-card-accent" style="background:${color}"></div>
+        <div class="pl-card-thumb" style="background: linear-gradient(135deg, ${color}33, ${color}99)">
+          <span class="pl-card-thumb-icon">🗺</span>
+          ${activeMap ? `<span class="pl-active-badge pl-thumb-badge">Active</span>` : ''}
+        </div>
         <div class="pl-card-body">
           <div class="pl-card-header">
             ${isRenaming
@@ -193,11 +197,13 @@ export class ProjectLibraryModal {
                  <button class="btn btn-sm btn-primary" data-save-rename-proj="${p.id}">Save</button>
                  <button class="btn btn-sm btn-secondary" data-cancel-rename>✕</button>`
               : `<span class="pl-card-title">${escHtml(p.name)}</span>
-                 ${activeMap ? `<span class="pl-active-badge">Active</span>` : ''}
-                 <div class="pl-card-actions">
-                   <button class="pl-icon-btn" data-rename-proj="${p.id}" title="Rename project">✏</button>
-                   <button class="pl-icon-btn" data-export-proj="${p.id}" title="Export bundle">⬇</button>
-                   <button class="pl-icon-btn pl-danger-btn" data-delete-proj="${p.id}" title="Delete project">🗑</button>
+                 <div class="pl-card-menu-wrap">
+                   <button class="pl-card-menu-btn" data-menu-proj="${p.id}" title="More options">⋯</button>
+                   <div class="pl-card-dropdown" id="pl-menu-${p.id}" style="display:none">
+                     <button data-rename-proj="${p.id}">✏ Rename</button>
+                     <button data-export-proj="${p.id}">⬇ Export</button>
+                     <button data-delete-proj="${p.id}" class="pl-danger-item">🗑 Delete</button>
+                   </div>
                  </div>`
             }
           </div>
@@ -371,10 +377,6 @@ export class ProjectLibraryModal {
   private wireEvents(projects: Project[], _allMaps: ProjectMap[], mapsByProject: Map<string, ProjectMap[]>): void {
     this.overlay.querySelector('#pl-close')?.addEventListener('click', () => this.close());
 
-    this.overlay.addEventListener('click', (e) => {
-      if (e.target === this.overlay) this.close();
-    });
-
     this.overlay.querySelector('#pl-back')?.addEventListener('click', () => {
       if (this.view === 'new-map') {
         this.view = 'project-detail';
@@ -390,8 +392,32 @@ export class ProjectLibraryModal {
       void this.render();
     });
 
-    this.overlay.querySelector('#pl-grid-card')?.addEventListener('click', () => { this.gridMode = 'card'; void this.render(); });
-    this.overlay.querySelector('#pl-grid-list')?.addEventListener('click', () => { this.gridMode = 'list'; void this.render(); });
+    this.overlay.querySelector<HTMLSelectElement>('#pl-sort')?.addEventListener('change', (e) => {
+      this.sortMode = (e.target as HTMLSelectElement).value as 'name' | 'updated' | 'created';
+      void this.render();
+    });
+
+    // Ellipsis card menus
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-menu-proj]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.menuProj!;
+        const dropdown = this.overlay.querySelector<HTMLElement>(`#pl-menu-${id}`);
+        if (!dropdown) return;
+        const isOpen = dropdown.style.display !== 'none';
+        // Close all dropdowns
+        this.overlay.querySelectorAll<HTMLElement>('.pl-card-dropdown').forEach(d => { d.style.display = 'none'; });
+        if (!isOpen) dropdown.style.display = 'block';
+      });
+    });
+
+    // Close dropdowns when clicking outside
+    this.overlay.addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('.pl-card-menu-wrap')) {
+        this.overlay.querySelectorAll<HTMLElement>('.pl-card-dropdown').forEach(d => { d.style.display = 'none'; });
+      }
+      if (e.target === this.overlay) this.close();
+    });
 
     this.overlay.querySelector('#pl-all-data')?.addEventListener('click', () => this.handleOpenAllData());
     this.overlay.querySelector('#pl-open-all-data')?.addEventListener('click', () => this.handleOpenAllData());
@@ -618,12 +644,18 @@ export class ProjectLibraryModal {
   }
 
   private filterProjects(projects: Project[]): Project[] {
-    if (!this.searchQuery) return projects;
     const q = this.searchQuery.toLowerCase();
-    return projects.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      (p.description ?? '').toLowerCase().includes(q)
-    );
+    const filtered = q
+      ? projects.filter(p =>
+          p.name.toLowerCase().includes(q) ||
+          (p.description ?? '').toLowerCase().includes(q)
+        )
+      : [...projects];
+    return filtered.sort((a, b) => {
+      if (this.sortMode === 'name') return a.name.localeCompare(b.name);
+      if (this.sortMode === 'updated') return b.updated_at.localeCompare(a.updated_at);
+      return b.created_at.localeCompare(a.created_at);
+    });
   }
 }
 

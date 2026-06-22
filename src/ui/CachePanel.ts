@@ -104,6 +104,15 @@ export class CachePanel {
             <button class="btn-primary" id="cache-export-btn">Export Offline Map</button>
           </div>
           <div class="settings-section">
+            <h4>Upload Custom Tiles</h4>
+            <p class="settings-hint">Add MBTiles files you've created externally (e.g. from QGIS or MapTiler) to your offline tile library.</p>
+            <label class="btn btn-outline cache-mbtiles-upload-label" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;margin-top:4px">
+              ⬆ Choose .mbtiles file
+              <input type="file" id="cache-mbtiles-upload" accept=".mbtiles" style="display:none" />
+            </label>
+            <div id="cache-mbtiles-status" class="settings-hint" style="margin-top:6px"></div>
+          </div>
+          <div class="settings-section">
             <h4>Saved offline maps</h4>
             <div id="cache-saved-list" class="cache-saved-list"><div class="cache-loading">Loading…</div></div>
           </div>
@@ -116,6 +125,7 @@ export class CachePanel {
     document.getElementById('cache-close')?.addEventListener('click', () => this.close());
     document.getElementById('cache-done')?.addEventListener('click', () => this.close());
     this.wirePanel();
+    this.wireMbtilesUpload();
     this.refreshExtent();
     void this.renderSavedList();
   }
@@ -167,6 +177,27 @@ export class CachePanel {
         EventBus.emit('toast', { message: `Offline map "${m.name}" deleted`, type: 'info', duration: 2000 });
         this.renderSavedList();
       });
+    });
+  }
+
+  private wireMbtilesUpload(): void {
+    const input = document.getElementById('cache-mbtiles-upload') as HTMLInputElement | null;
+    const status = document.getElementById('cache-mbtiles-status');
+    if (!input) return;
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file || !file.name.endsWith('.mbtiles')) return;
+      if (status) status.textContent = 'Importing…';
+      input.value = '';
+      try {
+        await this.importManager.importFile(file);
+        if (status) status.textContent = '';
+        EventBus.emit('toast', { message: 'MBTiles added to data library', type: 'success', duration: 2500 });
+        void this.renderSavedList();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (status) status.textContent = `Error: ${msg}`;
+      }
     });
   }
 

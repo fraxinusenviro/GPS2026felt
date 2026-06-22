@@ -336,7 +336,7 @@ export interface AppSettings {
   map_bg_color?: string;
   outdoor_mode: boolean;
   theme: 'dark' | 'light';
-  font_family?: 'default' | 'oswald';
+  font_family?: 'default' | 'oswald' | 'lato' | 'roboto-condensed';
   theme_color?: string;
   ui_style?: 'default' | 'topograph';
   // ---- Inventory module ----
