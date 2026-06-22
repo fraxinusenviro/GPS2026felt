@@ -246,6 +246,37 @@
 [data-theme="light"] .toolbar-section[data-sec="share"] > .toolbar-section-label:hover { background: rgba(67, 56, 202, 0.24); }
 [data-theme="light"] .toolbar-section[data-sec="share"]:not(.collapsed) > .toolbar-group { background: rgba(67, 56, 202, 0.05); }
 
+/* Neutralize the per-section multi-colour pill styling in light mode — every
+   collapsed toolbar pill uses the same neutral dark-bordered treatment as the
+   dark theme; hover and expanded states resolve to the single accent colour.
+   Placed after the per-section blocks above to win on equal specificity. */
+[data-theme="light"] .toolbar-section[data-sec] > .toolbar-section-label {
+  color: var(--color-text-muted);
+  background: transparent;
+  border-color: var(--color-border);
+  font-weight: 700;
+}
+[data-theme="light"] .toolbar-section[data-sec] > .toolbar-section-label:hover {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  border-color: var(--color-accent-border);
+}
+[data-theme="light"] .toolbar-section[data-sec]:not(.collapsed) > .toolbar-section-label {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  border-color: transparent;
+}
+[data-theme="light"] .toolbar-section[data-sec].has-active-tool > .toolbar-section-label {
+  color: var(--color-accent);
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent-border);
+}
+[data-theme="light"] .toolbar-section[data-sec].has-active-tool:not(.collapsed) > .toolbar-section-label {
+  color: var(--color-accent-text);
+  background: var(--color-accent);
+  border-color: transparent;
+}
+
 /* Tool buttons in light mode — glow ring for active, no icon recolour */
 [data-theme="light"] .tool-btn { color: var(--color-text-muted); }
 [data-theme="light"] .tool-btn:hover { color: var(--color-accent); }
@@ -688,7 +719,12 @@ button, input, select, textarea, optgroup {
   background: rgba(94,232,144,0.28); border-color: var(--color-accent);
 }
 .toolbar-section.has-active-tool > .toolbar-section-label {
-  color: var(--color-accent); border-color: rgba(94,232,144,0.35); background: var(--color-accent-dim);
+  color: var(--color-accent); border-color: var(--color-accent-border); background: var(--color-accent-dim);
+}
+/* Active-tool pill while its section is expanded — keep the solid-accent fill
+   consistent with every other expanded pill (avoid a second, conflicting style). */
+.toolbar-section.has-active-tool:not(.collapsed) > .toolbar-section-label {
+  color: var(--color-accent-text); border-color: transparent; background: var(--color-accent);
 }
 .legend-pill::after { display: none !important; }
 .legend-pill-text { flex: 1; text-align: left; }
@@ -3403,16 +3439,18 @@ input[type=color] {
   padding: 2px 5px; border-radius: 4px; line-height: 1;
   transition: background 0.1s, color 0.1s;
 }
-.bm-row-menu-btn:hover { background: rgba(255,255,255,0.08); color: var(--color-text); }
+.bm-row-menu-btn:hover { background: var(--color-accent-dim); color: var(--color-text); }
 .bm-row-dropdown {
   position: absolute;
   top: calc(100% + 2px);
   right: 0;
   min-width: 150px;
-  background: var(--color-panel-bg, #1a1f2e);
+  background: var(--color-surface-2);
+  backdrop-filter: var(--backdrop);
+  -webkit-backdrop-filter: var(--backdrop);
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  box-shadow: var(--shadow);
   z-index: 300;
   overflow: hidden;
 }
@@ -3423,9 +3461,9 @@ input[type=color] {
   padding: 7px 12px;
   transition: background 0.1s;
 }
-.bm-row-dropdown button:hover { background: rgba(255,255,255,0.07); }
+.bm-row-dropdown button:hover { background: var(--color-accent-dim); }
 .bm-row-dropdown .bm-dd-del { color: var(--color-danger, #ef4444); }
-.bm-row-dropdown .bm-dd-del:hover { background: rgba(239,68,68,0.12); }
+.bm-row-dropdown .bm-dd-del:hover { background: var(--color-danger-dim); }
 
 /* Palette grid */
 .bm-palette {
@@ -6002,6 +6040,13 @@ input[type=color] {
 .fd-type-row.fd-hidden .fd-type-label,
 .fd-type-row.fd-hidden .fd-type-count { opacity: 0.35; }
 .fd-type-swatch { flex-shrink: 0; }
+.fd-swatch-dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  flex-shrink: 0;
+  border: 1.5px solid rgba(255,255,255,0.85);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.25);
+}
+[data-theme="light"] .fd-swatch-dot { border-color: rgba(255,255,255,0.95); box-shadow: 0 0 0 1px rgba(0,0,0,0.3); }
 .fd-type-label {
   font-size: 12px;
   color: var(--color-text);
@@ -10737,6 +10782,14 @@ input[type=color] {
   transition: border-color 0.15s, background 0.15s;
 }
 .pl-card:hover { border-color: rgba(74,180,120,0.35); background: rgba(255,255,255,0.06); }
+/* When a card's ⋯ menu is open, lift it above siblings and let the dropdown
+   escape the card's clipped bounds. */
+.pl-card.pl-menu-open,
+.pl-detail-map-card.pl-menu-open {
+  overflow: visible;
+  position: relative;
+  z-index: 20;
+}
 
 /* Gradient thumbnail */
 .pl-card-thumb {
@@ -10746,8 +10799,11 @@ input[type=color] {
   justify-content: center;
   flex-shrink: 0;
   position: relative;
+  border-radius: 8px 8px 0 0;
+  overflow: hidden;
 }
 .pl-card-thumb-icon { font-size: 28px; }
+.pl-card-thumb-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pl-thumb-badge {
   position: absolute;
   top: 6px;
@@ -10775,16 +10831,18 @@ input[type=color] {
   padding: 2px 6px; border-radius: 5px; line-height: 1;
   transition: background 0.12s, color 0.12s;
 }
-.pl-card-menu-btn:hover { background: rgba(255,255,255,0.1); color: var(--color-text); }
+.pl-card-menu-btn:hover { background: var(--color-accent-dim); color: var(--color-text); }
 .pl-card-dropdown {
   position: absolute;
   top: calc(100% + 2px);
   right: 0;
   min-width: 140px;
-  background: var(--color-panel-bg, #1a1f2e);
+  background: var(--color-surface-2);
+  backdrop-filter: var(--backdrop);
+  -webkit-backdrop-filter: var(--backdrop);
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+  box-shadow: var(--shadow);
   z-index: 200;
   overflow: hidden;
 }
@@ -10795,9 +10853,9 @@ input[type=color] {
   padding: 8px 12px;
   transition: background 0.1s;
 }
-.pl-card-dropdown button:hover { background: rgba(255,255,255,0.07); }
+.pl-card-dropdown button:hover { background: var(--color-accent-dim); }
 .pl-card-dropdown .pl-danger-item { color: var(--color-danger, #ef4444); }
-.pl-card-dropdown .pl-danger-item:hover { background: rgba(239,68,68,0.12); }
+.pl-card-dropdown .pl-danger-item:hover { background: var(--color-danger-dim); }
 
 .pl-card-body {
   padding: 12px;
@@ -10856,6 +10914,7 @@ input[type=color] {
   border: 1px solid var(--color-border); overflow: hidden;
 }
 .pl-map-thumb-icon { font-size: 22px; }
+.pl-map-thumb-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pl-map-active { border-color: var(--color-accent, #4ade80); background: rgba(74,180,120,0.07); }
 
 /* ── Maps view header ── */

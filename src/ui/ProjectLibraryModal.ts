@@ -186,8 +186,10 @@ export class ProjectLibraryModal {
 
     return `
       <div class="pl-card pl-project-card" data-project-id="${p.id}">
-        <div class="pl-card-thumb" style="background: linear-gradient(135deg, ${color}33, ${color}99)">
-          <span class="pl-card-thumb-icon">🗺</span>
+        <div class="pl-card-thumb"${p.thumbnail_url ? '' : ` style="background: linear-gradient(135deg, ${color}33, ${color}99)"`}>
+          ${p.thumbnail_url
+            ? `<img class="pl-card-thumb-img" src="${p.thumbnail_url}" alt="${escHtml(p.name)} preview" />`
+            : `<span class="pl-card-thumb-icon">🗺</span>`}
           ${activeMap ? `<span class="pl-active-badge pl-thumb-badge">Active</span>` : ''}
         </div>
         <div class="pl-card-body">
@@ -198,7 +200,7 @@ export class ProjectLibraryModal {
                  <button class="btn btn-sm btn-secondary" data-cancel-rename>✕</button>`
               : `<span class="pl-card-title">${escHtml(p.name)}</span>
                  <div class="pl-card-menu-wrap">
-                   <button class="pl-card-menu-btn" data-menu-proj="${p.id}" title="More options">⋯</button>
+                   <button class="pl-card-menu-btn" data-menu-id="${p.id}" title="More options">⋯</button>
                    <div class="pl-card-dropdown" id="pl-menu-${p.id}" style="display:none">
                      <button data-rename-proj="${p.id}">✏ Rename</button>
                      <button data-export-proj="${p.id}">⬇ Export</button>
@@ -287,8 +289,12 @@ export class ProjectLibraryModal {
     return `
       <div class="pl-detail-map-card${isActive ? ' pl-map-active' : ''}" data-map-id="${m.id}">
         <div class="pl-detail-map-header">
+          <div class="pl-map-thumb">
+            ${m.thumbnail_url
+              ? `<img class="pl-map-thumb-img" src="${m.thumbnail_url}" alt="${escHtml(m.name)} preview" />`
+              : `<span class="pl-map-thumb-icon">🗺</span>`}
+          </div>
           <div class="pl-detail-map-title-row">
-            <span class="pl-map-thumb-icon" style="font-size:18px">🗺</span>
             ${isRenaming
               ? `<input class="pl-rename-input" id="pl-rename-input-${m.id}" value="${escHtml(m.name)}" maxlength="60" />
                  <button class="btn btn-sm btn-primary" data-save-rename-map="${m.id}">Save</button>
@@ -298,10 +304,13 @@ export class ProjectLibraryModal {
             }
           </div>
           ${!isRenaming ? `
-          <div class="pl-card-actions">
-            <button class="pl-icon-btn" data-rename-map="${m.id}" title="Rename map">✏</button>
-            <button class="pl-icon-btn" data-dupe-map="${m.id}" title="Duplicate map">⧉</button>
-            <button class="pl-icon-btn pl-danger-btn" data-delete-map="${m.id}" title="Delete map">🗑</button>
+          <div class="pl-card-menu-wrap">
+            <button class="pl-card-menu-btn" data-menu-id="map-${m.id}" title="More options">⋯</button>
+            <div class="pl-card-dropdown" id="pl-menu-map-${m.id}" style="display:none">
+              <button data-rename-map="${m.id}">✏ Rename</button>
+              <button data-dupe-map="${m.id}">⧉ Duplicate</button>
+              <button data-delete-map="${m.id}" class="pl-danger-item">🗑 Delete</button>
+            </div>
           </div>` : ''}
         </div>
         <div class="pl-detail-map-meta">
@@ -397,24 +406,31 @@ export class ProjectLibraryModal {
       void this.render();
     });
 
-    // Ellipsis card menus
-    this.overlay.querySelectorAll<HTMLButtonElement>('[data-menu-proj]').forEach(btn => {
+    // Ellipsis card menus (project cards + map rows share the same markup pattern)
+    const closeAllMenus = () => {
+      this.overlay.querySelectorAll<HTMLElement>('.pl-card-dropdown').forEach(d => { d.style.display = 'none'; });
+      this.overlay.querySelectorAll<HTMLElement>('.pl-menu-open').forEach(c => c.classList.remove('pl-menu-open'));
+    };
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-menu-id]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const id = btn.dataset.menuProj!;
+        const id = btn.dataset.menuId!;
         const dropdown = this.overlay.querySelector<HTMLElement>(`#pl-menu-${id}`);
         if (!dropdown) return;
         const isOpen = dropdown.style.display !== 'none';
-        // Close all dropdowns
-        this.overlay.querySelectorAll<HTMLElement>('.pl-card-dropdown').forEach(d => { d.style.display = 'none'; });
-        if (!isOpen) dropdown.style.display = 'block';
+        closeAllMenus();
+        if (!isOpen) {
+          dropdown.style.display = 'block';
+          // Lift the host card above siblings and let the menu escape its clipped bounds
+          btn.closest('.pl-card, .pl-detail-map-card')?.classList.add('pl-menu-open');
+        }
       });
     });
 
     // Close dropdowns when clicking outside
     this.overlay.addEventListener('click', (e) => {
       if (!(e.target as HTMLElement).closest('.pl-card-menu-wrap')) {
-        this.overlay.querySelectorAll<HTMLElement>('.pl-card-dropdown').forEach(d => { d.style.display = 'none'; });
+        closeAllMenus();
       }
       if (e.target === this.overlay) this.close();
     });
