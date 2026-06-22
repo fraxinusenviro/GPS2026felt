@@ -649,6 +649,12 @@ export class App {
     if (settings.font_family === 'oswald') {
       root.style.setProperty('--font', "'Oswald', system-ui, sans-serif");
       root.setAttribute('data-font', 'oswald');
+    } else if (settings.font_family === 'lato') {
+      root.style.setProperty('--font', "'Lato', system-ui, sans-serif");
+      root.setAttribute('data-font', 'lato');
+    } else if (settings.font_family === 'roboto-condensed') {
+      root.style.setProperty('--font', "'Roboto Condensed', system-ui, sans-serif");
+      root.setAttribute('data-font', 'roboto-condensed');
     } else {
       root.style.removeProperty('--font');
       root.removeAttribute('data-font');

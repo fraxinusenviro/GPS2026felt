@@ -1215,14 +1215,14 @@ export class BasemapManager {
     const map = this.mapManager.getMap();
     const vis = l.visible ? 'visible' : 'none';
     const op = l.opacity ?? 1;
-    for (const suffix of ['fill', 'line', 'point'] as const) {
+    for (const suffix of ['fill', 'casing', 'line', 'point', 'labels', 'icons'] as const) {
       const id = `${baseId}-${suffix}`;
       if (!map.getLayer(id)) continue;
       map.setLayoutProperty(id, 'visibility', vis);
       if (!l.symbologyState) {
         if (suffix === 'fill') map.setPaintProperty(id, 'fill-opacity', op * 0.4);
-        else if (suffix === 'line') map.setPaintProperty(id, 'line-opacity', op);
-        else map.setPaintProperty(id, 'circle-opacity', op);
+        else if (suffix === 'line' || suffix === 'casing') map.setPaintProperty(id, 'line-opacity', op);
+        else if (suffix === 'point') map.setPaintProperty(id, 'circle-opacity', op);
       }
     }
   }
@@ -2729,9 +2729,15 @@ export class BasemapManager {
           ${isBase ? '<span class="bm-base-badge">B</span>' : ''}
           <button class="vis-tog bm-vis-btn ${layer.visible ? 'active' : ''}" data-iid="${layer.instanceId}" title="${layer.visible ? 'Hide' : 'Show'}"></button>
           ${hasStylePanel ? `<button class="bm-adj-toggle" data-iid="${layer.instanceId}" title="${adjTitle}">${adjSvg}</button>` : ''}
-          <button class="bm-dup-btn" data-iid="${layer.instanceId}" title="Duplicate layer" style="background:none;border:1px solid var(--color-border);border-radius:4px;color:var(--color-text-dim);cursor:pointer;padding:2px 5px;font-size:12px;flex-shrink:0">⧉</button>
-          ${ltype === 'geojson' ? `<button class="bm-adj-toggle bm-stack-attrs" data-iid="${layer.instanceId}" title="Attribute table"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M224,48H32a8,8,0,0,0-8,8V192a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A8,8,0,0,0,224,48ZM40,112H80v32H40Zm56,0H216v32H96ZM216,64V96H40V64ZM40,160H80v32H40Zm176,32H96V160H216v32Z"/></svg></button>` : ''}
-          ${this.stack.length > 1 ? `<button class="bm-del-btn" data-iid="${layer.instanceId}" title="Remove">✕</button>` : ''}
+          <div class="bm-row-menu-wrap">
+            <button class="bm-row-menu-btn" data-iid="${layer.instanceId}" title="More options">⋯</button>
+            <div class="bm-row-dropdown" data-iid="${layer.instanceId}" style="display:none">
+              ${ltype === 'geojson' ? `<button class="bm-dd-attrs" data-iid="${layer.instanceId}">📋 Attributes</button>` : ''}
+              <button class="bm-dd-zoom" data-iid="${layer.instanceId}">🔍 Zoom to Layer</button>
+              <button class="bm-dd-dup" data-iid="${layer.instanceId}">⧉ Duplicate</button>
+              ${this.stack.length > 1 ? `<button class="bm-dd-del" data-iid="${layer.instanceId}">✕ Remove</button>` : ''}
+            </div>
+          </div>
         </div>
         ${isVectorLayer ? vecStylePanel : isHrdem ? hrdemAdjPanel : isCogContour ? cogContourAdjPanel : `<div class="bm-adj-panel" data-iid="${layer.instanceId}" style="display:none">
           <div class="bm-adj-row">
@@ -3335,25 +3341,30 @@ export class BasemapManager {
       });
     });
 
-    // Remove buttons
-    container.querySelectorAll<HTMLButtonElement>('.bm-del-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (btn.dataset.confirm === '1') {
-          this.removeFromStack(btn.dataset.iid!);
-          this.renderContent(container, onClose);
-          return;
-        }
-        btn.dataset.confirm = '1';
-        btn.textContent = 'Remove?';
-        btn.classList.add('bm-del-confirm');
-        const t = setTimeout(() => { btn.dataset.confirm = ''; btn.textContent = '✕'; btn.classList.remove('bm-del-confirm'); }, 3000);
-        btn.addEventListener('blur', () => { clearTimeout(t); btn.dataset.confirm = ''; btn.textContent = '✕'; btn.classList.remove('bm-del-confirm'); }, { once: true });
+    // Ellipsis row menu
+    container.querySelectorAll<HTMLButtonElement>('.bm-row-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const iid = btn.dataset.iid!;
+        const dropdown = container.querySelector<HTMLElement>(`.bm-row-dropdown[data-iid="${iid}"]`);
+        if (!dropdown) return;
+        const isOpen = dropdown.style.display !== 'none';
+        container.querySelectorAll<HTMLElement>('.bm-row-dropdown').forEach(d => { d.style.display = 'none'; });
+        if (!isOpen) dropdown.style.display = 'block';
       });
     });
 
-    container.querySelectorAll<HTMLButtonElement>('.bm-dup-btn').forEach(btn => {
+    document.addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('.bm-row-menu-wrap')) {
+        container.querySelectorAll<HTMLElement>('.bm-row-dropdown').forEach(d => { d.style.display = 'none'; });
+      }
+    });
+
+    // Duplicate via dropdown
+    container.querySelectorAll<HTMLButtonElement>('.bm-dd-dup').forEach(btn => {
       btn.addEventListener('click', () => {
         const iid = btn.dataset.iid!;
+        container.querySelectorAll<HTMLElement>('.bm-row-dropdown').forEach(d => { d.style.display = 'none'; });
         const src = this.stack.find(l => l.instanceId === iid);
         if (!src) return;
         const clone: StackLayer = { ...src, instanceId: `${src.defId}-${Date.now()}`, label: `${src.label} (copy)` };
@@ -3362,6 +3373,48 @@ export class BasemapManager {
         this.saveStack();
         this.rebuildMap();
         this.renderContent(container, onClose);
+      });
+    });
+
+    // Remove via dropdown
+    container.querySelectorAll<HTMLButtonElement>('.bm-dd-del').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        container.querySelectorAll<HTMLElement>('.bm-row-dropdown').forEach(d => { d.style.display = 'none'; });
+        this.removeFromStack(iid);
+        this.renderContent(container, onClose);
+      });
+    });
+
+    // Zoom to layer via dropdown
+    container.querySelectorAll<HTMLButtonElement>('.bm-dd-zoom').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iid = btn.dataset.iid!;
+        container.querySelectorAll<HTMLElement>('.bm-row-dropdown').forEach(d => { d.style.display = 'none'; });
+        const layer = this.stack.find(l => l.instanceId === iid);
+        if (!layer) return;
+        const map = this.mapManager.getMap();
+        if (!map) return;
+        const features = map.querySourceFeatures(iid);
+        if (!features.length) {
+          EventBus.emit('toast', { message: 'No features to zoom to — enable the layer first', type: 'info', duration: 2500 });
+          return;
+        }
+        let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+        const processCoords = (coords: unknown): void => {
+          if (!Array.isArray(coords)) return;
+          if (typeof coords[0] === 'number') {
+            const [lng, lat] = coords as [number, number];
+            minLng = Math.min(minLng, lng); minLat = Math.min(minLat, lat);
+            maxLng = Math.max(maxLng, lng); maxLat = Math.max(maxLat, lat);
+          } else {
+            for (const c of coords) processCoords(c);
+          }
+        };
+        for (const f of features) processCoords(f.geometry && 'coordinates' in f.geometry ? f.geometry.coordinates : []);
+        if (isFinite(minLng)) {
+          map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, maxZoom: 18, duration: 600 });
+        }
       });
     });
 
@@ -4143,10 +4196,11 @@ export class BasemapManager {
       });
     });
 
-    // Stack GeoJSON attribute table
-    container.querySelectorAll<HTMLButtonElement>('.bm-stack-attrs').forEach(btn => {
+    // Stack GeoJSON attribute table (via dropdown)
+    container.querySelectorAll<HTMLButtonElement>('.bm-dd-attrs').forEach(btn => {
       btn.addEventListener('click', () => {
         const iid = btn.dataset.iid!;
+        container.querySelectorAll<HTMLElement>('.bm-row-dropdown').forEach(d => { d.style.display = 'none'; });
         const layer = this.stack.find(l => l.instanceId === iid);
         if (!layer) return;
         const feats = this.geojsonOverlays.get(iid) ?? [];

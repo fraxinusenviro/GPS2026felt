@@ -146,6 +146,16 @@ export class InventoryManager {
 
   private async recordObservation(sp: SpeciesRecord, lng: number, lat: number): Promise<void> {
     if (!this.active) return;
+    const isDuplicate = this.active.observations.some(o =>
+      (sp.elcode && o.species.elcode === sp.elcode) || (sp.mcode && o.species.mcode === sp.mcode)
+    );
+    if (isDuplicate) {
+      const name = sp.commonName || sp.mcode || sp.taxon;
+      const ok = confirm(
+        `"${name}" is already recorded in this session.\n\nAdd again? (Appropriate for SAR & SoCI multi-occurrence surveys)`
+      );
+      if (!ok) return;
+    }
     const obs: InventoryObservation = {
       id: crypto.randomUUID(), species: sp, timestamp: Date.now(),
       lat: parseFloat(lat.toFixed(6)), lon: parseFloat(lng.toFixed(6)), notes: '',

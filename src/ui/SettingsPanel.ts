@@ -100,7 +100,7 @@ export class SettingsPanel {
 
           <!-- Display -->
           <div class="settings-section" data-section="display">
-            <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M232,64V176a24,24,0,0,1-24,24H48a24,24,0,0,1-24-24V64A24,24,0,0,1,48,40H208A24,24,0,0,1,232,64ZM160,216H96a8,8,0,0,0,0,16h64a8,8,0,0,0,0-16Z"/></svg>Display${CHEVRON_SVG}</h4>
+            <h4 class="section-toggle"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="16" height="16"><path d="M232,64V176a24,24,0,0,1-24,24H48a24,24,0,0,1-24-24V64A24,24,0,0,1,48,40H208A24,24,0,0,1,232,64ZM160,216H96a8,8,0,0,0,0,16h64a8,8,0,0,0,0-16Z"/></svg>DISPLAY & APPEARANCE${CHEVRON_SVG}</h4>
             <div class="settings-section-body">
               <label>Coordinate Format
                 <select id="s-coord-fmt">
@@ -148,6 +148,8 @@ export class SettingsPanel {
                 <select id="s-font-family">
                   <option value="default" ${(this.settings.font_family ?? 'default') === 'default' ? 'selected' : ''}>Default (System)</option>
                   <option value="oswald" ${this.settings.font_family === 'oswald' ? 'selected' : ''}>Oswald</option>
+                  <option value="lato" ${this.settings.font_family === 'lato' ? 'selected' : ''}>Lato</option>
+                  <option value="roboto-condensed" ${this.settings.font_family === 'roboto-condensed' ? 'selected' : ''}>Roboto Condensed</option>
                 </select>
               </label>
               <label>Accent Colour

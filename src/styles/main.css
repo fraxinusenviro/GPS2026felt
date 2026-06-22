@@ -527,7 +527,7 @@ button, input, select, textarea, optgroup {
   justify-content: flex-end;
   gap: 10px;
   padding: 0 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--color-accent-border);
   z-index: 95;
 }
 #sub-header #hud-coords {
@@ -924,7 +924,7 @@ button, input, select, textarea, optgroup {
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--color-accent);
+  color: var(--color-text-muted);
   padding: 7px 8px;
   line-height: 1;
   cursor: pointer;
@@ -933,15 +933,15 @@ button, input, select, textarea, optgroup {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  border: 1px solid var(--color-accent-border);
-  background: var(--color-accent-subtle);
+  border: 1px solid var(--color-border);
+  background: transparent;
   border-radius: 10px;
   font-family: inherit;
   margin: 1px 0;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .toolbar-section-label:hover {
-  background: var(--color-accent-dim);
+  background: var(--color-accent-subtle);
   color: var(--color-accent);
   border-color: var(--color-accent-border);
 }
@@ -3395,17 +3395,37 @@ input[type=color] {
   align-items: center;
 }
 .bm-vis-btn.active { color: var(--color-accent); border-color: var(--color-accent); }
-.bm-del-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--color-text-muted);
-  font-size: 15px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  line-height: 1;
+/* Row ellipsis menu */
+.bm-row-menu-wrap { position: relative; flex-shrink: 0; }
+.bm-row-menu-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--color-text-muted); font-size: 16px;
+  padding: 2px 5px; border-radius: 4px; line-height: 1;
+  transition: background 0.1s, color 0.1s;
 }
-.bm-del-btn:hover { color: var(--color-danger); }
+.bm-row-menu-btn:hover { background: rgba(255,255,255,0.08); color: var(--color-text); }
+.bm-row-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  min-width: 150px;
+  background: var(--color-panel-bg, #1a1f2e);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+  z-index: 300;
+  overflow: hidden;
+}
+.bm-row-dropdown button {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer;
+  font-size: 12px; color: var(--color-text);
+  padding: 7px 12px;
+  transition: background 0.1s;
+}
+.bm-row-dropdown button:hover { background: rgba(255,255,255,0.07); }
+.bm-row-dropdown .bm-dd-del { color: var(--color-danger, #ef4444); }
+.bm-row-dropdown .bm-dd-del:hover { background: rgba(239,68,68,0.12); }
 
 /* Palette grid */
 .bm-palette {
@@ -9085,6 +9105,32 @@ input[type=color] {
 }
 
 /* ============================================================
+   Lato font theme
+   ============================================================ */
+[data-font="lato"] body {
+  font-family: 'Lato', sans-serif;
+}
+[data-font="lato"] {
+  font-family: 'Lato', sans-serif;
+}
+
+/* ============================================================
+   Roboto Condensed font theme
+   ============================================================ */
+[data-font="roboto-condensed"] body {
+  font-family: 'Roboto Condensed', sans-serif;
+}
+[data-font="roboto-condensed"] {
+  font-family: 'Roboto Condensed', sans-serif;
+  letter-spacing: 0.01em;
+}
+[data-font="roboto-condensed"] .btn-primary,
+[data-font="roboto-condensed"] .btn-outline,
+[data-font="roboto-condensed"] .btn-sm {
+  letter-spacing: 0.03em;
+}
+
+/* ============================================================
    GPS Status Modal
    ============================================================ */
 .gsm-unavail {
@@ -9945,20 +9991,20 @@ input[type=color] {
   border-color: var(--tg-ink);
 }
 
-/* Toolbar section labels — use accent color with topograph ink shadow */
+/* Toolbar section labels — topograph: dark ink border, neutral collapsed state */
 [data-ui-style="topograph"] .toolbar-section-label {
   border-radius: var(--radius-full);
-  background: var(--color-accent-subtle);
-  border: 1.5px solid var(--color-accent-border);
-  color: var(--color-accent);
+  background: rgba(23, 21, 15, 0.04);
+  border: 1.5px solid rgba(23, 21, 15, 0.40);
+  color: var(--tg-ink);
   font-weight: 700;
-  box-shadow: 1.5px 1.5px 0 rgba(23, 21, 15, 0.20);
+  box-shadow: 1.5px 1.5px 0 rgba(23, 21, 15, 0.18);
 }
 [data-ui-style="topograph"] .toolbar-section-label:hover {
-  background: var(--color-accent-dim);
+  background: var(--color-accent-subtle);
   border-color: var(--color-accent);
   color: var(--color-accent);
-  box-shadow: 1px 1px 0 rgba(23, 21, 15, 0.20);
+  box-shadow: 1px 1px 0 rgba(23, 21, 15, 0.18);
   transform: translate(0.5px, 0.5px);
 }
 [data-ui-style="topograph"] .toolbar-section:not(.collapsed) > .toolbar-section-label {
@@ -10673,15 +10719,11 @@ input[type=color] {
 /* ── Cards grid ── */
 .pl-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 12px;
   overflow-y: auto;
   flex: 1;
   align-content: start;
-}
-.pl-grid.pl-list {
-  grid-template-columns: 1fr;
-  gap: 6px;
 }
 
 /* ── Project card ── */
@@ -10696,14 +10738,67 @@ input[type=color] {
 }
 .pl-card:hover { border-color: rgba(74,180,120,0.35); background: rgba(255,255,255,0.06); }
 
-.pl-list .pl-card { flex-direction: row; align-items: center; }
-.pl-list .pl-card-accent { width: 4px; height: 100%; min-height: 48px; border-radius: 0; flex-shrink: 0; }
-
-.pl-card-accent {
-  height: 4px;
-  background: var(--color-accent, #4ade80);
+/* Gradient thumbnail */
+.pl-card-thumb {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  position: relative;
 }
+.pl-card-thumb-icon { font-size: 28px; }
+.pl-thumb-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+/* Sort select */
+.pl-sort-select {
+  flex-shrink: 0;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.pl-sort-select:focus { outline: none; border-color: var(--color-accent-border); }
+
+/* Ellipsis card menu */
+.pl-card-menu-wrap { position: relative; flex-shrink: 0; }
+.pl-card-menu-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--color-text-muted); font-size: 16px;
+  padding: 2px 6px; border-radius: 5px; line-height: 1;
+  transition: background 0.12s, color 0.12s;
+}
+.pl-card-menu-btn:hover { background: rgba(255,255,255,0.1); color: var(--color-text); }
+.pl-card-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  min-width: 140px;
+  background: var(--color-panel-bg, #1a1f2e);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+  z-index: 200;
+  overflow: hidden;
+}
+.pl-card-dropdown button {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer;
+  font-size: 12px; color: var(--color-text);
+  padding: 8px 12px;
+  transition: background 0.1s;
+}
+.pl-card-dropdown button:hover { background: rgba(255,255,255,0.07); }
+.pl-card-dropdown .pl-danger-item { color: var(--color-danger, #ef4444); }
+.pl-card-dropdown .pl-danger-item:hover { background: rgba(239,68,68,0.12); }
+
 .pl-card-body {
   padding: 12px;
   display: flex;
