@@ -555,11 +555,15 @@ button, input, select, textarea, optgroup {
   color: rgba(255, 255, 255, 0.80);
   font-weight: 400;
 }
-#sub-header .gps-badge {
-  padding: 2px 7px;
+/* GPS badge inside right toolbar */
+#right-controls #gps-badge {
+  width: 100%;
+  justify-content: center;
+  padding: 4px 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
 }
-#sub-header .gps-badge svg { width: 13px; height: 13px; }
+#right-controls #gps-badge svg { width: 12px; height: 12px; }
 
 /* Map Container */
 #map-container {
@@ -1296,6 +1300,15 @@ button, input, select, textarea, optgroup {
   background: var(--color-accent-dim);
   color: var(--color-accent);
   border-color: var(--color-accent);
+}
+
+#btn-undo, #btn-redo {
+  min-height: 36px;
+  padding: 3px 2px;
+}
+#btn-undo svg, #btn-redo svg {
+  width: 22px;
+  height: 22px;
 }
 
 /* ============================================================
