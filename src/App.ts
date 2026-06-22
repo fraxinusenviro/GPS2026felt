@@ -675,7 +675,11 @@ export class App {
     const root = document.documentElement;
     root.style.setProperty('--color-accent', hex);
     root.style.setProperty('--color-accent-dim', `rgba(${r},${g},${b},0.15)`);
+    root.style.setProperty('--color-accent-subtle', `rgba(${r},${g},${b},0.08)`);
     root.style.setProperty('--color-accent-dark', `rgb(${Math.round(r*0.6)},${Math.round(g*0.6)},${Math.round(b*0.6)})`);
+    root.style.setProperty('--color-accent-border', `rgba(${r},${g},${b},0.4)`);
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+    root.style.setProperty('--color-accent-text', luminance > 140 ? '#1a1a1a' : '#ffffff');
   }
 
   // ============================================================
@@ -2741,6 +2745,7 @@ export class App {
       default_layer_id: defaultLayerId,
       created_at: now,
       updated_at: now,
+      created_by: uid,
     };
     await this.storage.saveMap(newMap);
     await this.loadMap(newMap.id);

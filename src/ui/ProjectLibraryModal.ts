@@ -18,8 +18,7 @@ export interface ProjectLibraryCallbacks {
   getActiveMapId: () => string;
 }
 
-// View state for the modal
-type View = 'projects' | 'maps' | 'new-project' | 'new-map';
+type View = 'projects' | 'project-detail' | 'new-project' | 'new-map';
 
 const PROJECT_COLORS = [
   '#4f8ef7', '#34c97e', '#f5a623', '#e84393', '#9b59b6',
@@ -35,7 +34,6 @@ export class ProjectLibraryModal {
   private selectedProjectId: string | null = null;
   private searchQuery = '';
   private gridMode: 'card' | 'list' = 'card';
-  private expandedProjects = new Set<string>();
   private renamingId: string | null = null;
   private renamingKind: 'project' | 'map' | null = null;
 
@@ -69,28 +67,37 @@ export class ProjectLibraryModal {
     const allMaps = await this.storage.getAllMaps();
     const activeMapId = this.callbacks.getActiveMapId();
 
-    // Build map counts per project
     const mapsByProject = new Map<string, ProjectMap[]>();
     for (const m of allMaps) {
       const arr = mapsByProject.get(m.project_id) ?? [];
       arr.push(m);
       mapsByProject.set(m.project_id, arr);
     }
-    // Sort maps newest first
     for (const [, maps] of mapsByProject) maps.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 
+    const selectedProject = projects.find(p => p.id === this.selectedProjectId) ?? null;
     const mapsForSelected = this.selectedProjectId ? (mapsByProject.get(this.selectedProjectId) ?? []) : [];
-    const selectedProject = projects.find(p => p.id === this.selectedProjectId);
+
+    // Feature counts per layer — fetched only when showing a project detail
+    let featuresByLayer = new Map<string, number>();
+    if (this.view === 'project-detail' && this.selectedProjectId) {
+      try {
+        const features = await this.storage.getFeaturesByProject(this.selectedProjectId);
+        for (const f of features) {
+          featuresByLayer.set(f.layer_id, (featuresByLayer.get(f.layer_id) ?? 0) + 1);
+        }
+      } catch { /* non-fatal */ }
+    }
 
     this.overlay.innerHTML = `
       <div class="pl-modal">
         <div class="pl-header">
           <div class="pl-header-left">
-            ${this.view === 'maps' || this.view === 'new-map'
+            ${this.view === 'project-detail' || this.view === 'new-map'
               ? `<button class="pl-back-btn" id="pl-back">← Projects</button>`
               : `<span class="pl-title">Project Library</span>`
             }
-            ${this.view === 'maps' && selectedProject
+            ${this.view === 'project-detail' && selectedProject
               ? `<span class="pl-breadcrumb">${escHtml(selectedProject.name)}</span>`
               : ''
             }
@@ -118,29 +125,14 @@ export class ProjectLibraryModal {
               <div class="pl-sidebar-heading">Projects</div>
               ${projects.map(p => {
                 const maps = mapsByProject.get(p.id) ?? [];
-                const isExpanded = this.expandedProjects.has(p.id);
                 const color = p.color ?? projectColor(p.id);
                 return `
-                  <div class="pl-sidebar-project" data-proj-id="${p.id}">
-                    <button class="pl-sidebar-item pl-sidebar-proj-btn${this.selectedProjectId === p.id ? ' active' : ''}"
-                            data-proj-expand="${p.id}">
-                      <span class="pl-proj-dot" style="background:${color}"></span>
-                      <span class="pl-sidebar-proj-name" title="${escHtml(p.name)}">${escHtml(p.name)}</span>
-                      <span class="pl-sidebar-count">${maps.length}</span>
-                      <span class="pl-sidebar-chevron">${isExpanded ? '▾' : '▸'}</span>
-                    </button>
-                    ${isExpanded ? `
-                      <div class="pl-sidebar-maps">
-                        ${maps.map(m => `
-                          <button class="pl-sidebar-item pl-sidebar-map-btn${activeMapId === m.id ? ' active' : ''}"
-                                  data-map-open="${m.id}">
-                            <span class="pl-sidebar-map-icon">🗺</span>
-                            <span class="pl-sidebar-map-name">${escHtml(m.name)}</span>
-                          </button>
-                        `).join('')}
-                      </div>
-                    ` : ''}
-                  </div>`;
+                  <button class="pl-sidebar-item pl-sidebar-proj-btn${this.selectedProjectId === p.id ? ' active' : ''}"
+                          data-proj-select="${p.id}">
+                    <span class="pl-proj-dot" style="background:${color}"></span>
+                    <span class="pl-sidebar-proj-name" title="${escHtml(p.name)}">${escHtml(p.name)}</span>
+                    <span class="pl-sidebar-count">${maps.length}</span>
+                  </button>`;
               }).join('')}
             </div>
 
@@ -151,7 +143,7 @@ export class ProjectLibraryModal {
 
           <main class="pl-main">
             ${this.view === 'projects' ? this.renderProjectsView(projects, mapsByProject, activeMapId) : ''}
-            ${this.view === 'maps' && selectedProject ? this.renderMapsView(selectedProject, mapsForSelected, activeMapId) : ''}
+            ${this.view === 'project-detail' && selectedProject ? this.renderProjectDetailView(selectedProject, mapsForSelected, activeMapId, featuresByLayer) : ''}
             ${this.view === 'new-project' ? this.renderNewProjectForm() : ''}
             ${this.view === 'new-map' && selectedProject ? this.renderNewMapForm(selectedProject) : ''}
           </main>
@@ -218,7 +210,7 @@ export class ProjectLibraryModal {
             <span>${date}</span>
           </div>
           <div class="pl-card-footer">
-            <button class="btn btn-sm btn-outline pl-card-view-maps" data-view-maps="${p.id}">View Maps</button>
+            <button class="btn btn-sm btn-outline pl-card-view-maps" data-view-proj="${p.id}">View Maps</button>
             <button class="btn btn-sm ${activeMap ? 'btn-secondary' : 'btn-primary'} pl-card-open"
                     data-open-proj="${p.id}" ${activeMap ? 'disabled' : ''}>
               ${activeMap ? 'Active' : 'Open'}
@@ -228,58 +220,107 @@ export class ProjectLibraryModal {
       </div>`;
   }
 
-  private renderMapsView(project: Project, maps: ProjectMap[], activeMapId: string): string {
+  private renderProjectDetailView(
+    project: Project,
+    maps: ProjectMap[],
+    activeMapId: string,
+    featuresByLayer: Map<string, number>,
+  ): string {
     const color = project.color ?? projectColor(project.id);
+    const isRenaming = this.renamingId === project.id && this.renamingKind === 'project';
+    const totalFeatures = [...featuresByLayer.values()].reduce((a, b) => a + b, 0);
+
     return `
-      <div class="pl-maps-header" style="border-left: 4px solid ${color}">
-        <div class="pl-maps-header-info">
-          <span class="pl-maps-proj-name">${escHtml(project.name)}</span>
-          ${project.description ? `<span class="pl-maps-proj-desc">${escHtml(project.description)}</span>` : ''}
+      <div class="pl-detail-header" style="border-left: 4px solid ${color}">
+        <div class="pl-detail-proj-top">
+          <span class="pl-proj-dot pl-proj-dot-lg" style="background:${color}"></span>
+          <div class="pl-detail-proj-info">
+            ${isRenaming
+              ? `<input class="pl-rename-input" id="pl-rename-input-${project.id}" value="${escHtml(project.name)}" maxlength="60" />
+                 <div class="pl-detail-rename-actions">
+                   <button class="btn btn-sm btn-primary" data-save-rename-proj="${project.id}">Save</button>
+                   <button class="btn btn-sm btn-secondary" data-cancel-rename>Cancel</button>
+                 </div>`
+              : `<span class="pl-detail-proj-name">${escHtml(project.name)}</span>
+                 ${project.description ? `<span class="pl-detail-proj-desc">${escHtml(project.description)}</span>` : ''}`
+            }
+          </div>
         </div>
-        <button class="btn btn-primary" id="pl-new-map-btn">+ New Map</button>
+        <div class="pl-detail-proj-meta">
+          <span class="pl-detail-meta-item">📁 ${maps.length} map${maps.length !== 1 ? 's' : ''}</span>
+          <span class="pl-detail-meta-item">📍 ${totalFeatures} feature${totalFeatures !== 1 ? 's' : ''}</span>
+          <span class="pl-detail-meta-item">Updated ${formatDate(project.updated_at)}</span>
+          <span class="pl-detail-meta-item">Created ${formatDate(project.created_at)}</span>
+        </div>
+        <div class="pl-detail-proj-actions">
+          <button class="btn btn-sm btn-outline" data-rename-proj="${project.id}">✏ Rename</button>
+          <button class="btn btn-sm btn-outline" data-export-proj="${project.id}">⬇ Export</button>
+          <button class="btn btn-sm btn-outline pl-danger-btn" data-delete-proj="${project.id}">🗑 Delete</button>
+        </div>
       </div>
-      ${maps.length === 0
-        ? `<p class="pl-empty">No maps in this project. Create one to get started.</p>`
-        : `<div class="pl-grid">
-            ${maps.map(m => this.renderMapCard(m, activeMapId)).join('')}
-           </div>`
-      }`;
+
+      <div class="pl-detail-maps-section">
+        <div class="pl-detail-maps-toolbar">
+          <span class="pl-detail-section-title">Maps</span>
+          <button class="btn btn-sm btn-primary" id="pl-new-map-btn">+ New Map</button>
+        </div>
+        ${maps.length === 0
+          ? `<p class="pl-empty">No maps yet. Create one to get started.</p>`
+          : maps.map(m => this.renderDetailMapCard(m, activeMapId, featuresByLayer)).join('')
+        }
+      </div>`;
   }
 
-  private renderMapCard(m: ProjectMap, activeMapId: string): string {
+  private renderDetailMapCard(m: ProjectMap, activeMapId: string, featuresByLayer: Map<string, number>): string {
     const isActive = m.id === activeMapId;
-    const date = formatDate(m.updated_at);
     const isRenaming = this.renamingId === m.id && this.renamingKind === 'map';
 
+    // Collect unique user IDs from user_viewports and user_layer_views
+    const userSet = new Set<string>([
+      ...Object.keys(m.user_viewports ?? {}),
+      ...Object.keys(m.user_layer_views ?? {}),
+    ]);
+    const userList = [...userSet].filter(Boolean);
+
+    // Feature count: features on the map's default layer (closest available proxy)
+    const featureCount = m.default_layer_id ? (featuresByLayer.get(m.default_layer_id) ?? 0) : 0;
+
     return `
-      <div class="pl-card pl-map-card${isActive ? ' pl-map-active' : ''}" data-map-id="${m.id}">
-        <div class="pl-map-thumb">
-          <span class="pl-map-thumb-icon">🗺</span>
-        </div>
-        <div class="pl-card-body">
-          <div class="pl-card-header">
+      <div class="pl-detail-map-card${isActive ? ' pl-map-active' : ''}" data-map-id="${m.id}">
+        <div class="pl-detail-map-header">
+          <div class="pl-detail-map-title-row">
+            <span class="pl-map-thumb-icon" style="font-size:18px">🗺</span>
             ${isRenaming
               ? `<input class="pl-rename-input" id="pl-rename-input-${m.id}" value="${escHtml(m.name)}" maxlength="60" />
                  <button class="btn btn-sm btn-primary" data-save-rename-map="${m.id}">Save</button>
                  <button class="btn btn-sm btn-secondary" data-cancel-rename>✕</button>`
-              : `<span class="pl-card-title">${escHtml(m.name)}</span>
-                 ${isActive ? `<span class="pl-active-badge">Active</span>` : ''}
-                 <div class="pl-card-actions">
-                   <button class="pl-icon-btn" data-rename-map="${m.id}" title="Rename map">✏</button>
-                   <button class="pl-icon-btn" data-dupe-map="${m.id}" title="Duplicate map">⧉</button>
-                   <button class="pl-icon-btn pl-danger-btn" data-delete-map="${m.id}" title="Delete map">🗑</button>
-                 </div>`
+              : `<span class="pl-detail-map-name">${escHtml(m.name)}</span>
+                 ${isActive ? `<span class="pl-active-badge">Active</span>` : ''}`
             }
           </div>
-          <div class="pl-card-meta">
-            <span>${date}</span>
-          </div>
-          <div class="pl-card-footer">
-            <button class="btn btn-sm ${isActive ? 'btn-secondary' : 'btn-primary'} pl-card-open"
-                    data-open-map="${m.id}" ${isActive ? 'disabled' : ''}>
-              ${isActive ? 'Active' : 'Open'}
-            </button>
-          </div>
+          ${!isRenaming ? `
+          <div class="pl-card-actions">
+            <button class="pl-icon-btn" data-rename-map="${m.id}" title="Rename map">✏</button>
+            <button class="pl-icon-btn" data-dupe-map="${m.id}" title="Duplicate map">⧉</button>
+            <button class="pl-icon-btn pl-danger-btn" data-delete-map="${m.id}" title="Delete map">🗑</button>
+          </div>` : ''}
+        </div>
+        <div class="pl-detail-map-meta">
+          ${m.created_by
+            ? `<div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Creator</span><span>${escHtml(m.created_by)}</span></div>`
+            : ''}
+          ${userList.length > 0
+            ? `<div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Users</span><span>${userList.map(u => `<span class="pl-user-avatar" title="${escHtml(u)}">${escHtml(u.slice(0,2).toUpperCase())}</span>`).join('')}</span></div>`
+            : ''}
+          <div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Features</span><span>${featureCount}</span></div>
+          <div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Created</span><span>${formatDate(m.created_at)}</span></div>
+          <div class="pl-detail-meta-pill"><span class="pl-detail-meta-label">Updated</span><span>${formatDate(m.updated_at)}</span></div>
+        </div>
+        <div class="pl-detail-map-footer">
+          <button class="btn btn-sm ${isActive ? 'btn-secondary' : 'btn-primary'}"
+                  data-open-map="${m.id}" ${isActive ? 'disabled' : ''}>
+            ${isActive ? 'Active' : 'Open'}
+          </button>
         </div>
       </div>`;
   }
@@ -336,18 +377,15 @@ export class ProjectLibraryModal {
   // ---- Event wiring ----
 
   private wireEvents(projects: Project[], _allMaps: ProjectMap[], mapsByProject: Map<string, ProjectMap[]>): void {
-    // Close button
     this.overlay.querySelector('#pl-close')?.addEventListener('click', () => this.close());
 
-    // Click outside modal content to close
     this.overlay.addEventListener('click', (e) => {
       if (e.target === this.overlay) this.close();
     });
 
-    // Back button
     this.overlay.querySelector('#pl-back')?.addEventListener('click', () => {
       if (this.view === 'new-map') {
-        this.view = 'maps';
+        this.view = 'project-detail';
       } else {
         this.view = 'projects';
         this.selectedProjectId = null;
@@ -355,56 +393,36 @@ export class ProjectLibraryModal {
       void this.render();
     });
 
-    // Search
     this.overlay.querySelector<HTMLInputElement>('#pl-search')?.addEventListener('input', (e) => {
       this.searchQuery = (e.target as HTMLInputElement).value;
       void this.render();
     });
 
-    // Grid/list toggle
     this.overlay.querySelector('#pl-grid-card')?.addEventListener('click', () => { this.gridMode = 'card'; void this.render(); });
     this.overlay.querySelector('#pl-grid-list')?.addEventListener('click', () => { this.gridMode = 'list'; void this.render(); });
 
-    // All Data
     this.overlay.querySelector('#pl-all-data')?.addEventListener('click', () => this.handleOpenAllData());
     this.overlay.querySelector('#pl-open-all-data')?.addEventListener('click', () => this.handleOpenAllData());
 
-    // New project button (sidebar + form trigger)
     this.overlay.querySelector('#pl-new-project')?.addEventListener('click', () => {
       this.view = 'new-project';
       void this.render();
     });
 
-    // Sidebar: expand/collapse project + show maps view
-    this.overlay.querySelectorAll<HTMLButtonElement>('[data-proj-expand]').forEach(btn => {
+    // Sidebar: select project and show project-detail view
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-proj-select]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const id = btn.dataset.projExpand!;
-        if (this.expandedProjects.has(id)) {
-          this.expandedProjects.delete(id);
-        } else {
-          this.expandedProjects.add(id);
-        }
-        this.selectedProjectId = id;
-        this.view = 'maps';
+        this.selectedProjectId = btn.dataset.projSelect!;
+        this.view = 'project-detail';
         void this.render();
       });
     });
 
-    // Sidebar: open a specific map
-    this.overlay.querySelectorAll<HTMLButtonElement>('[data-map-open]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        await this.callbacks.onLoadMap(btn.dataset.mapOpen!);
-        this.close();
-      });
-    });
-
-    // Project cards: "View Maps"
-    this.overlay.querySelectorAll<HTMLButtonElement>('[data-view-maps]').forEach(btn => {
+    // Project cards: "View Maps" → switch to project-detail view
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-view-proj]').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.selectedProjectId = btn.dataset.viewMaps!;
-        this.expandedProjects.add(this.selectedProjectId);
-        this.view = 'maps';
+        this.selectedProjectId = btn.dataset.viewProj!;
+        this.view = 'project-detail';
         void this.render();
       });
     });
@@ -481,7 +499,6 @@ export class ProjectLibraryModal {
       });
     });
 
-    // Cancel rename
     this.overlay.querySelectorAll<HTMLButtonElement>('[data-cancel-rename]').forEach(btn => {
       btn.addEventListener('click', () => {
         this.renamingId = null; this.renamingKind = null;
@@ -489,11 +506,11 @@ export class ProjectLibraryModal {
       });
     });
 
-    // Enter/Escape in rename inputs
     this.overlay.querySelectorAll<HTMLInputElement>('.pl-rename-input').forEach(input => {
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
-          const saveBtn = input.closest('.pl-card-header')?.querySelector<HTMLButtonElement>('[data-save-rename-proj],[data-save-rename-map]');
+          const saveBtn = input.closest('.pl-card-header,.pl-detail-rename-actions,.pl-detail-map-header')
+            ?.querySelector<HTMLButtonElement>('[data-save-rename-proj],[data-save-rename-map]');
           saveBtn?.click();
         } else if (e.key === 'Escape') {
           this.renamingId = null; this.renamingKind = null;
@@ -511,6 +528,8 @@ export class ProjectLibraryModal {
         if (!confirm(`Delete "${proj?.name ?? id}"? All features, layers, and ${mapCount} map(s) will be permanently removed.`)) return;
         btn.disabled = true;
         await this.callbacks.onDeleteProject(id);
+        this.selectedProjectId = null;
+        this.view = 'projects';
         void this.render();
       });
     });
@@ -545,7 +564,7 @@ export class ProjectLibraryModal {
       });
     });
 
-    // New map button (in maps view)
+    // New map button (in project-detail view)
     this.overlay.querySelector('#pl-new-map-btn')?.addEventListener('click', () => {
       this.view = 'new-map';
       void this.render();
@@ -560,7 +579,7 @@ export class ProjectLibraryModal {
     });
 
     this.overlay.querySelector('#pl-form-cancel')?.addEventListener('click', () => {
-      this.view = this.selectedProjectId ? 'maps' : 'projects';
+      this.view = this.selectedProjectId ? 'project-detail' : 'projects';
       void this.render();
     });
 
@@ -592,7 +611,7 @@ export class ProjectLibraryModal {
       btn.disabled = true; btn.textContent = 'Creating…';
       try {
         await this.callbacks.onCreateMap(this.selectedProjectId!, name);
-        this.view = 'maps';
+        this.view = 'project-detail';
         void this.render();
       } catch (err) {
         btn.disabled = false; btn.textContent = 'Create Map';
