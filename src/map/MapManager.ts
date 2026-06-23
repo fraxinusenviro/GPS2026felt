@@ -876,6 +876,84 @@ export class MapManager {
         'circle-stroke-width': 2.5
       }
     });
+
+    // --- Photo points (dedicated source — independent of the collected layer system) ---
+    this.map.addSource('photo-points', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
+
+    this.registerPhotoPointIcon();
+
+    this.map.addLayer({
+      id: 'photo-points-layer',
+      type: 'symbol',
+      source: 'photo-points',
+      layout: {
+        'icon-image': 'photo-point-icon',
+        'icon-size': 0.55,
+        'icon-rotate': ['get', 'bearing'],
+        'icon-rotation-alignment': 'map',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'icon-anchor': 'center',
+      },
+    });
+
+    this.map.addLayer({
+      id: 'photo-points-labels',
+      type: 'symbol',
+      source: 'photo-points',
+      layout: {
+        'text-field': ['get', 'label'],
+        'text-size': 11,
+        'text-offset': [0, 2.2],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': '#f97316',
+        'text-halo-color': '#000000',
+        'text-halo-width': 1.5,
+      }
+    });
+  }
+
+  private registerPhotoPointIcon(): void {
+    const size = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d')!;
+    const cx = size / 2;
+    const cy = size / 2;
+
+    // Field-of-view wedge pointing UP (north in natural orientation)
+    // The whole icon rotates by bearing in MapLibre
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    // ~70° arc centred on "up" (270° in canvas coords = top)
+    const startAngle = (270 - 35) * Math.PI / 180;
+    const endAngle   = (270 + 35) * Math.PI / 180;
+    ctx.arc(cx, cy, size * 0.46, startAngle, endAngle);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(249, 115, 22, 0.75)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Observer dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, size * 0.16, 0, Math.PI * 2);
+    ctx.fillStyle = '#f97316';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const imageData = ctx.getImageData(0, 0, size, size);
+    this.map.addImage('photo-point-icon', imageData, { pixelRatio: 2 });
   }
 
   private setupUserLocation(): void {
@@ -919,6 +997,7 @@ export class MapManager {
     const polygons: object[] = [];
     const wetlandPlots: object[] = [];
     const inventoryPoints: object[] = [];
+    const photoPoints: object[] = [];
 
     for (const f of features) {
       const lp = layerMap.get(f.layer_id);
@@ -1007,9 +1086,23 @@ export class MapManager {
         }
       };
 
-      // Wetland plots and inventory observations render in their OWN source/layers
-      // (independent TOC classes).
-      if (isInventory) inventoryPoints.push(geoFeature);
+      // Photo points, wetland plots, and inventory observations each render in their
+      // OWN source/layers (independent TOC classes).
+      if (f.photo_data !== undefined) {
+        // Photo point: build a lightweight GeoJSON feature with bearing for icon rotation
+        photoPoints.push({
+          type: 'Feature',
+          id: f.id,
+          geometry: f.geometry,
+          properties: {
+            id: f.id,
+            bearing: f.photo_data.bearing,
+            observer: f.photo_data.observer ?? f.created_by ?? '',
+            label: f.point_id || f.id.slice(0, 6),
+            created_at: f.created_at,
+          }
+        });
+      } else if (isInventory) inventoryPoints.push(geoFeature);
       else if (isWetlandPlot) wetlandPlots.push(geoFeature);
       else if (f.geometry_type === 'Point') points.push(geoFeature);
       else if (f.geometry_type === 'LineString') lines.push(geoFeature);
@@ -1022,6 +1115,7 @@ export class MapManager {
     (this.map.getSource('collected-polygons') as maplibregl.GeoJSONSource)?.setData(toFC(polygons) as never);
     (this.map.getSource('wetland-plots') as maplibregl.GeoJSONSource)?.setData(toFC(wetlandPlots) as never);
     (this.map.getSource('inventory-points') as maplibregl.GeoJSONSource)?.setData(toFC(inventoryPoints) as never);
+    (this.map.getSource('photo-points') as maplibregl.GeoJSONSource)?.setData(toFC(photoPoints) as never);
 
     // Explicitly sync the visibility layout property for collected-lines sub-layers
     // (casing, dashed, dotted) so they disappear when the feature layer is toggled
