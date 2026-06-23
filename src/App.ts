@@ -2112,6 +2112,48 @@ export class App {
       EventBus.emit('toast', { message: `${this.lassoSelection.length} features exported`, type: 'success', duration: 2000 });
     });
 
+    document.getElementById('lasso-move')?.addEventListener('click', async () => {
+      if (this.lassoSelection.length === 0) return;
+      if (this.allDataMode) {
+        EventBus.emit('toast', { message: 'Switch out of All Data view to move features', type: 'warning', duration: 2500 });
+        return;
+      }
+      const currentProjectId = this.settings.active_project_id || 'default';
+      const projects = (await this.storage.getAllProjects()).filter(p => p.id !== currentProjectId);
+      if (projects.length === 0) {
+        EventBus.emit('toast', { message: 'No other project to move into — create one first', type: 'info', duration: 3000 });
+        return;
+      }
+      const count = this.lassoSelection.length;
+      const options = projects.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('');
+      EventBus.emit('show-modal', {
+        title: `Move ${count} feature${count !== 1 ? 's' : ''}`,
+        html: `
+          <p style="margin:0 0 8px">Move the selected feature${count !== 1 ? 's' : ''} to another project:</p>
+          <select id="move-target-project" style="width:100%;padding:6px">${options}</select>
+        `,
+        confirmLabel: 'Move',
+        cancelLabel: 'Cancel',
+        onConfirm: async () => {
+          const sel = document.getElementById('move-target-project') as HTMLSelectElement | null;
+          const targetId = sel?.value;
+          if (!targetId) return;
+          const target = projects.find(p => p.id === targetId);
+          const toMove = [...this.lassoSelection];
+          const moved = await this.reassignFeaturesToProject(toMove, targetId);
+          // Drop the moved features from the current project's in-memory view.
+          const movedIds = new Set(toMove.map(f => f.id));
+          this.features = this.features.filter(f => !movedIds.has(f.id));
+          this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+          this.clearLassoSelection();
+          EventBus.emit('toast', {
+            message: `${moved} feature${moved !== 1 ? 's' : ''} moved to "${target?.name ?? 'project'}"`,
+            type: 'success', duration: 2500,
+          });
+        },
+      });
+    });
+
     document.getElementById('lasso-zoom')?.addEventListener('click', () => {
       if (this.lassoSelection.length === 0) return;
       let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
@@ -2147,6 +2189,44 @@ export class App {
     document.getElementById('lasso-dismiss')?.addEventListener('click', () => {
       this.clearLassoSelection();
     });
+  }
+
+  /**
+   * Move features in place to another project: feature IDs are preserved (a move,
+   * not a copy), and each feature's layer_id is remapped to the target project's
+   * matching layer — matched by name + geometry_type, created if absent. Mirrors
+   * the importer's "merge into current project" layer logic. Returns the count moved.
+   */
+  private async reassignFeaturesToProject(feats: FieldFeature[], targetProjectId: string): Promise<number> {
+    if (feats.length === 0) return 0;
+    const targetLayers = await this.storage.getLayersByProject(targetProjectId);
+    const layerIdMap = new Map<string, string>();
+
+    const resolveLayerId = async (sourceLayerId: string): Promise<string> => {
+      const cached = layerIdMap.get(sourceLayerId);
+      if (cached) return cached;
+      const sourceLp = this.projectLayerPresets.find(l => l.id === sourceLayerId)
+        ?? await this.storage.getLayerPreset(sourceLayerId);
+      // No source preset to match on — keep the original layer_id.
+      if (!sourceLp) { layerIdMap.set(sourceLayerId, sourceLayerId); return sourceLayerId; }
+      const match = targetLayers.find(tl => tl.name === sourceLp.name && tl.geometry_type === sourceLp.geometry_type);
+      if (match) { layerIdMap.set(sourceLayerId, match.id); return match.id; }
+      const newId = crypto.randomUUID();
+      const newLp: LayerPreset = { ...sourceLp, id: newId, project_id: targetProjectId };
+      await this.storage.saveLayerPreset(newLp);
+      targetLayers.push(newLp);
+      layerIdMap.set(sourceLayerId, newId);
+      return newId;
+    };
+
+    let moved = 0;
+    const now = new Date().toISOString();
+    for (const f of feats) {
+      const layer_id = await resolveLayerId(f.layer_id);
+      await this.storage.saveFeature({ ...f, project_id: targetProjectId, layer_id, updated_at: now });
+      moved++;
+    }
+    return moved;
   }
 
   // ============================================================
@@ -3295,6 +3375,10 @@ function normalizeGeometry(g: GeoJSONGeometry): GeoJSONGeometry {
   if (t === 'MultiLineString') return { type: 'LineString',  coordinates: (g as unknown as { coordinates: [number,number][][] }).coordinates[0] } as GeoJSONGeometry;
   if (t === 'MultiPolygon')    return { type: 'Polygon',     coordinates: (g as unknown as { coordinates: [number,number][][][] }).coordinates[0] } as GeoJSONGeometry;
   return g;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function generatePointId(settings: AppSettings): string {
