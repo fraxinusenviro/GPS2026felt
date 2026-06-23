@@ -296,6 +296,43 @@ export class StorageManager {
     return this.db.count(STORE_FEATURES);
   }
 
+  /**
+   * Move features in place to another project. Feature IDs are preserved (a move,
+   * not a copy); each feature's layer_id is remapped to the target project's
+   * matching layer — matched by name + geometry_type, created if absent. Saving
+   * each feature fires the sync upsert hook, so the new project_id propagates via
+   * last-write-wins. Returns the number of features moved.
+   */
+  async reassignFeaturesToProject(feats: FieldFeature[], targetProjectId: string): Promise<number> {
+    if (feats.length === 0) return 0;
+    const targetLayers = await this.getLayersByProject(targetProjectId);
+    const layerIdMap = new Map<string, string>();
+
+    const resolveLayerId = async (sourceLayerId: string): Promise<string> => {
+      const cached = layerIdMap.get(sourceLayerId);
+      if (cached) return cached;
+      const sourceLp = await this.getLayerPreset(sourceLayerId);
+      // No source preset to match on — keep the original layer_id.
+      if (!sourceLp) { layerIdMap.set(sourceLayerId, sourceLayerId); return sourceLayerId; }
+      const match = targetLayers.find(tl => tl.name === sourceLp.name && tl.geometry_type === sourceLp.geometry_type);
+      if (match) { layerIdMap.set(sourceLayerId, match.id); return match.id; }
+      const newId = crypto.randomUUID();
+      const newLp: LayerPreset = { ...sourceLp, id: newId, project_id: targetProjectId };
+      await this.saveLayerPreset(newLp);
+      targetLayers.push(newLp);
+      layerIdMap.set(sourceLayerId, newId);
+      return newId;
+    };
+
+    let moved = 0;
+    for (const f of feats) {
+      const layer_id = await resolveLayerId(f.layer_id);
+      await this.saveFeature({ ...f, project_id: targetProjectId, layer_id });
+      moved++;
+    }
+    return moved;
+  }
+
   async getProjectFeatureCount(projectId: string): Promise<number> {
     return this.db.countFromIndex(STORE_FEATURES, 'by_project', projectId);
   }

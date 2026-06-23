@@ -772,6 +772,13 @@ export class App {
       this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     });
 
+    // A feature moved to another project leaves the current project's view.
+    EventBus.on<{ ids: string[] }>('features-reassigned', ({ ids }) => {
+      const idSet = new Set(ids);
+      this.features = this.features.filter(f => !idSet.has(f.id));
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+    });
+
     EventBus.on<{ tool: ToolMode }>('tool-changed', ({ tool }) => {
       this.updateToolButtonStates(tool);
       this.presetManager.updatePresetsForTool(tool);
@@ -2112,6 +2119,45 @@ export class App {
       EventBus.emit('toast', { message: `${this.lassoSelection.length} features exported`, type: 'success', duration: 2000 });
     });
 
+    document.getElementById('lasso-move')?.addEventListener('click', async () => {
+      if (this.lassoSelection.length === 0) return;
+      if (this.allDataMode) {
+        EventBus.emit('toast', { message: 'Switch out of All Data view to move features', type: 'warning', duration: 2500 });
+        return;
+      }
+      const currentProjectId = this.settings.active_project_id || 'default';
+      const projects = (await this.storage.getAllProjects()).filter(p => p.id !== currentProjectId);
+      if (projects.length === 0) {
+        EventBus.emit('toast', { message: 'No other project to move into — create one first', type: 'info', duration: 3000 });
+        return;
+      }
+      const count = this.lassoSelection.length;
+      const options = projects.map(p => `<option value="${escHtml(p.id)}">${escHtml(p.name)}</option>`).join('');
+      EventBus.emit('show-modal', {
+        title: `Move ${count} feature${count !== 1 ? 's' : ''}`,
+        html: `
+          <p style="margin:0 0 8px">Move the selected feature${count !== 1 ? 's' : ''} to another project:</p>
+          <select id="move-target-project" style="width:100%;padding:6px">${options}</select>
+        `,
+        confirmLabel: 'Move',
+        cancelLabel: 'Cancel',
+        onConfirm: async () => {
+          const sel = document.getElementById('move-target-project') as HTMLSelectElement | null;
+          const targetId = sel?.value;
+          if (!targetId) return;
+          const target = projects.find(p => p.id === targetId);
+          const toMove = [...this.lassoSelection];
+          const moved = await this.storage.reassignFeaturesToProject(toMove, targetId);
+          EventBus.emit('features-reassigned', { ids: toMove.map(f => f.id) });
+          this.clearLassoSelection();
+          EventBus.emit('toast', {
+            message: `${moved} feature${moved !== 1 ? 's' : ''} moved to "${target?.name ?? 'project'}"`,
+            type: 'success', duration: 2500,
+          });
+        },
+      });
+    });
+
     document.getElementById('lasso-zoom')?.addEventListener('click', () => {
       if (this.lassoSelection.length === 0) return;
       let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
@@ -3295,6 +3341,10 @@ function normalizeGeometry(g: GeoJSONGeometry): GeoJSONGeometry {
   if (t === 'MultiLineString') return { type: 'LineString',  coordinates: (g as unknown as { coordinates: [number,number][][] }).coordinates[0] } as GeoJSONGeometry;
   if (t === 'MultiPolygon')    return { type: 'Polygon',     coordinates: (g as unknown as { coordinates: [number,number][][][] }).coordinates[0] } as GeoJSONGeometry;
   return g;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function generatePointId(settings: AppSettings): string {
