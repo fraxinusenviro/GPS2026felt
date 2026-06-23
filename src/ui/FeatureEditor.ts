@@ -106,6 +106,10 @@ export class FeatureEditor {
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M192,72V216a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8V72a8,8,0,0,1,8-8H184A8,8,0,0,1,192,72Zm24-40H72a8,8,0,0,0,0,16H208V184a8,8,0,0,0,16,0V40A8,8,0,0,0,216,32Z"/></svg>
               <span>Copy</span>
             </button>
+            <button class="fe-icon-btn" id="fe-move" title="Move to another project">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M213.66,181.66l-32,32a8,8,0,0,1-11.32-11.32L188.69,184H48a8,8,0,0,1,0-16H188.69l-18.35-18.34a8,8,0,0,1,11.32-11.32l32,32A8,8,0,0,1,213.66,181.66Zm-139.32-64a8,8,0,0,0,11.32-11.32L67.31,88H208a8,8,0,0,0,0-16H67.31L85.66,53.66A8,8,0,0,0,74.34,42.34l-32,32a8,8,0,0,0,0,11.32Z"/></svg>
+              <span>Move</span>
+            </button>
             <button class="fe-icon-btn" id="fe-buffer" title="Create Buffer">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M176,136h23.54A72.11,72.11,0,0,1,136,199.54V176a8,8,0,0,0-16,0v23.54A72.11,72.11,0,0,1,56.46,136H80a8,8,0,0,0,0-16H56.46A72.11,72.11,0,0,1,120,56.46V80a8,8,0,0,0,16,0V56.46A72.11,72.11,0,0,1,199.54,120H176a8,8,0,0,0,0,16Zm56-8A104,104,0,1,1,128,24,104.11,104.11,0,0,1,232,128Zm-16,0a88,88,0,1,0-88,88A88.1,88.1,0,0,0,216,128Z"/></svg>
               <span>Buffer</span>
@@ -126,6 +130,7 @@ export class FeatureEditor {
 
     this.panel.querySelector('#fe-save')?.addEventListener('click', () => this.save());
     this.panel.querySelector('#fe-duplicate')?.addEventListener('click', () => void this.duplicate(feature));
+    this.panel.querySelector('#fe-move')?.addEventListener('click', () => void this.promptMove(feature));
     this.panel.querySelector('#fe-buffer')?.addEventListener('click', () => this.promptBuffer(feature));
     this.panel.querySelector('#fe-delete')?.addEventListener('click', () => this.delete(feature.id));
     this.panel.querySelector('#fe-edit-geometry')?.addEventListener('click', () => {
@@ -272,6 +277,38 @@ export class FeatureEditor {
     await this.storage.saveFeature(clone);
     EventBus.emit('feature-added', { feature: clone });
     EventBus.emit('toast', { message: 'Feature duplicated', type: 'success', duration: 1500 });
+  }
+
+  private async promptMove(feature: FieldFeature): Promise<void> {
+    const projects = (await this.storage.getAllProjects()).filter(p => p.id !== feature.project_id);
+    if (projects.length === 0) {
+      EventBus.emit('toast', { message: 'No other project to move into — create one first', type: 'info', duration: 3000 });
+      return;
+    }
+    const options = projects.map(p => `<option value="${this.escape(p.id)}">${this.escape(p.name)}</option>`).join('');
+    EventBus.emit('show-modal', {
+      title: 'Move feature',
+      html: `
+        <p style="margin:0 0 8px">Move this feature to another project:</p>
+        <select id="fe-move-target" style="width:100%;padding:6px">${options}</select>
+      `,
+      confirmLabel: 'Move',
+      cancelLabel: 'Cancel',
+      onConfirm: async () => {
+        const sel = document.getElementById('fe-move-target') as HTMLSelectElement | null;
+        const targetId = sel?.value;
+        if (!targetId) return;
+        const target = projects.find(p => p.id === targetId);
+        await this.storage.reassignFeaturesToProject([feature], targetId);
+        EventBus.emit('features-reassigned', { ids: [feature.id] });
+        this.close();
+        EventBus.emit('toast', {
+          message: `Feature moved to "${target?.name ?? 'project'}"`,
+          type: 'success', duration: 2500,
+        });
+      },
+      onCancel: () => {},
+    });
   }
 
   private escape(s: string): string {

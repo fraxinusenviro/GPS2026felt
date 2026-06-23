@@ -772,6 +772,13 @@ export class App {
       this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
     });
 
+    // A feature moved to another project leaves the current project's view.
+    EventBus.on<{ ids: string[] }>('features-reassigned', ({ ids }) => {
+      const idSet = new Set(ids);
+      this.features = this.features.filter(f => !idSet.has(f.id));
+      this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+    });
+
     EventBus.on<{ tool: ToolMode }>('tool-changed', ({ tool }) => {
       this.updateToolButtonStates(tool);
       this.presetManager.updatePresetsForTool(tool);
@@ -2140,11 +2147,8 @@ export class App {
           if (!targetId) return;
           const target = projects.find(p => p.id === targetId);
           const toMove = [...this.lassoSelection];
-          const moved = await this.reassignFeaturesToProject(toMove, targetId);
-          // Drop the moved features from the current project's in-memory view.
-          const movedIds = new Set(toMove.map(f => f.id));
-          this.features = this.features.filter(f => !movedIds.has(f.id));
-          this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+          const moved = await this.storage.reassignFeaturesToProject(toMove, targetId);
+          EventBus.emit('features-reassigned', { ids: toMove.map(f => f.id) });
           this.clearLassoSelection();
           EventBus.emit('toast', {
             message: `${moved} feature${moved !== 1 ? 's' : ''} moved to "${target?.name ?? 'project'}"`,
@@ -2189,44 +2193,6 @@ export class App {
     document.getElementById('lasso-dismiss')?.addEventListener('click', () => {
       this.clearLassoSelection();
     });
-  }
-
-  /**
-   * Move features in place to another project: feature IDs are preserved (a move,
-   * not a copy), and each feature's layer_id is remapped to the target project's
-   * matching layer — matched by name + geometry_type, created if absent. Mirrors
-   * the importer's "merge into current project" layer logic. Returns the count moved.
-   */
-  private async reassignFeaturesToProject(feats: FieldFeature[], targetProjectId: string): Promise<number> {
-    if (feats.length === 0) return 0;
-    const targetLayers = await this.storage.getLayersByProject(targetProjectId);
-    const layerIdMap = new Map<string, string>();
-
-    const resolveLayerId = async (sourceLayerId: string): Promise<string> => {
-      const cached = layerIdMap.get(sourceLayerId);
-      if (cached) return cached;
-      const sourceLp = this.projectLayerPresets.find(l => l.id === sourceLayerId)
-        ?? await this.storage.getLayerPreset(sourceLayerId);
-      // No source preset to match on — keep the original layer_id.
-      if (!sourceLp) { layerIdMap.set(sourceLayerId, sourceLayerId); return sourceLayerId; }
-      const match = targetLayers.find(tl => tl.name === sourceLp.name && tl.geometry_type === sourceLp.geometry_type);
-      if (match) { layerIdMap.set(sourceLayerId, match.id); return match.id; }
-      const newId = crypto.randomUUID();
-      const newLp: LayerPreset = { ...sourceLp, id: newId, project_id: targetProjectId };
-      await this.storage.saveLayerPreset(newLp);
-      targetLayers.push(newLp);
-      layerIdMap.set(sourceLayerId, newId);
-      return newId;
-    };
-
-    let moved = 0;
-    const now = new Date().toISOString();
-    for (const f of feats) {
-      const layer_id = await resolveLayerId(f.layer_id);
-      await this.storage.saveFeature({ ...f, project_id: targetProjectId, layer_id, updated_at: now });
-      moved++;
-    }
-    return moved;
   }
 
   // ============================================================
