@@ -37,6 +37,8 @@ import { SyncManager } from './sync/SyncManager';
 import { userIdFromEmail, USERID_SOURCE_KEY } from './utils/userId';
 import { WetlandsManager } from './wetlands/WetlandsManager';
 import { InventoryManager } from './inventory/InventoryManager';
+import { PhotoCapturePanel } from './photos/PhotoCapturePanel';
+import { PhotoReportPanel } from './photos/PhotoReportPanel';
 import { AttributeTablePanel } from './ui/AttributeTablePanel';
 import type { SharedLayer, BasemapDef, ImportedLayer } from './types';
 import { sharedLayerToDef } from './data/sharedLayerDefs';
@@ -87,6 +89,8 @@ export class App {
   private syncManager!: SyncManager;
   private wetlandsManager!: WetlandsManager;
   private inventoryManager!: InventoryManager;
+  private photoCapturePanel!: PhotoCapturePanel;
+  private photoReportPanel!: PhotoReportPanel;
 
   private settings!: AppSettings;
   private features: FieldFeature[] = [];
@@ -182,6 +186,8 @@ export class App {
       () => this.settings,
       () => this.refreshProjectLayers(),
     );
+    this.photoCapturePanel = new PhotoCapturePanel(this.captureManager, () => this.settings);
+    this.photoReportPanel = new PhotoReportPanel(this.mapManager);
     this.geometryEditor = new GeometryEditor(this.mapManager);
     this.importDataPanel = new ImportDataPanel(this.importManager, this.mapManager);
     this.cachePanel = new CachePanel(this.mapManager, this.importManager);
@@ -1551,6 +1557,12 @@ export class App {
       void this.inventoryManager.openSubmitted();
     });
 
+    // PHOTOS group (left toolbar)
+    // btn-photo-point is handled by the data-tool wiring above (activateTool)
+    document.getElementById('btn-photo-log')?.addEventListener('click', () => {
+      this.photoReportPanel.open();
+    });
+
 
     // HUD close buttons
     document.getElementById('btn-point-hud-close')?.addEventListener('click', () => {
@@ -1748,7 +1760,9 @@ export class App {
       this.clearLassoSelection();
     }
 
-    if (tool === 'gps-point') {
+    if (tool === 'photo-point') {
+      this.photoCapturePanel.open();
+    } else if (tool === 'gps-point') {
       // Two-phase: first click raises the point HUD; second click (completeCurrentCapture) drops the point
       // HUD is shown via the 'tool-changed' event handler — nothing more needed here
     } else if (['gps-line', 'gps-polygon', 'gps-point-stream'].includes(tool)) {

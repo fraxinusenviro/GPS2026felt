@@ -8,7 +8,7 @@ export type ToolMode =
   | 'gps-point' | 'gps-point-stream' | 'gps-line' | 'gps-polygon'
   | 'sketch-point' | 'sketch-line' | 'sketch-polygon' | 'sketch-freehand'
   | 'select' | 'edit-attrs' | 'delete' | 'edit-geometry' | 'lasso-select' | 'measure'
-  | 'wetlands-plot' | 'none';
+  | 'wetlands-plot' | 'photo-point' | 'none';
 
 // ---- Feature Data Model ----
 export interface FieldFeature {
@@ -32,6 +32,13 @@ export interface FieldFeature {
   project_id: string;           // owning project ID
   wetland_data?: WetlandSurvey; // Wetland delineation survey (only on wetland-plot features)
   inventory_data?: InventoryFeatureData; // Biodiversity inventory observation (only on inventory features)
+  photo_data?: PhotoPointData; // Photo point metadata (only on photo-point features)
+}
+
+// ---- Photo point metadata ----
+export interface PhotoPointData {
+  bearing: number;     // camera bearing 0–360° (direction the lens faces)
+  observer?: string;   // observer name / initials
 }
 
 // ---- Biodiversity inventory (ported from the NSINV app) ----
