@@ -1,0 +1,120 @@
+<meta charset="utf-8" />
+<title>{{ doc.title }}</title>
+<style>{{ css }}</style>
+
+{# Static SVG fragments reused across entries #}
+{% set pin_svg %}
+  <g class="pin">
+    <path d="M{{ cx }} {{ cy }}
+             C {{ cx - 7 }} {{ cy - 9 }}, {{ cx - 7 }} {{ cy - 19 }}, {{ cx }} {{ cy - 19 }}
+             C {{ cx + 7 }} {{ cy - 19 }}, {{ cx + 7 }} {{ cy - 9 }}, {{ cx }} {{ cy }} Z"
+          fill="#D85A30" stroke="#ffffff" stroke-width="1.5"/>
+    <circle cx="{{ cx }}" cy="{{ cy - 12 }}" r="3" fill="#ffffff"/>
+  </g>
+{% endset %}
+
+{% for page in pages %}
+<div class="page">
+
+  {# ── Masthead ── #}
+  <div class="masthead">
+    <div class="masthead-brand">
+      <div class="glyph">
+        <svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+          <path d="M208,56H180.28L166.65,35.56A8,8,0,0,0,160,32H96a8,8,0,0,0-6.65,3.56L75.71,56H48A24,24,0,0,0,24,80V192a24,24,0,0,0,24,24H208a24,24,0,0,0,24-24V80A24,24,0,0,0,208,56ZM128,176a36,36,0,1,1,36-36A36,36,0,0,1,128,176Z"/>
+        </svg>
+      </div>
+      <div class="title-block">
+        <div class="title">FIELD PHOTO LOG</div>
+        <div class="subtitle">Georeferenced Field Photos</div>
+      </div>
+    </div>
+    <div class="masthead-meta">
+      <div class="k">PROJECT</div><div class="v">{{ doc.project }}</div>
+      <div class="k">SITE</div><div class="v">{{ doc.site }}</div>
+      <div class="k">DOC</div><div class="v">{{ doc.doc_string }}</div>
+    </div>
+  </div>
+  <hr class="masthead-rule" />
+
+  {# ── Entries (1–2 per page) ── #}
+  <div class="entries">
+    {% for e in page.entries %}
+    {% if not loop.first %}<hr class="entry-divider" />{% endif %}
+    <div class="entry">
+
+      {# Photo #}
+      <div class="photo-cell">
+        {% if e.image_uri %}
+          <img src="{{ e.image_uri }}" alt="Field photo {{ e.photo_id }}" />
+        {% else %}
+          <div class="no-photo">No photo</div>
+        {% endif %}
+        <div class="seq-badge">{{ e.photo_id }}</div>
+      </div>
+
+      {# Combined panel: map + metadata + notes #}
+      <div class="panel">
+
+        <div class="map">
+          <img class="basemap" src="{{ e.map.image_uri }}" alt="Locator map" />
+          <svg class="overlay" viewBox="0 0 {{ map_w }} {{ map_h }}" preserveAspectRatio="none">
+            {% if e.map.wedge_path %}
+              <path d="{{ e.map.wedge_path }}" fill="rgba(216,90,48,0.32)" stroke="rgba(216,90,48,0.55)" stroke-width="0.75"/>
+            {% endif %}
+            {{ pin_svg }}
+
+            {# Scale bar bottom-left #}
+            <g class="scale" transform="translate(12, {{ map_h - 14 }})">
+              <line x1="0" y1="6" x2="{{ e.map.scale.px }}" y2="6" stroke="#3a3a3a" stroke-width="1.4"/>
+              <line x1="0" y1="2" x2="0" y2="10" stroke="#3a3a3a" stroke-width="1.4"/>
+              <line x1="{{ e.map.scale.half_px }}" y1="3" x2="{{ e.map.scale.half_px }}" y2="9" stroke="#3a3a3a" stroke-width="1.2"/>
+              <line x1="{{ e.map.scale.px }}" y1="2" x2="{{ e.map.scale.px }}" y2="10" stroke="#3a3a3a" stroke-width="1.4"/>
+              <text x="0" y="0" font-size="6.5" fill="#3a3a3a" text-anchor="middle">0</text>
+              <text x="{{ e.map.scale.half_px }}" y="0" font-size="6.5" fill="#3a3a3a" text-anchor="middle">{{ e.map.scale.half_label }}</text>
+              <text x="{{ e.map.scale.px }}" y="0" font-size="6.5" fill="#3a3a3a" text-anchor="middle">{{ e.map.scale.full_label }} m</text>
+            </g>
+
+            {# North badge bottom-right #}
+            <g class="north" transform="translate({{ map_w - 16 }}, {{ map_h - 16 }})">
+              <circle cx="0" cy="0" r="9" fill="#ffffff" stroke="#3a3a3a" stroke-width="0.8"/>
+              <path d="M0 -6 L3 5 L0 2 L-3 5 Z" fill="#3a3a3a"/>
+              <text x="0" y="-9.5" font-size="6" font-weight="700" fill="#3a3a3a" text-anchor="middle">N</text>
+            </g>
+          </svg>
+        </div>
+
+        <table class="meta">
+          <tr><th>Photo ID</th><td>{{ e.photo_id }}</td></tr>
+          <tr><th>Date / Time</th><td>{{ e.datetime }}</td></tr>
+          <tr><th>Observer</th><td>{{ e.observer }}</td></tr>
+          <tr><th>Latitude</th><td class="mono">{{ e.lat_str }}</td></tr>
+          <tr><th>Longitude</th><td class="mono">{{ e.lon_str }}</td></tr>
+          <tr><th>Elevation</th><td>{{ e.elev_str }}</td></tr>
+          <tr><th>Bearing <span class="qual">(from N)</span></th><td class="bearing">{{ e.bearing_str }}</td></tr>
+        </table>
+
+        {% if e.notes %}
+        <div class="notes">
+          <div class="label">Notes</div>
+          <div class="body">{{ e.notes }}</div>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ── Footer ── #}
+  <div class="footer">
+    <hr class="footer-rule" />
+    <div class="footer-cells">
+      <div class="left">{{ doc.company }}</div>
+      <div class="center">Page {{ page.page_num }} of {{ page.page_count }}</div>
+      <div class="right">Prepared by: {{ doc.prepared_by }}</div>
+    </div>
+  </div>
+
+</div>
+{% endfor %}

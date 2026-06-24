@@ -1,0 +1,26 @@
+{
+  "records": [
+    {
+      "photo_id": "01",
+      "image_path": "sample_images/photo_01.jpg",
+      "datetime": "2026-06-23T14:11:00-03:00",
+      "observer": "Jastels",
+      "lat": 45.005000,
+      "lon": -64.010510,
+      "elevation_m": 215.3,
+      "bearing_deg": 81.0,
+      "notes": "Low-lying forested area with saturated soils and abundant understory vegetation."
+    },
+    {
+      "photo_id": "02",
+      "image_path": "sample_images/photo_02.jpg",
+      "datetime": "2026-06-23T13:12:00-03:00",
+      "observer": "Ibryson",
+      "lat": 45.004140,
+      "lon": -64.022078,
+      "elevation_m": 200.4,
+      "bearing_deg": 335.0,
+      "notes": "Stockpiled fill/organic material. Potential wetland alteration."
+    }
+  ]
+}
