@@ -207,6 +207,7 @@ export interface ProjectMap {
   updated_at: string;
   created_by?: string;             // user_id of map creator
   thumbnail_url?: string;          // size-reduced preview image (JPEG data URL) for map rows
+  show_global_overlay?: boolean;   // show cross-project features as a read-only reference layer
 }
 
 // ---- GeoJSON minimal types (typed for clarity) ----
