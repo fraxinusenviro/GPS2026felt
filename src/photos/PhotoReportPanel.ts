@@ -2,6 +2,7 @@ import type { FieldFeature } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import { generatePhotoLogPdf } from './PhotoReport';
+import type { FontKey } from './pdfFonts';
 import { BASEMAPS } from '../constants';
 import type { MapManager } from '../map/MapManager';
 
@@ -16,6 +17,7 @@ export class PhotoReportPanel {
   private dateTo = '';
   private spatialFilter: 'all' | 'extent' = 'all';
   private selectedObservers = new Set<string>(['all']);
+  private selectedFont: FontKey = 'default';
 
   constructor(
     private mapManager: MapManager,
@@ -39,6 +41,11 @@ export class PhotoReportPanel {
   private async reloadFeatures(): Promise<void> {
     const all = await this.storage.getAllFeatures();
     this.allPhotoFeatures = all.filter(f => f.photo_data !== undefined);
+    // Default the PDF font to the app's current Font Appearance setting.
+    try {
+      const settings = await this.storage.getAppSettings();
+      this.selectedFont = (settings.font_family ?? 'default') as FontKey;
+    } catch { /* keep default */ }
     if (this.isOpen) this.updateBody();
   }
 
@@ -162,6 +169,19 @@ export class PhotoReportPanel {
           ${observerRows}
         </div>` : ''}
 
+        <div class="settings-section">
+          <h4>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M208,32H48A16,16,0,0,0,32,48V80a8,8,0,0,0,16,0V48h72V208H96a8,8,0,0,0,0,16h64a8,8,0,0,0,0-16H136V48h72V80a8,8,0,0,0,16,0V48A16,16,0,0,0,208,32Z"/></svg>
+            Font
+          </h4>
+          <select id="photo-font" class="felt-input" style="width:100%;font-size:12px;padding:5px 8px">
+            <option value="default" ${this.selectedFont === 'default' ? 'selected' : ''}>Default (System)</option>
+            <option value="oswald" ${this.selectedFont === 'oswald' ? 'selected' : ''}>Oswald</option>
+            <option value="lato" ${this.selectedFont === 'lato' ? 'selected' : ''}>Lato</option>
+            <option value="roboto-condensed" ${this.selectedFont === 'roboto-condensed' ? 'selected' : ''}>Roboto Condensed</option>
+          </select>
+        </div>
+
         ${loading ? '' : `
         <p class="settings-hint" id="photo-report-count" style="margin:0 0 8px;font-weight:500;text-align:center">
           ${n} photo${n !== 1 ? 's' : ''} match
@@ -193,6 +213,10 @@ export class PhotoReportPanel {
         this.spatialFilter = r.value as 'all' | 'extent';
         updateCount();
       });
+    });
+
+    scope.querySelector<HTMLSelectElement>('#photo-font')?.addEventListener('change', (e) => {
+      this.selectedFont = (e.target as HTMLSelectElement).value as FontKey;
     });
 
     scope.querySelectorAll<HTMLInputElement>('.photo-observer-cb').forEach(cb => {
@@ -269,6 +293,7 @@ export class PhotoReportPanel {
         site,
         preparedBy: settings.user_id || undefined,
         basemapUrl,
+        fontKey: this.selectedFont,
       });
       EventBus.emit('toast', { message: 'Photo log PDF downloaded', type: 'success' });
       this.close();
