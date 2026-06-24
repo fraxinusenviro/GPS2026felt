@@ -1,15 +1,21 @@
 import { jsPDF } from 'jspdf';
 import type { FieldFeature } from '../types';
 import { BASEMAPS } from '../constants';
-import { lon2tile, lat2tile } from '../cache/tileUtils';
+import { registerPdfFont, type FontKey } from './pdfFonts';
+import logoUrl from '../assets/logo.png';
 
 type RGB = [number, number, number];
+
+/** Body font name for the current render (a registered custom font or 'helvetica'). */
+let BODY = 'helvetica';
 
 export interface PhotoLogOptions {
   project?: string;
   site?: string;
   preparedBy?: string;
   company?: string;
+  /** UI font from settings; embedded into the PDF (default → helvetica). */
+  fontKey?: FontKey;
   /** Basemap tile-URL template ({z}/{x}/{y}) for locator maps. */
   basemapUrl?: string;
   /** Locator-map zoom (Web Mercator). */
@@ -45,12 +51,6 @@ function formatDateTime(iso: string): string {
   const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   return `${date} · ${time}`;
-}
-
-function formatDateOnly(iso: string): string {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 function formatCoord(v: number | null, axis: 'lat' | 'lon'): string {
@@ -94,6 +94,21 @@ function placeholderMap(w: number, h: number): string {
   for (let x = 0; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
   for (let y = 0; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
   return canvas.toDataURL('image/png');
+}
+
+/** Load the masthead logo as a PNG data URL with its natural dimensions. */
+async function loadLogo(): Promise<{ dataUrl: string; w: number; h: number } | null> {
+  try {
+    const blob = await (await fetch(logoUrl)).blob();
+    const bmp = await createImageBitmap(blob);
+    const canvas = document.createElement('canvas');
+    canvas.width = bmp.width;
+    canvas.height = bmp.height;
+    canvas.getContext('2d')!.drawImage(bmp, 0, 0);
+    return { dataUrl: canvas.toDataURL('image/png'), w: bmp.width, h: bmp.height };
+  } catch {
+    return null;
+  }
 }
 
 /** Fetch + stitch basemap tiles into a w×h image centred on lat/lon. */
@@ -159,36 +174,41 @@ function drawCameraGlyph(doc: jsPDF, x: number, y: number, s: number): void {
 }
 
 function drawMasthead(doc: jsPDF, x: number, y: number, w: number,
-                      o: { project: string; site: string; dateStr: string }): void {
-  const glyph = 30;
-  drawCameraGlyph(doc, x, y, glyph);
+                      o: { project: string; site: string },
+                      logo: { dataUrl: string; w: number; h: number } | null): void {
+  const glyph = 32;
+  let titleX = x + glyph + 10;
+  if (logo) {
+    const lw = glyph * (logo.w / logo.h);
+    doc.addImage(logo.dataUrl, 'PNG', x, y, lw, glyph);
+    titleX = x + lw + 10;
+  } else {
+    drawCameraGlyph(doc, x, y, glyph);
+  }
 
-  const tx = x + glyph + 10;
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(BODY, 'bold');
   doc.setFontSize(16);
   setText(doc, C.title);
-  doc.text('FIELD PHOTO LOG', tx, y + 13);
-  doc.setFont('helvetica', 'normal');
+  doc.text('FIELD PHOTO LOG', titleX, y + 14);
+  doc.setFont(BODY, 'normal');
   doc.setFontSize(8.5);
   setText(doc, C.muted2);
-  doc.text('Georeferenced Field Photos', tx, y + 24);
+  doc.text('Georeferenced Field Photos', titleX, y + 25);
 
-  // Right key/value block.
-  const rows: [string, string][] = [
-    ['PROJECT', o.project], ['SITE', o.site], ['DATE', o.dateStr],
-  ];
-  const labelX = x + w - 200;
-  const valueX = x + w - 148;
-  let ry = y + 5;
+  // Project / Site key-value block, positioned left of the right margin.
+  const rows: [string, string][] = [['PROJECT', o.project], ['SITE', o.site]];
+  const labelX = x + w - 260;
+  const valueX = labelX + 52;
+  let ry = y + 9;
   doc.setFontSize(8.5);
   for (const [k, v] of rows) {
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(BODY, 'bold');
     setText(doc, C.brand);
     doc.text(k, labelX, ry);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont(BODY, 'normal');
     setText(doc, C.ink);
-    doc.text(v || '—', valueX, ry, { maxWidth: 148 });
-    ry += 12;
+    doc.text(v || '—', valueX, ry, { maxWidth: (x + w) - valueX });
+    ry += 13;
   }
 
   // Full-width 2.5pt green rule.
@@ -204,10 +224,10 @@ function drawFooter(doc: jsPDF, x: number, w: number, yRule: number,
   doc.line(x, yRule, x + w, yRule);
   const ty = yRule + 11;
   doc.setFontSize(8.5);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(BODY, 'bold');
   setText(doc, C.title);
   doc.text(o.company, x, ty);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(BODY, 'normal');
   setText(doc, C.muted);
   doc.text(`Page ${o.pageNum} of ${o.pageCount}`, x + w / 2, ty, { align: 'center' });
   doc.text(`Prepared by: ${o.preparedBy}`, x + w, ty, { align: 'right' });
@@ -247,14 +267,11 @@ function drawMapOverlays(doc: jsPDF, mx: number, my: number, mw: number, mh: num
     (doc as any).setGState((doc as any).GState({ opacity: 1 }));
   }
 
-  // Pin (orange teardrop, white outline).
+  // Location marker: orange circle with a white outline, centred on the point.
   setDraw(doc, C.white);
-  doc.setLineWidth(1);
+  doc.setLineWidth(1.2);
   setFill(doc, C.accent);
-  doc.circle(cx, cy - 4, 3.2, 'FD');
-  doc.triangle(cx - 2.2, cy - 3, cx + 2.2, cy - 3, cx, cy + 1.5, 'F');
-  setFill(doc, C.white);
-  doc.circle(cx, cy - 4, 1.2, 'F');
+  doc.circle(cx, cy, 3.4, 'FD');
 
   // Scale bar bottom-left.
   const sx = mx + 8, sy = my + mh - 8;
@@ -264,7 +281,7 @@ function drawMapOverlays(doc: jsPDF, mx: number, my: number, mw: number, mh: num
   doc.line(sx, sy - 2.5, sx, sy + 2.5);
   doc.line(sx + e.scale.halfPt, sy - 1.8, sx + e.scale.halfPt, sy + 1.8);
   doc.line(sx + e.scale.lenPt, sy - 2.5, sx + e.scale.lenPt, sy + 2.5);
-  doc.setFont('helvetica', 'normal');
+  doc.setFont(BODY, 'normal');
   doc.setFontSize(5.5);
   setText(doc, C.scale);
   doc.text('0', sx, sy - 4, { align: 'center' });
@@ -281,7 +298,7 @@ function drawMapOverlays(doc: jsPDF, mx: number, my: number, mw: number, mh: num
   doc.triangle(nx, ny - 5, nx - 2.5, ny + 4, nx, ny + 1.5, 'F');
   doc.triangle(nx, ny - 5, nx + 2.5, ny + 4, nx, ny + 1.5, 'F');
   doc.setFontSize(5);
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(BODY, 'bold');
   doc.text('N', nx, ny - 7.5, { align: 'center' });
 }
 
@@ -302,7 +319,7 @@ function drawEntry(doc: jsPDF, x: number, y: number, w: number, h: number, e: En
     doc.text('No photo', x + photoW / 2, y + h / 2, { align: 'center' });
   }
   // Sequence badge.
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(BODY, 'bold');
   doc.setFontSize(11);
   const bw = 8 + doc.getTextWidth(e.seq);
   setFill(doc, C.title);
@@ -343,13 +360,13 @@ function drawEntry(doc: jsPDF, x: number, y: number, w: number, h: number, e: En
     const ry = tableTop + i * rowH;
     setFill(doc, i % 2 === 0 ? C.rowShade : C.white);
     doc.rect(panelX, ry, panelW, rowH, 'F');
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(BODY, 'bold');
     doc.setFontSize(7.5);
     setText(doc, C.muted);
     doc.text(r[0], panelX + 6, ry + 9);
     if (r[0] === 'Bearing') {
       const labelW = doc.getTextWidth(r[0]); // measured at the label's 7.5pt bold
-      doc.setFont('helvetica', 'normal');
+      doc.setFont(BODY, 'normal');
       doc.setFontSize(5.5);
       setText(doc, C.muted2);
       doc.text('(from N)', panelX + 6 + labelW + 3, ry + 9);
@@ -367,11 +384,11 @@ function drawEntry(doc: jsPDF, x: number, y: number, w: number, h: number, e: En
     setDraw(doc, C.hairline);
     doc.setLineWidth(0.5);
     doc.line(panelX, ny, panelX + panelW, ny);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(BODY, 'bold');
     doc.setFontSize(7);
     setText(doc, C.muted);
     doc.text('Notes', panelX + 6, ny + 10);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont(BODY, 'normal');
     doc.setFontSize(8);
     setText(doc, C.notes);
     doc.text(notesLines, panelX + 6, ny + 19);
@@ -445,16 +462,11 @@ export async function generatePhotoLogPdf(
     });
   }
 
-  // Derive masthead date (single day or range).
-  const days = features.map(f => f.created_at?.substring(0, 10)).filter(Boolean).sort();
-  let dateStr = '—';
-  if (days.length) {
-    const lo = days[0], hi = days[days.length - 1];
-    dateStr = lo === hi ? formatDateOnly(lo + 'T12:00:00')
-      : `${formatDateOnly(lo + 'T12:00:00')} – ${formatDateOnly(hi + 'T12:00:00')}`;
-  }
+  const logo = await loadLogo();
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+  // Embed the selected UI font (default → built-in helvetica).
+  BODY = await registerPdfFont(doc, opts.fontKey);
   const PAGE_W = doc.internal.pageSize.getWidth();
   const PAGE_H = doc.internal.pageSize.getHeight();
   const M = 36;
@@ -473,8 +485,8 @@ export async function generatePhotoLogPdf(
     if (i > 0 && onPage === 0) doc.addPage();
     if (onPage === 0) {
       drawMasthead(doc, M, M, contentW, {
-        project: opts.project ?? 'Field Photo Log', site: opts.site ?? '', dateStr,
-      });
+        project: opts.project ?? 'Field Photo Log', site: opts.site ?? '',
+      }, logo);
     }
     const ey = entriesTop + onPage * (entryH + 14);
     if (onPage === 1) {
