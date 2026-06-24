@@ -481,35 +481,63 @@ export class MapManager {
       type: 'fill',
       source: 'global-collected-polygons',
       layout: { visibility: 'none' },
-      paint: { 'fill-color': ['coalesce', ['get', 'color'], '#60a5fa'], 'fill-opacity': 0.18 }
+      paint: {
+        'fill-color': ['coalesce', ['get', 'color'], '#60a5fa'],
+        'fill-opacity': ['*', ['coalesce', ['get', 'fill_opacity'], 0.35], 0.5],
+      }
     });
     this.map.addLayer({
       id: 'global-polygons-outline',
       type: 'line',
       source: 'global-collected-polygons',
       layout: { visibility: 'none', 'line-join': 'round' },
-      paint: { 'line-color': ['coalesce', ['get', 'color'], '#60a5fa'], 'line-width': 1.5, 'line-opacity': 0.5, 'line-dasharray': [4, 2] }
+      paint: {
+        'line-color': ['coalesce', ['get', 'stroke_color'], ['get', 'color'], '#60a5fa'],
+        'line-width': ['coalesce', ['get', 'stroke_width'], 1.5],
+        'line-opacity': 0.5,
+        'line-dasharray': [4, 2],
+      }
     });
     this.map.addLayer({
       id: 'global-lines',
       type: 'line',
       source: 'global-collected-lines',
       layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-      paint: { 'line-color': ['coalesce', ['get', 'color'], '#60a5fa'], 'line-width': 1.5, 'line-opacity': 0.5, 'line-dasharray': [4, 2] }
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#60a5fa'],
+        'line-width': ['coalesce', ['get', 'stroke_width'], 1.5],
+        'line-opacity': 0.5,
+        'line-dasharray': [4, 2],
+      }
     });
     this.map.addLayer({
       id: 'global-points-circle',
       type: 'circle',
       source: 'global-collected-points',
+      filter: ['!', ['get', 'use_symbol']],
       layout: { visibility: 'none' },
       paint: {
-        'circle-radius': 5,
+        'circle-radius': ['coalesce', ['get', 'size'], 5],
         'circle-color': ['coalesce', ['get', 'color'], '#60a5fa'],
         'circle-opacity': 0.5,
-        'circle-stroke-color': '#ffffff',
+        'circle-stroke-color': ['coalesce', ['get', 'stroke_color'], '#ffffff'],
         'circle-stroke-width': 1,
         'circle-stroke-opacity': 0.4,
       }
+    });
+    this.map.addLayer({
+      id: 'global-points-symbols',
+      type: 'symbol',
+      source: 'global-collected-points',
+      filter: ['get', 'use_symbol'],
+      layout: {
+        visibility: 'none',
+        'icon-image': ['concat', 'preset-', ['get', 'preset_id']],
+        'icon-size': ['/', ['coalesce', ['get', 'size'], 7.0], 24.0],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+      paint: { 'icon-opacity': 0.5 },
     });
     this.map.addLayer({
       id: 'global-wetland-plots-circle',
@@ -1003,7 +1031,7 @@ export class MapManager {
       source: 'photo-points',
       layout: {
         'icon-image': 'photo-point-icon',
-        'icon-size': 0.55,
+        'icon-size': 0.85,
         'icon-rotate': ['get', 'bearing'],
         'icon-rotation-alignment': 'map',
         'icon-allow-overlap': true,
@@ -1031,25 +1059,30 @@ export class MapManager {
     });
   }
 
-  private registerPhotoPointIcon(): void {
+  private registerPhotoPointIcon(color = '#f97316'): void {
     const size = 64;
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext('2d')!;
+    this.drawPhotoPointIcon(ctx, size, color);
+    const imageData = ctx.getImageData(0, 0, size, size);
+    this.map.addImage('photo-point-icon', imageData, { pixelRatio: 2 });
+  }
+
+  private drawPhotoPointIcon(ctx: CanvasRenderingContext2D, size: number, color: string): void {
+    ctx.clearRect(0, 0, size, size);
     const cx = size / 2;
     const cy = size / 2;
 
     // Field-of-view wedge pointing UP (north in natural orientation)
-    // The whole icon rotates by bearing in MapLibre
     ctx.beginPath();
     ctx.moveTo(cx, cy);
-    // ~70° arc centred on "up" (270° in canvas coords = top)
     const startAngle = (270 - 35) * Math.PI / 180;
     const endAngle   = (270 + 35) * Math.PI / 180;
     ctx.arc(cx, cy, size * 0.46, startAngle, endAngle);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(249, 115, 22, 0.75)';
+    ctx.fillStyle = color + 'bf'; // ~75% opacity
     ctx.fill();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
     ctx.lineWidth = 1.5;
@@ -1058,14 +1091,33 @@ export class MapManager {
     // Observer dot
     ctx.beginPath();
     ctx.arc(cx, cy, size * 0.16, 0, Math.PI * 2);
-    ctx.fillStyle = '#f97316';
+    ctx.fillStyle = color;
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.stroke();
+  }
 
-    const imageData = ctx.getImageData(0, 0, size, size);
-    this.map.addImage('photo-point-icon', imageData, { pixelRatio: 2 });
+  setPhotoPointSize(size: number): void {
+    if (!this.initialized || !this.map.getLayer('photo-points-layer')) return;
+    this.map.setLayoutProperty('photo-points-layer', 'icon-size', size);
+  }
+
+  setPhotoPointColor(color: string): void {
+    if (!this.initialized) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = 64; canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+    this.drawPhotoPointIcon(ctx, 64, color);
+    const imageData = ctx.getImageData(0, 0, 64, 64);
+    if (this.map.hasImage('photo-point-icon')) {
+      this.map.updateImage('photo-point-icon', imageData);
+    }
+  }
+
+  updatePhotoPointIcon(color: string, size: number): void {
+    this.setPhotoPointColor(color);
+    this.setPhotoPointSize(size);
   }
 
   private setupUserLocation(): void {
@@ -1262,10 +1314,26 @@ export class MapManager {
     const inventoryFeatProps = inventoryPoints.map(p => ({ properties: (p as { properties: Record<string, unknown> }).properties }));
     this.setInventorySymbology(inventoryLp?.symbologyState ?? null, inventoryFeatProps);
     this.setLayerVisibility('inventory-points-labels', inventoryLp?.show_labels !== false);
+
+    // Re-apply photo-points visibility, label, size, and color on refresh/reload.
+    const photoLp = layerPresets?.find(lp => lp.id.endsWith('-photo-points'));
+    if (photoLp) {
+      const photoOn = photoLp.visible !== false;
+      this.setLayerVisibility('photo-points-layer', photoOn);
+      this.setLayerVisibility('photo-points-labels', photoOn && photoLp.show_labels !== false);
+      this.setPhotoPointSize(photoLp.size ?? 0.85);
+      this.setPhotoPointColor(photoLp.color ?? '#f97316');
+    }
   }
 
-  updateGlobalFeatures(features: FieldFeature[], projectNameMap: Map<string, string>): void {
+  updateGlobalFeatures(features: FieldFeature[], projectNameMap: Map<string, string>, typePresets: TypePreset[] = []): void {
     if (!this.initialized) return;
+
+    // Build TypePreset lookup: type label → TypePreset (same as updateCollectedFeatures)
+    const typeMap = new Map<string, TypePreset>();
+    for (const tp of typePresets) {
+      typeMap.set(tp.label, tp);
+    }
 
     const points: object[] = [];
     const lines: object[] = [];
@@ -1276,11 +1344,27 @@ export class MapManager {
     for (const f of features) {
       const isWetlandPlot = f.layer_id?.endsWith('-wetlands') || !!f.wetland_data;
       const isInventory = f.layer_id?.endsWith('-inventory') || !!f.inventory_data;
-      const color = isWetlandPlot
-        ? wetlandPlotColor(String(f.wetland_data?.PLOT_TYPE ?? ''))
-        : isInventory
-        ? getGroupColor(f.inventory_data?.taxon ?? '')
-        : undefined;
+
+      // Look up TypePreset for full preset-consistent symbology
+      const tp = typeMap.get(f.type);
+
+      let color = tp?.color ?? (
+        isWetlandPlot ? wetlandPlotColor(String(f.wetland_data?.PLOT_TYPE ?? ''))
+        : isInventory ? getGroupColor(f.inventory_data?.taxon ?? '')
+        : '#60a5fa'
+      );
+      if (isWetlandPlot) color = wetlandPlotColor(String(f.wetland_data?.PLOT_TYPE ?? ''));
+      if (isInventory) color = getGroupColor(f.inventory_data?.taxon ?? '');
+
+      const strokeColor  = tp?.stroke_color ?? '#ffffff';
+      const strokeWidth  = tp?.stroke_width ?? 1.5;
+      const fillOpacity  = tp?.fill_opacity ?? (f.geometry_type === 'Polygon' ? 0.35 : 1.0);
+      const size         = tp?.size ?? 7;
+      const icon         = tp?.icon ?? '';
+      const shape        = tp?.shape ?? 'circle';
+      const dashPattern  = tp?.dash_pattern ?? 'solid';
+      const useSymbol    = (shape !== 'circle') || (icon !== '');
+      const presetId     = tp?.id ?? '';
 
       const baseProps: Record<string, unknown> = {
         id: f.id,
@@ -1289,8 +1373,17 @@ export class MapManager {
         project_name: projectNameMap.get(f.project_id) ?? f.project_id,
         created_by: f.created_by,
         created_at: f.created_at,
+        color,
+        stroke_color: strokeColor,
+        stroke_width: strokeWidth,
+        fill_opacity: fillOpacity,
+        size,
+        icon,
+        shape,
+        dash_pattern: dashPattern,
+        use_symbol: useSymbol,
+        preset_id: presetId,
       };
-      if (color !== undefined) baseProps['color'] = color;
 
       const geoFeature = { type: 'Feature', id: f.id, geometry: f.geometry, properties: baseProps };
 
@@ -1319,7 +1412,7 @@ export class MapManager {
     if (!this.initialized) return;
     const vis = visible ? 'visible' : 'none';
     for (const id of ['global-polygons-fill', 'global-polygons-outline', 'global-lines',
-      'global-points-circle', 'global-wetland-plots-circle', 'global-photo-points-circle']) {
+      'global-points-circle', 'global-points-symbols', 'global-wetland-plots-circle', 'global-photo-points-circle']) {
       if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', vis);
     }
   }

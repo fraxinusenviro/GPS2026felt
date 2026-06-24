@@ -316,6 +316,7 @@ export interface LayerPreset {
   stroke_color: string;
   stroke_width: number;
   fill_opacity: number;
+  size?: number;                 // icon size (used by photo-points and future presets)
   types: TypePreset[];
   project_id?: string;          // owning project ID (undefined = legacy global)
   visible?: boolean;            // TOC visibility toggle (default true)

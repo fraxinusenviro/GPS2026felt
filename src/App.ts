@@ -474,7 +474,7 @@ export class App {
     ]);
     this.globalFeatures = allFeatures.filter(f => f.project_id !== activeProjectId);
     const nameMap = new Map(allProjects.map(p => [p.id, p.name]));
-    this.mapManager.updateGlobalFeatures(this.globalFeatures, nameMap);
+    this.mapManager.updateGlobalFeatures(this.globalFeatures, nameMap, this.presetManager.getPresets());
     this.mapManager.setGlobalOverlayVisible(true);
   }
 
