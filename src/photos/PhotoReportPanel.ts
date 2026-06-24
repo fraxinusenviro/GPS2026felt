@@ -2,6 +2,7 @@ import type { FieldFeature } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import { generatePhotoLogPdf } from './PhotoReport';
+import { BASEMAPS } from '../constants';
 import type { MapManager } from '../map/MapManager';
 
 type MapBounds = { west: number; south: number; east: number; north: number };
@@ -250,8 +251,25 @@ export class PhotoReportPanel {
     if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
 
     try {
-      const mapCanvas = this.mapManager.getMap().getCanvas();
-      await generatePhotoLogPdf(features, mapCanvas);
+      // Masthead / footer metadata, derived from the active project & map.
+      const settings = await this.storage.getAppSettings();
+      let project: string | undefined;
+      let site: string | undefined;
+      try {
+        const map = settings.active_map_id ? await this.storage.getMap(settings.active_map_id) : undefined;
+        const proj = await this.storage.getProject(map?.project_id ?? settings.active_project_id ?? 'default');
+        project = proj?.name;
+        site = map?.name;
+      } catch { /* metadata is best-effort */ }
+
+      const basemapUrl = BASEMAPS.find(b => b.id === settings.basemap_id)?.url;
+
+      await generatePhotoLogPdf(features, {
+        project,
+        site,
+        preparedBy: settings.user_id || undefined,
+        basemapUrl,
+      });
       EventBus.emit('toast', { message: 'Photo log PDF downloaded', type: 'success' });
       this.close();
     } catch (err) {

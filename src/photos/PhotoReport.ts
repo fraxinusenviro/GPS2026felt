@@ -1,302 +1,499 @@
 import { jsPDF } from 'jspdf';
 import type { FieldFeature } from '../types';
+import { BASEMAPS } from '../constants';
+import { lon2tile, lat2tile } from '../cache/tileUtils';
 
 type RGB = [number, number, number];
 
-function bearingToCardinal(deg: number): string {
-  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  return dirs[Math.round(((deg % 360) + 360) % 360 / 45) % 8];
+export interface PhotoLogOptions {
+  project?: string;
+  site?: string;
+  preparedBy?: string;
+  company?: string;
+  /** Basemap tile-URL template ({z}/{x}/{y}) for locator maps. */
+  basemapUrl?: string;
+  /** Locator-map zoom (Web Mercator). */
+  zoom?: number;
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString('en-CA', {
-    year: 'numeric', month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
+// ── Palette (ADM-001) ────────────────────────────────────────────────────────
+const C: Record<string, RGB> = {
+  brand:   [15, 110, 86],   // #0F6E56
+  title:   [20, 59, 46],    // #143b2e
+  accent:  [216, 90, 48],   // #D85A30
+  rowShade:[245, 246, 242], // #f5f6f2
+  hairline:[230, 232, 227], // #e6e8e3
+  muted:   [90, 102, 96],   // #5a6660
+  muted2:  [106, 122, 114], // #6a7a72
+  ink:     [42, 50, 46],    // #2a322e
+  notes:   [85, 85, 85],    // #555
+  white:   [255, 255, 255],
+  scale:   [58, 58, 58],
+};
+
+const COMPASS_8 = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+// ── Formatting ────────────────────────────────────────────────────────────────
+function bearingLabel(deg: number): string {
+  const d = ((deg % 360) + 360) % 360;
+  return `${Math.round(d) % 360}° ${COMPASS_8[Math.round(d / 45) % 8]}`;
+}
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return `${date} · ${time}`;
+}
+
+function formatDateOnly(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 function formatCoord(v: number | null, axis: 'lat' | 'lon'): string {
   if (v == null) return '—';
-  const abs = Math.abs(v).toFixed(6);
   const dir = axis === 'lat' ? (v >= 0 ? 'N' : 'S') : (v >= 0 ? 'E' : 'W');
-  return `${abs}° ${dir}`;
+  return `${Math.abs(v).toFixed(6)}° ${dir}`;
 }
 
-async function normalizePhotoForPdf(dataUrl: string): Promise<string> {
-  if (!dataUrl) return '';
+// ── Image helpers ───────────────────────────────────────────────────────────
+/** Decode a data URL, honour EXIF orientation, and cover-crop to w×h px. */
+async function coverCrop(dataUrl: string, w: number, h: number): Promise<string | null> {
+  if (!dataUrl) return null;
   try {
     const blob = await (await fetch(dataUrl)).blob();
-    if (typeof createImageBitmap === 'function') {
-      const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
-      const canvas = document.createElement('canvas');
-      canvas.width = bmp.width;
-      canvas.height = bmp.height;
-      canvas.getContext('2d')?.drawImage(bmp, 0, 0);
-      return canvas.toDataURL('image/jpeg', 0.92);
+    const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    const scale = Math.max(w / bmp.width, h / bmp.height);
+    const dw = bmp.width * scale;
+    const dh = bmp.height * scale;
+    ctx.drawImage(bmp, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    return canvas.toDataURL('image/jpeg', 0.9);
+  } catch {
+    return null;
+  }
+}
+
+/** Light grid placeholder so a locator panel always renders (offline / blocked). */
+function placeholderMap(w: number, h: number): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#eef1ec';
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = '#e6e8e3';
+  ctx.lineWidth = 1;
+  const step = 32;
+  for (let x = 0; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+  for (let y = 0; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+  return canvas.toDataURL('image/png');
+}
+
+/** Fetch + stitch basemap tiles into a w×h image centred on lat/lon. */
+async function fetchLocatorMap(
+  lat: number, lon: number, z: number, w: number, h: number, urlTemplate: string,
+): Promise<string | null> {
+  const TILE = 256;
+  const n = Math.pow(2, z);
+  // Centre in global Web-Mercator pixels.
+  const cx = ((lon + 180) / 360) * n * TILE;
+  const latRad = (lat * Math.PI) / 180;
+  const cy = (0.5 - Math.log((1 + Math.sin(latRad)) / (1 - Math.sin(latRad))) / (4 * Math.PI)) * n * TILE;
+  const left = cx - w / 2;
+  const top = cy - h / 2;
+  const tx0 = Math.floor(left / TILE), ty0 = Math.floor(top / TILE);
+  const tx1 = Math.floor((left + w) / TILE), ty1 = Math.floor((top + h) / TILE);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+
+  const jobs: Promise<void>[] = [];
+  let gotAny = false;
+  for (let tx = tx0; tx <= tx1; tx++) {
+    for (let ty = ty0; ty <= ty1; ty++) {
+      if (tx < 0 || ty < 0 || tx >= n || ty >= n) continue;
+      const url = urlTemplate
+        .replace('{z}', String(z)).replace('{x}', String(tx))
+        .replace('{y}', String(ty)).replace('{s}', 'a');
+      jobs.push((async () => {
+        try {
+          const resp = await fetch(url, { mode: 'cors' });
+          if (!resp.ok) return;
+          const bmp = await createImageBitmap(await resp.blob());
+          ctx.drawImage(bmp, tx * TILE - left, ty * TILE - top);
+          gotAny = true;
+        } catch { /* tile unavailable — leave gap */ }
+      })());
     }
-  } catch { /* fall through */ }
-  return dataUrl;
+  }
+  await Promise.all(jobs);
+  return gotAny ? canvas.toDataURL('image/jpeg', 0.85) : null;
 }
 
-function measureImage(dataUrl: string): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height });
-    img.onerror = () => reject(new Error('Unable to decode image'));
-    img.src = dataUrl;
-  });
+// ── Vector chrome ───────────────────────────────────────────────────────────
+function setFill(doc: jsPDF, c: RGB) { doc.setFillColor(...c); }
+function setText(doc: jsPDF, c: RGB) { doc.setTextColor(...c); }
+function setDraw(doc: jsPDF, c: RGB) { doc.setDrawColor(...c); }
+
+function drawCameraGlyph(doc: jsPDF, x: number, y: number, s: number): void {
+  setFill(doc, C.brand);
+  doc.roundedRect(x, y, s, s, 3, 3, 'F');
+  // White camera: body + viewfinder bump + lens.
+  setFill(doc, C.white);
+  const bx = x + s * 0.18, by = y + s * 0.34, bw = s * 0.64, bh = s * 0.42;
+  doc.roundedRect(bx, by, bw, bh, 1.5, 1.5, 'F');
+  doc.rect(x + s * 0.36, y + s * 0.26, s * 0.18, s * 0.12, 'F');
+  setFill(doc, C.brand);
+  doc.circle(x + s / 2, by + bh / 2, s * 0.12, 'F');
+  setFill(doc, C.white);
+  doc.circle(x + s / 2, by + bh / 2, s * 0.06, 'F');
 }
 
-function drawCompassRose(doc: jsPDF, cx: number, cy: number, r: number, bearing: number, colors: Record<string, RGB>): void {
-  // Outer ring
-  doc.setDrawColor(...colors.line);
-  doc.setLineWidth(0.5);
-  doc.circle(cx, cy, r, 'S');
+function drawMasthead(doc: jsPDF, x: number, y: number, w: number,
+                      o: { project: string; site: string; dateStr: string }): void {
+  const glyph = 30;
+  drawCameraGlyph(doc, x, y, glyph);
 
-  // Cardinal labels
-  doc.setFontSize(6);
-  doc.setTextColor(...colors.muted);
+  const tx = x + glyph + 10;
   doc.setFont('helvetica', 'bold');
-  doc.text('N', cx, cy - r + 5, { align: 'center' });
-  doc.text('S', cx, cy + r - 1, { align: 'center' });
-  doc.text('E', cx + r - 1, cy + 1.5, { align: 'center' });
-  doc.text('W', cx - r + 1, cy + 1.5, { align: 'center' });
-
-  // Bearing arrow
-  const rad = (bearing - 90) * Math.PI / 180;
-  const tipX = cx + Math.cos(rad + Math.PI / 2) * (r - 3);
-  const tipY = cy + Math.sin(rad + Math.PI / 2) * (r - 3);
-  const baseRad1 = rad + Math.PI / 2 + 2.4;
-  const baseRad2 = rad + Math.PI / 2 - 2.4;
-  const b1x = cx + Math.cos(baseRad1) * 3;
-  const b1y = cy + Math.sin(baseRad1) * 3;
-  const b2x = cx + Math.cos(baseRad2) * 3;
-  const b2y = cy + Math.sin(baseRad2) * 3;
-  doc.setFillColor(249, 115, 22); // #f97316
-  doc.setDrawColor(249, 115, 22);
-  doc.lines([[tipX - b1x, tipY - b1y], [b2x - tipX, b2y - tipY]], b1x, b1y, [1, 1], 'FD');
-  // Center dot
-  doc.setFillColor(...colors.muted);
-  doc.circle(cx, cy, 1.5, 'F');
-}
-
-/** Generate and download the photo log PDF. */
-export async function generatePhotoLogPdf(features: FieldFeature[], mapCanvas?: HTMLCanvasElement): Promise<void> {
-  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
-
-  const pageW = doc.internal.pageSize.getWidth();
-  const pageH = doc.internal.pageSize.getHeight();
-  const margin = 36;
-  const bottom = pageH - margin;
-
-  const colors: Record<string, RGB> = {
-    ink: [15, 23, 42], muted: [71, 85, 105], line: [203, 213, 225],
-    head: [226, 232, 240], accent: [249, 115, 22], black: [0, 0, 0], white: [255, 255, 255],
-  };
-
-  // ── Cover page ──────────────────────────────────────────────────────────────
-
-  let y = margin;
-
-  // Title block
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(22);
-  doc.setTextColor(...colors.ink);
-  doc.text('Field Photo Log', pageW / 2, y + 20, { align: 'center' });
-
+  doc.setFontSize(16);
+  setText(doc, C.title);
+  doc.text('FIELD PHOTO LOG', tx, y + 13);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(...colors.muted);
-  doc.text(`Generated ${new Date().toLocaleString('en-CA', { dateStyle: 'long', timeStyle: 'short' })}`, pageW / 2, y + 36, { align: 'center' });
-  doc.text(`${features.length} photo${features.length !== 1 ? 's' : ''}`, pageW / 2, y + 50, { align: 'center' });
+  doc.setFontSize(8.5);
+  setText(doc, C.muted2);
+  doc.text('Georeferenced Field Photos', tx, y + 24);
 
-  // Horizontal rule
-  y += 62;
-  doc.setDrawColor(...colors.line);
-  doc.setLineWidth(0.75);
-  doc.line(margin, y, pageW - margin, y);
-  y += 12;
-
-  // Overview map
-  if (mapCanvas) {
-    try {
-      const mapDataUrl = mapCanvas.toDataURL('image/jpeg', 0.85);
-      const mapW = pageW - margin * 2;
-      const aspectRatio = mapCanvas.height / mapCanvas.width;
-      const mapH = Math.min(mapW * aspectRatio, pageH * 0.5);
-
-      doc.addImage(mapDataUrl, 'JPEG', margin, y, mapW, mapH);
-
-      // Overlay numbered dots for each photo point
-      for (let i = 0; i < features.length; i++) {
-        const f = features[i];
-        if (f.lat == null || f.lon == null) continue;
-
-        // Convert lat/lon to pixel position on the map canvas using the map's bounds
-        // We'll use a simple linear interpolation — good enough for a small area
-        // For a more accurate result, we'd need the map's projection but this is fast and practical
-        // We skip projection math and mark dots on the PDF map proportionally
-        // This requires the map bounds — we don't have them here, so we just draw a legend
-      }
-
-      // Photo count legend on map
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.setTextColor(249, 115, 22);
-      doc.setFillColor(255, 255, 255);
-      doc.setDrawColor(249, 115, 22);
-      doc.roundedRect(margin + 4, y + 4, 90, 16, 3, 3, 'FD');
-      doc.text(`${features.length} photo point${features.length !== 1 ? 's' : ''}`, margin + 8, y + 14);
-
-      y += mapH + 16;
-    } catch { /* map snapshot failed, skip */ }
-  }
-
-  // Summary table
-  if (features.length > 0) {
-    const dates = features.map(f => f.created_at.substring(0, 10));
-    const dMin = dates.reduce((a, b) => a < b ? a : b);
-    const dMax = dates.reduce((a, b) => a > b ? a : b);
-    const observers = [...new Set(features.map(f => f.photo_data?.observer ?? f.created_by ?? '').filter(Boolean))];
-
+  // Right key/value block.
+  const rows: [string, string][] = [
+    ['PROJECT', o.project], ['SITE', o.site], ['DATE', o.dateStr],
+  ];
+  const labelX = x + w - 200;
+  const valueX = x + w - 148;
+  let ry = y + 5;
+  doc.setFontSize(8.5);
+  for (const [k, v] of rows) {
+    doc.setFont('helvetica', 'bold');
+    setText(doc, C.brand);
+    doc.text(k, labelX, ry);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(...colors.muted);
-    if (dMin === dMax) {
-      doc.text(`Date: ${formatDate(dMin + 'T00:00:00')}`, margin, y); y += 14;
-    } else {
-      doc.text(`Date range: ${dMin} – ${dMax}`, margin, y); y += 14;
-    }
-    if (observers.length > 0) {
-      doc.text(`Observer${observers.length > 1 ? 's' : ''}: ${observers.join(', ')}`, margin, y); y += 14;
-    }
+    setText(doc, C.ink);
+    doc.text(v || '—', valueX, ry, { maxWidth: 148 });
+    ry += 12;
   }
 
-  // ── Photo entry pages ────────────────────────────────────────────────────────
+  // Full-width 2.5pt green rule.
+  setDraw(doc, C.brand);
+  doc.setLineWidth(2.5);
+  doc.line(x, y + glyph + 8, x + w, y + glyph + 8);
+}
 
-  const photoW = pageW - margin * 2;
-  const entryH = (pageH - margin * 2 - 20) / 2; // 2 entries per page
-  const photoAreaW = Math.round(photoW * 0.58);
-  const metaAreaX = margin + photoAreaW + 10;
-  const metaAreaW = photoW - photoAreaW - 10;
+function drawFooter(doc: jsPDF, x: number, w: number, yRule: number,
+                    o: { company: string; pageNum: number; pageCount: number; preparedBy: string }): void {
+  setDraw(doc, C.brand);
+  doc.setLineWidth(1.5);
+  doc.line(x, yRule, x + w, yRule);
+  const ty = yRule + 11;
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  setText(doc, C.title);
+  doc.text(o.company, x, ty);
+  doc.setFont('helvetica', 'normal');
+  setText(doc, C.muted);
+  doc.text(`Page ${o.pageNum} of ${o.pageCount}`, x + w / 2, ty, { align: 'center' });
+  doc.text(`Prepared by: ${o.preparedBy}`, x + w, ty, { align: 'right' });
+}
 
-  let entryOnPage = 0;
+interface EntryData {
+  seq: string;
+  photoUri: string | null;
+  mapUri: string;
+  bearing: number | null;
+  lat: number | null;
+  datetime: string;
+  observer: string;
+  latStr: string;
+  lonStr: string;
+  elevStr: string;
+  bearingStr: string;
+  notes: string;
+  scale: { lenPt: number; halfPt: number; fullLabel: string; halfLabel: string };
+}
 
+function drawMapOverlays(doc: jsPDF, mx: number, my: number, mw: number, mh: number,
+                         e: EntryData): void {
+  const cx = mx + mw / 2, cy = my + mh / 2;
+
+  // View-direction wedge (translucent cone), bearing 0 = up.
+  if (e.bearing != null) {
+    const L = mh * 0.4;
+    const half = (20 * Math.PI) / 180;
+    const b = (e.bearing * Math.PI) / 180;
+    const p1x = cx + Math.sin(b - half) * L, p1y = cy - Math.cos(b - half) * L;
+    const p2x = cx + Math.sin(b + half) * L, p2y = cy - Math.cos(b + half) * L;
+    const gs = (doc as any).GState({ opacity: 0.32 });
+    (doc as any).setGState(gs);
+    setFill(doc, C.accent);
+    doc.triangle(cx, cy, p1x, p1y, p2x, p2y, 'F');
+    (doc as any).setGState((doc as any).GState({ opacity: 1 }));
+  }
+
+  // Pin (orange teardrop, white outline).
+  setDraw(doc, C.white);
+  doc.setLineWidth(1);
+  setFill(doc, C.accent);
+  doc.circle(cx, cy - 4, 3.2, 'FD');
+  doc.triangle(cx - 2.2, cy - 3, cx + 2.2, cy - 3, cx, cy + 1.5, 'F');
+  setFill(doc, C.white);
+  doc.circle(cx, cy - 4, 1.2, 'F');
+
+  // Scale bar bottom-left.
+  const sx = mx + 8, sy = my + mh - 8;
+  setDraw(doc, C.scale);
+  doc.setLineWidth(1);
+  doc.line(sx, sy, sx + e.scale.lenPt, sy);
+  doc.line(sx, sy - 2.5, sx, sy + 2.5);
+  doc.line(sx + e.scale.halfPt, sy - 1.8, sx + e.scale.halfPt, sy + 1.8);
+  doc.line(sx + e.scale.lenPt, sy - 2.5, sx + e.scale.lenPt, sy + 2.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5.5);
+  setText(doc, C.scale);
+  doc.text('0', sx, sy - 4, { align: 'center' });
+  doc.text(e.scale.halfLabel, sx + e.scale.halfPt, sy - 4, { align: 'center' });
+  doc.text(`${e.scale.fullLabel} m`, sx + e.scale.lenPt, sy - 4, { align: 'center' });
+
+  // North badge bottom-right.
+  const nx = mx + mw - 12, ny = my + mh - 12;
+  setFill(doc, C.white);
+  setDraw(doc, C.scale);
+  doc.setLineWidth(0.7);
+  doc.circle(nx, ny, 7, 'FD');
+  setFill(doc, C.scale);
+  doc.triangle(nx, ny - 5, nx - 2.5, ny + 4, nx, ny + 1.5, 'F');
+  doc.triangle(nx, ny - 5, nx + 2.5, ny + 4, nx, ny + 1.5, 'F');
+  doc.setFontSize(5);
+  doc.setFont('helvetica', 'bold');
+  doc.text('N', nx, ny - 7.5, { align: 'center' });
+}
+
+function drawEntry(doc: jsPDF, x: number, y: number, w: number, h: number, e: EntryData): void {
+  const panelW = 178;
+  const gap = 12;
+  const photoW = w - panelW - gap;
+  const panelX = x + photoW + gap;
+
+  // ── Photo ──
+  if (e.photoUri) {
+    doc.addImage(e.photoUri, 'JPEG', x, y, photoW, h);
+  } else {
+    setFill(doc, C.rowShade);
+    doc.rect(x, y, photoW, h, 'F');
+    doc.setFontSize(9);
+    setText(doc, C.muted);
+    doc.text('No photo', x + photoW / 2, y + h / 2, { align: 'center' });
+  }
+  // Sequence badge.
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  const bw = 8 + doc.getTextWidth(e.seq);
+  setFill(doc, C.title);
+  doc.roundedRect(x + 8, y + 8, bw, 15, 3, 3, 'F');
+  setText(doc, C.white);
+  doc.text(e.seq, x + 8 + bw / 2, y + 18, { align: 'center' });
+
+  // ── Panel ──
+  const mapH = panelW * 128 / 220;
+  const rowH = 13.5;
+  const rows: [string, string, RGB][] = [
+    ['Photo ID', e.seq, C.ink],
+    ['Date / Time', e.datetime, C.ink],
+    ['Observer', e.observer, C.ink],
+    ['Latitude', e.latStr, C.ink],
+    ['Longitude', e.lonStr, C.ink],
+    ['Elevation', e.elevStr, C.ink],
+    ['Bearing', e.bearingStr, C.accent],
+  ];
+  const tableTop = y + mapH;
+  const tableH = rows.length * rowH;
+
+  // Notes height.
+  doc.setFontSize(8);
+  const notesLines = e.notes ? doc.splitTextToSize(e.notes, panelW - 12) as string[] : [];
+  const notesH = e.notes ? 16 + notesLines.length * 9 : 0;
+  const panelH = mapH + tableH + notesH;
+
+  // Map raster + overlays.
+  doc.addImage(e.mapUri, 'JPEG', panelX, y, panelW, mapH);
+  drawMapOverlays(doc, panelX, y, panelW, mapH, e);
+  setDraw(doc, C.hairline);
+  doc.setLineWidth(0.5);
+  doc.line(panelX, tableTop, panelX + panelW, tableTop);
+
+  // Metadata table with alternating row shading.
+  rows.forEach((r, i) => {
+    const ry = tableTop + i * rowH;
+    setFill(doc, i % 2 === 0 ? C.rowShade : C.white);
+    doc.rect(panelX, ry, panelW, rowH, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    setText(doc, C.muted);
+    doc.text(r[0], panelX + 6, ry + 9);
+    if (r[0] === 'Bearing') {
+      const labelW = doc.getTextWidth(r[0]); // measured at the label's 7.5pt bold
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(5.5);
+      setText(doc, C.muted2);
+      doc.text('(from N)', panelX + 6 + labelW + 3, ry + 9);
+    }
+    const mono = r[0] === 'Latitude' || r[0] === 'Longitude';
+    doc.setFont(mono ? 'courier' : 'helvetica', r[2] === C.accent ? 'bold' : 'normal');
+    doc.setFontSize(mono ? 7 : 7.5);
+    setText(doc, r[2]);
+    doc.text(r[1], panelX + 62, ry + 9, { maxWidth: panelW - 66 });
+  });
+
+  // Notes.
+  if (e.notes) {
+    const ny = tableTop + tableH;
+    setDraw(doc, C.hairline);
+    doc.setLineWidth(0.5);
+    doc.line(panelX, ny, panelX + panelW, ny);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    setText(doc, C.muted);
+    doc.text('Notes', panelX + 6, ny + 10);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    setText(doc, C.notes);
+    doc.text(notesLines, panelX + 6, ny + 19);
+  }
+
+  // Panel border (rounded).
+  setDraw(doc, C.hairline);
+  doc.setLineWidth(0.75);
+  doc.roundedRect(panelX, y, panelW, panelH, 4, 4, 'S');
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+const MAP_PX_W = 440, MAP_PX_H = 256;
+const PHOTO_PX_W = 720, PHOTO_PX_H = 600;
+
+function scaleGeometry(lat: number, zoom: number, panelW: number): EntryData['scale'] {
+  const mpp = 156543.03392 * Math.cos((lat * Math.PI) / 180) / Math.pow(2, zoom);
+  const ptPerPx = panelW / MAP_PX_W;
+  let full = 100, half = 50;
+  const maxPt = panelW * 0.42;
+  while ((full / mpp) * ptPerPx > maxPt && full > 10) { full /= 2; half = full / 2; }
+  return {
+    lenPt: (full / mpp) * ptPerPx,
+    halfPt: (half / mpp) * ptPerPx,
+    fullLabel: String(full),
+    halfLabel: String(half),
+  };
+}
+
+/** Generate and download the photo log PDF in the ADM-001 two-up layout. */
+export async function generatePhotoLogPdf(
+  features: FieldFeature[],
+  opts: PhotoLogOptions = {},
+): Promise<void> {
+  const zoom = opts.zoom ?? 16;
+  const basemapUrl = opts.basemapUrl
+    ?? BASEMAPS.find(b => b.id === 'esri-imagery')?.url
+    ?? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  const panelW = 178;
+
+  // Pre-build per-entry images (async) before the synchronous layout pass.
+  const entries: EntryData[] = [];
   for (let i = 0; i < features.length; i++) {
     const f = features[i];
+    const seq = String(i + 1).padStart(2, '0');
+    const lat = f.lat, lon = f.lon;
 
-    if (i === 0 || entryOnPage >= 2) {
-      doc.addPage();
-      entryOnPage = 0;
+    let mapUri: string | null = null;
+    if (lat != null && lon != null) {
+      mapUri = await fetchLocatorMap(lat, lon, zoom, MAP_PX_W, MAP_PX_H, basemapUrl);
     }
+    if (!mapUri) mapUri = placeholderMap(MAP_PX_W, MAP_PX_H);
 
-    const entryY = margin + entryOnPage * (entryH + 10);
+    const photoUri = await coverCrop(f.photos?.[0] ?? '', PHOTO_PX_W, PHOTO_PX_H);
+    const bearing = f.photo_data ? f.photo_data.bearing : null;
 
-    // Separator between entries
-    if (entryOnPage === 1) {
-      doc.setDrawColor(...colors.line);
+    entries.push({
+      seq,
+      photoUri,
+      mapUri,
+      bearing,
+      lat,
+      datetime: formatDateTime(f.created_at),
+      observer: f.photo_data?.observer ?? f.created_by ?? '—',
+      latStr: formatCoord(lat, 'lat'),
+      lonStr: formatCoord(lon, 'lon'),
+      elevStr: f.elevation != null ? `${f.elevation.toFixed(1)} m` : '—',
+      bearingStr: bearing != null ? bearingLabel(bearing) : '—',
+      notes: f.notes?.trim() ?? '',
+      scale: scaleGeometry(lat ?? 45, zoom, panelW),
+    });
+  }
+
+  // Derive masthead date (single day or range).
+  const days = features.map(f => f.created_at?.substring(0, 10)).filter(Boolean).sort();
+  let dateStr = '—';
+  if (days.length) {
+    const lo = days[0], hi = days[days.length - 1];
+    dateStr = lo === hi ? formatDateOnly(lo + 'T12:00:00')
+      : `${formatDateOnly(lo + 'T12:00:00')} – ${formatDateOnly(hi + 'T12:00:00')}`;
+  }
+
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+  const PAGE_W = doc.internal.pageSize.getWidth();
+  const PAGE_H = doc.internal.pageSize.getHeight();
+  const M = 36;
+  const contentW = PAGE_W - M * 2;
+  const entriesTop = M + 50;
+  const footerRuleY = PAGE_H - M - 16;
+  const entriesBottom = footerRuleY - 12;
+  const entryH = (entriesBottom - entriesTop - 14) / 2;
+
+  const pageCount = Math.max(1, Math.ceil(entries.length / 2));
+  const company = opts.company ?? 'Fraxinus Environmental & Geomatics Ltd.';
+  const preparedBy = opts.preparedBy ?? entries[0]?.observer ?? '—';
+
+  for (let i = 0; i < entries.length; i++) {
+    const onPage = i % 2;
+    if (i > 0 && onPage === 0) doc.addPage();
+    if (onPage === 0) {
+      drawMasthead(doc, M, M, contentW, {
+        project: opts.project ?? 'Field Photo Log', site: opts.site ?? '', dateStr,
+      });
+    }
+    const ey = entriesTop + onPage * (entryH + 14);
+    if (onPage === 1) {
+      setDraw(doc, C.hairline);
       doc.setLineWidth(0.5);
-      doc.line(margin, entryY - 5, pageW - margin, entryY - 5);
+      doc.line(M, ey - 7, M + contentW, ey - 7);
     }
+    drawEntry(doc, M, ey, contentW, entryH, entries[i]);
 
-    // Photo image
-    const photoH = entryH - 20;
-    const rawUrl = f.photos?.[0] ?? '';
-    if (rawUrl) {
-      try {
-        const normalized = await normalizePhotoForPdf(rawUrl);
-        const { width: iw, height: ih } = await measureImage(normalized);
-        const scale = Math.min(photoAreaW / iw, photoH / ih);
-        const dw = iw * scale;
-        const dh = ih * scale;
-        const dx = margin + (photoAreaW - dw) / 2;
-        const dy = entryY + (photoH - dh) / 2;
-        doc.addImage(normalized, 'JPEG', dx, dy, dw, dh);
-      } catch { /* no photo */ }
-    } else {
-      doc.setFillColor(...colors.head);
-      doc.rect(margin, entryY, photoAreaW, photoH, 'F');
-      doc.setFontSize(9);
-      doc.setTextColor(...colors.muted);
-      doc.text('No photo', margin + photoAreaW / 2, entryY + photoH / 2, { align: 'center' });
+    const isLastOnPage = onPage === 1 || i === entries.length - 1;
+    if (isLastOnPage) {
+      drawFooter(doc, M, contentW, footerRuleY, {
+        company, preparedBy,
+        pageNum: Math.floor(i / 2) + 1, pageCount,
+      });
     }
-
-    // Metadata column
-    let my = entryY + 2;
-
-    // Photo number
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.setTextColor(...colors.accent);
-    doc.text(`#${i + 1}`, metaAreaX, my + 12);
-    my += 18;
-
-    const metaLine = (label: string, value: string) => {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(...colors.muted);
-      doc.text(label, metaAreaX, my);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(...colors.ink);
-      doc.text(value, metaAreaX, my + 9, { maxWidth: metaAreaW });
-      my += 20;
-    };
-
-    metaLine('DATE / TIME', formatDate(f.created_at));
-    if (f.photo_data?.observer ?? f.created_by) {
-      metaLine('OBSERVER', f.photo_data?.observer ?? f.created_by ?? '');
-    }
-    metaLine('LAT', formatCoord(f.lat, 'lat'));
-    metaLine('LON', formatCoord(f.lon, 'lon'));
-    if (f.elevation != null) {
-      metaLine('ELEVATION', `${f.elevation.toFixed(1)} m`);
-    }
-
-    // Bearing + compass rose
-    if (f.photo_data != null) {
-      const bearing = f.photo_data.bearing;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(...colors.muted);
-      doc.text('BEARING', metaAreaX, my);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11);
-      doc.setTextColor(...colors.accent);
-      doc.text(`${bearing}° ${bearingToCardinal(bearing)}`, metaAreaX, my + 11);
-      my += 16;
-
-      const roseSize = 18;
-      drawCompassRose(doc, metaAreaX + roseSize + 2, my + roseSize + 2, roseSize, bearing, colors);
-      my += roseSize * 2 + 8;
-    }
-
-    // Notes
-    if (f.notes?.trim()) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.setTextColor(...colors.muted);
-      doc.text('NOTES', metaAreaX, my);
-      my += 9;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(...colors.ink);
-      const lines = doc.splitTextToSize(f.notes.trim(), metaAreaW);
-      doc.text(lines, metaAreaX, my);
-    }
-
-    entryOnPage++;
   }
 
-  // Footer on each page with page number
-  const totalPages = (doc.internal as unknown as { getNumberOfPages: () => number }).getNumberOfPages();
-  for (let p = 1; p <= totalPages; p++) {
-    doc.setPage(p);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(...colors.muted);
-    doc.text(`Field Photo Log  ·  Page ${p} of ${totalPages}`, pageW / 2, pageH - 14, { align: 'center' });
-  }
-
-  const dateTag = new Date().toLocaleDateString('en-CA').replace(/-/g, '');
-  doc.save(`photo-log-${dateTag}.pdf`);
+  const dateTag = new Date().toISOString().substring(0, 10);
+  const slug = (opts.project ?? 'PhotoLog').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'PhotoLog';
+  doc.save(`FieldPhotoLog_${slug}_${dateTag}_REV00.pdf`);
 }
