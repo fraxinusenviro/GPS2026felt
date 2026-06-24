@@ -270,20 +270,37 @@ export class MapManager {
     // Scale control
     this.map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left');
 
-    await new Promise<void>((resolve, reject) => {
-      this.map.on('load', () => {
+    // Bring the map up without ever letting it abort app startup. The style is
+    // an inline object, so 'load' fires after local parsing regardless of
+    // network — but MapLibre also emits 'error' events when remote tiles,
+    // glyphs or sources fail to fetch (offline, blocked host, a single 404).
+    // Those are non-fatal: the basemap is not required to capture or view data,
+    // and rejecting here would propagate up through App.init() and leave the
+    // whole UI unwired — a blank, unresponsive page. So we log map errors and
+    // always resolve, with a timeout backstop in case 'load' never fires.
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = (viaLoad: boolean) => {
+        if (settled) return;
+        settled = true;
         try {
           this.setupDataLayers();
           this.setupUserLocation();
-          this.initialized = true;
-          resolve();
         } catch (e) {
-          reject(e);
+          console.error('[MapManager] post-load layer setup failed (non-fatal):', e);
         }
-      });
+        this.initialized = true;
+        if (!viaLoad) {
+          console.warn('[MapManager] map load timed out — continuing with degraded basemap');
+        }
+        resolve();
+      };
+      this.map.on('load', () => finish(true));
       this.map.on('error', (e: { error?: Error }) => {
-        if (!this.initialized) reject(e.error ?? new Error('Map failed to load'));
+        // Tiles/glyphs/sources can fail to fetch without breaking the app.
+        console.warn('[MapManager] map error (non-fatal):', e?.error ?? e);
       });
+      setTimeout(() => finish(false), 8000);
     });
 
     // Background color changes from LayersPanel
