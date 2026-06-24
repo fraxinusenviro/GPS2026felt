@@ -1,0 +1,11 @@
+# Cached tiles / static images (keep the dir, not its contents)
+tilecache/*
+!tilecache/.gitkeep
+
+# Generated output
+FieldPhotoLog_*.pdf
+*.html
+
+# Python bytecode
+__pycache__/
+*.pyc

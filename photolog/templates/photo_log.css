@@ -1,0 +1,278 @@
+/* ===========================================================================
+   Fraxinus Georeferenced Field Photo Log — print stylesheet
+   ADM-001 document conventions. Two entries per Letter page.
+   Flat formatting only: no drop shadows, no gradients on UI chrome.
+   =========================================================================== */
+
+:root {
+  /* Palette tokens */
+  --brand-green: #0F6E56;   /* rules, glyph, labels */
+  --title-green: #143b2e;   /* titles, sequence badge */
+  --accent:      #D85A30;   /* bearing, pin, wedge */
+  --row-shade:   #f5f6f2;
+  --hairline:    #e6e8e3;
+  --muted:       #5a6660;
+  --muted-2:     #6a7a72;
+  --ink:         #2a322e;
+  --notes-ink:   #555555;
+
+  --map-w: 220px;
+  --map-h: 128px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--ink);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* Letter portrait, 0.5in margins handled inside .page padding so masthead /
+   footer can bleed to the printable edge consistently. */
+@page {
+  size: 8.5in 11in;
+  margin: 0;
+}
+
+.page {
+  width: 8.5in;
+  height: 11in;
+  padding: 0.5in;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  break-after: page;
+  page-break-after: always;
+  overflow: hidden;
+}
+.page:last-child {
+  break-after: auto;
+  page-break-after: auto;
+}
+
+/* ── Masthead ─────────────────────────────────────────────────────────── */
+.masthead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.masthead-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.glyph {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: var(--brand-green);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.glyph svg { width: 24px; height: 24px; display: block; }
+
+.title-block .title {
+  font-size: 21px;
+  font-weight: 600;
+  color: var(--title-green);
+  line-height: 1.05;
+  letter-spacing: 0.2px;
+}
+.title-block .subtitle {
+  font-size: 11px;
+  color: var(--muted-2);
+  margin-top: 2px;
+}
+
+.masthead-meta {
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 10px;
+  row-gap: 3px;
+  font-size: 10px;
+  text-align: left;
+  align-content: start;
+}
+.masthead-meta .k {
+  color: var(--brand-green);
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+.masthead-meta .v { color: var(--ink); }
+
+.masthead-rule {
+  height: 2.5px;
+  background: var(--brand-green);
+  border: 0;
+  margin: 10px 0 14px;
+}
+
+/* ── Entries area ─────────────────────────────────────────────────────── */
+.entries {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.entry {
+  flex: 1 1 0;
+  display: grid;
+  grid-template-columns: 1fr var(--map-w);
+  gap: 16px;
+  min-height: 0;
+}
+.entry-divider {
+  height: 1px;
+  background: var(--hairline);
+  border: 0;
+  margin: 14px 0;
+}
+
+/* Left — photo */
+.photo-cell {
+  position: relative;
+  min-height: 250px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--row-shade);
+}
+.photo-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.photo-cell .no-photo {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 11px;
+}
+.seq-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: var(--title-green);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 7px;
+  letter-spacing: 0.5px;
+}
+
+/* Right — combined panel */
+.panel {
+  border: 1px solid var(--hairline);
+  border-radius: 7px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+}
+
+/* Map */
+.map {
+  position: relative;
+  width: 100%;
+  height: var(--map-h);
+  border-bottom: 1px solid var(--hairline);
+  background: #eef1ec;
+}
+.map .basemap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.map .overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Metadata table */
+.meta {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9.5px;
+}
+.meta tr:nth-child(odd)  { background: var(--row-shade); }
+.meta tr:nth-child(even) { background: #ffffff; }
+.meta th, .meta td {
+  text-align: left;
+  padding: 4px 8px;
+  vertical-align: baseline;
+}
+.meta th {
+  width: 78px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.meta td { color: var(--ink); }
+.meta td.mono {
+  font-family: "SF Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+  font-size: 9px;
+}
+.meta td.bearing {
+  color: var(--accent);
+  font-weight: 600;
+}
+.meta th .qual {
+  font-weight: 400;
+  color: var(--muted-2);
+  font-size: 8px;
+}
+
+/* Notes */
+.notes {
+  border-top: 1px solid var(--hairline);
+  padding: 6px 8px 8px;
+}
+.notes .label {
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+.notes .body {
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--notes-ink);
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────── */
+.footer {
+  flex: 0 0 auto;
+  margin-top: 12px;
+}
+.footer-rule {
+  height: 1.5px;
+  background: var(--brand-green);
+  border: 0;
+  margin-bottom: 6px;
+}
+.footer-cells {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  font-size: 9px;
+  color: var(--muted);
+}
+.footer-cells .left   { text-align: left;  color: var(--title-green); font-weight: 600; }
+.footer-cells .center { text-align: center; }
+.footer-cells .right  { text-align: right; }

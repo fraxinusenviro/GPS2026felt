@@ -1,0 +1,5 @@
+Pillow>=10.0
+Jinja2>=3.1
+playwright>=1.40
+# Optional EXIF helper; Pillow's own EXIF reader is used by default.
+piexif>=1.1.3
