@@ -1,6 +1,15 @@
-import type { Project, ProjectMap } from '../types';
+import type { Project, ProjectMap, FieldFeature, LayerPreset, InventorySurvey, AppSettings } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { PROJECT_TEMPLATES } from '../constants';
+import { ExportManager } from '../io/ExportManager';
+import { exportRecordPdf, reportBaseName } from '../wetlands/WetlandReport';
+import {
+  exportCSV as invExportCSV,
+  exportGeoJSON as invExportGeoJSON,
+  exportPDF as invExportPDF,
+} from '../inventory/InventoryExport';
+import { realObservations, uniqueSpeciesCount } from '../inventory/inventorySurvey';
+import { EventBus } from '../utils/EventBus';
 
 export const ALL_DATA_MAP_ID = '__all_data__';
 
@@ -20,6 +29,42 @@ export interface ProjectLibraryCallbacks {
 
 type View = 'projects' | 'project-detail' | 'new-project' | 'new-map';
 
+/** A feature TYPE preset that has at least one collected feature in the project. */
+interface CollectedDataset {
+  key: string;          // preset type label (stable id within the project)
+  label: string;        // display name
+  layerId: string;
+  layerName: string;
+  color: string;
+  geomLabel: string;    // 'Point' | 'Line' | 'Polygon' | 'Mixed'
+  count: number;
+  updatedAt: string;
+  collectors: string[]; // distinct created_by initials
+}
+
+interface WetlandPlotRow {
+  feature: FieldFeature;
+  plotId: string;
+  collector: string;
+  date: string;
+  isUpland: boolean;
+}
+
+interface InventorySurveyRow {
+  survey: InventorySurvey;   // reconstructed, with observations
+  obsCount: number;
+  speciesCount: number;
+}
+
+/** Aggregated, render-ready data for a project's detail view. */
+interface DetailData {
+  featureCount: number;
+  users: string[];
+  collected: CollectedDataset[];
+  wetlandPlots: WetlandPlotRow[];
+  inventorySurveys: InventorySurveyRow[];
+}
+
 const PROJECT_COLORS = [
   '#4f8ef7', '#34c97e', '#f5a623', '#e84393', '#9b59b6',
   '#1abc9c', '#e67e22', '#e74c3c', '#3498db', '#2ecc71',
@@ -28,7 +73,13 @@ const PROJECT_COLORS = [
 export class ProjectLibraryModal {
   private overlay: HTMLElement;
   private storage = StorageManager.getInstance();
+  private exporter = new ExportManager();
   private callbacks!: ProjectLibraryCallbacks;
+
+  // Cached detail-view aggregation for the currently selected project, so export
+  // handlers wired after render can resolve features without re-querying.
+  private detailData: DetailData | null = null;
+  private detailFeatures: FieldFeature[] = [];
 
   private view: View = 'projects';
   private selectedProjectId: string | null = null;
@@ -79,13 +130,15 @@ export class ProjectLibraryModal {
     const selectedProject = projects.find(p => p.id === this.selectedProjectId) ?? null;
     const mapsForSelected = this.selectedProjectId ? (mapsByProject.get(this.selectedProjectId) ?? []) : [];
 
-    // Total feature count for the selected project (shown in project header only)
-    let projectFeatureCount = 0;
+    // Aggregate the selected project's collected data for the detail view.
+    this.detailData = null;
+    this.detailFeatures = [];
     if (this.view === 'project-detail' && this.selectedProjectId) {
       try {
-        const features = await this.storage.getFeaturesByProject(this.selectedProjectId);
-        projectFeatureCount = features.length;
-      } catch { /* non-fatal */ }
+        this.detailData = await this.buildDetailData(this.selectedProjectId);
+      } catch (err) {
+        console.error('[project-library] detail aggregation failed:', err);
+      }
     }
 
     this.overlay.innerHTML = `
@@ -137,7 +190,7 @@ export class ProjectLibraryModal {
 
           <main class="pl-main">
             ${this.view === 'projects' ? this.renderProjectsView(projects, mapsByProject, activeMapId) : ''}
-            ${this.view === 'project-detail' && selectedProject ? this.renderProjectDetailView(selectedProject, mapsForSelected, activeMapId, projectFeatureCount) : ''}
+            ${this.view === 'project-detail' && selectedProject ? this.renderProjectDetailView(selectedProject, mapsForSelected, activeMapId, this.detailData) : ''}
             ${this.view === 'new-project' ? this.renderNewProjectForm() : ''}
             ${this.view === 'new-map' && selectedProject ? this.renderNewMapForm(selectedProject) : ''}
           </main>
@@ -230,12 +283,15 @@ export class ProjectLibraryModal {
     project: Project,
     maps: ProjectMap[],
     activeMapId: string,
-    totalFeatures: number,
+    data: DetailData | null,
   ): string {
     const color = project.color ?? projectColor(project.id);
     const isRenaming = this.renamingId === project.id && this.renamingKind === 'project';
+    const featureCount = data?.featureCount ?? 0;
+    const users = data?.users ?? [];
 
     return `
+     <div class="pl-detail-scroll">
       <div class="pl-detail-header" style="border-left: 4px solid ${color}">
         <div class="pl-detail-proj-top">
           <span class="pl-proj-dot pl-proj-dot-lg" style="background:${color}"></span>
@@ -253,27 +309,232 @@ export class ProjectLibraryModal {
         </div>
         <div class="pl-detail-proj-meta">
           <span class="pl-detail-meta-item">📁 ${maps.length} map${maps.length !== 1 ? 's' : ''}</span>
-          <span class="pl-detail-meta-item">📍 ${totalFeatures} feature${totalFeatures !== 1 ? 's' : ''}</span>
+          <span class="pl-detail-meta-item">📍 ${featureCount} feature${featureCount !== 1 ? 's' : ''}</span>
           <span class="pl-detail-meta-item">Updated ${formatDate(project.updated_at)}</span>
           <span class="pl-detail-meta-item">Created ${formatDate(project.created_at)}</span>
+          ${users.length > 0
+            ? `<span class="pl-detail-meta-item pl-detail-users">👤 ${users.map(u => `<span class="pl-user-avatar" title="${escHtml(u)}">${escHtml(u.slice(0,2).toUpperCase())}</span>`).join('')}</span>`
+            : ''}
         </div>
         <div class="pl-detail-proj-actions">
           <button class="btn btn-sm btn-outline" data-rename-proj="${project.id}">✏ Rename</button>
-          <button class="btn btn-sm btn-outline" data-export-proj="${project.id}">⬇ Export</button>
+          <button class="btn btn-sm btn-outline" data-export-proj="${project.id}">⬇ Export Project</button>
           <button class="btn btn-sm btn-outline pl-danger-btn" data-delete-proj="${project.id}">🗑 Delete</button>
         </div>
       </div>
 
-      <div class="pl-detail-maps-section">
-        <div class="pl-detail-maps-toolbar">
-          <span class="pl-detail-section-title">Maps</span>
+      ${this.renderCollectedDataSection(data?.collected ?? [])}
+
+      <div class="pl-detail-section">
+        <div class="pl-section-head">
+          <span class="pl-detail-section-title">🗺 Maps <span class="pl-section-badge">${maps.length}</span></span>
           <button class="btn btn-sm btn-primary" id="pl-new-map-btn">+ New Map</button>
         </div>
         ${maps.length === 0
           ? `<p class="pl-empty">No maps yet. Create one to get started.</p>`
           : maps.map(m => this.renderDetailMapCard(m, activeMapId)).join('')
         }
+      </div>
+
+      ${this.renderWetlandSection(data?.wetlandPlots ?? [])}
+      ${this.renderInventorySection(data?.inventorySurveys ?? [])}
+     </div>`;
+  }
+
+  /** "User Collected Data" — one row per preset/type that has collected features. */
+  private renderCollectedDataSection(datasets: CollectedDataset[]): string {
+    if (datasets.length === 0) return '';
+    const rows = datasets.map((d, i) => `
+      <div class="pl-data-row">
+        <span class="pl-data-dot" style="background:${d.color}"></span>
+        <div class="pl-data-info">
+          <span class="pl-data-name" title="${escHtml(d.label)}">${escHtml(d.label)}</span>
+          <span class="pl-data-meta">${d.count} record${d.count !== 1 ? 's' : ''} · ${escHtml(d.geomLabel)} · ${escHtml(d.layerName)}${d.updatedAt ? ` · Updated ${formatDate(d.updatedAt)}` : ''}</span>
+        </div>
+        ${this.exportPills([
+          { fmt: 'csv', label: 'CSV', attrs: `data-ds-export="${i}" data-fmt="csv"` },
+          { fmt: 'geojson', label: 'GeoJSON', attrs: `data-ds-export="${i}" data-fmt="geojson"` },
+        ], `ds-${i}`, [
+          { fmt: 'kml', label: 'KML', attrs: `data-ds-export="${i}" data-fmt="kml"` },
+          { fmt: 'shp', label: 'Shapefile', attrs: `data-ds-export="${i}" data-fmt="shp"` },
+        ])}
+      </div>`).join('');
+    return `
+      <div class="pl-detail-section">
+        <div class="pl-section-head">
+          <span class="pl-detail-section-title">📊 User Collected Data <span class="pl-section-badge">${datasets.length}</span></span>
+        </div>
+        <div class="pl-data-list">${rows}</div>
       </div>`;
+  }
+
+  /** Wetland Plots — per-plot collector + PDF; section-level CSV/GeoJSON for all plots. */
+  private renderWetlandSection(plots: WetlandPlotRow[]): string {
+    if (plots.length === 0) return '';
+    const rows = plots.map(p => `
+      <div class="pl-data-row">
+        <span class="pl-data-dot" style="background:${p.isUpland ? '#b08d57' : '#0b6b50'}"></span>
+        <div class="pl-data-info">
+          <span class="pl-data-name" title="${escHtml(p.plotId)}">${escHtml(p.plotId)}</span>
+          <span class="pl-data-meta">${escHtml(p.isUpland ? 'Upland Plot' : 'Wetland Plot')} · ${escHtml(p.date)} · <span class="pl-collector">👤 ${escHtml(p.collector)}</span></span>
+        </div>
+        <div class="pl-export-pills">
+          <button class="pl-pill" data-wl-pdf="${p.feature.id}">PDF</button>
+        </div>
+      </div>`).join('');
+    return `
+      <div class="pl-detail-section">
+        <div class="pl-section-head">
+          <span class="pl-detail-section-title">🌿 Wetland Plots <span class="pl-section-badge">${plots.length}</span></span>
+          <div class="pl-export-pills">
+            <button class="pl-pill" data-wl-export="csv">CSV (all)</button>
+            <button class="pl-pill" data-wl-export="geojson">GeoJSON (all)</button>
+          </div>
+        </div>
+        <div class="pl-data-list">${rows}</div>
+      </div>`;
+  }
+
+  /** Inventory Surveys — per-survey surveyor + CSV/GeoJSON/PDF. */
+  private renderInventorySection(surveys: InventorySurveyRow[]): string {
+    if (surveys.length === 0) return '';
+    const rows = surveys.map(r => {
+      const s = r.survey;
+      const title = s.siteName || s.surveyID || 'Untitled survey';
+      return `
+      <div class="pl-data-row">
+        <span class="pl-data-dot" style="background:#22c55e"></span>
+        <div class="pl-data-info">
+          <span class="pl-data-name" title="${escHtml(title)}">${escHtml(title)}</span>
+          <span class="pl-data-meta">${escHtml(s.date || '')} · ${r.obsCount} obs · ${r.speciesCount} spp · <span class="pl-collector">👤 ${escHtml(s.surveyor || '—')}</span></span>
+        </div>
+        <div class="pl-export-pills">
+          <button class="pl-pill" data-inv-export="${s.id}" data-fmt="csv">CSV</button>
+          <button class="pl-pill" data-inv-export="${s.id}" data-fmt="geojson">GeoJSON</button>
+          <button class="pl-pill" data-inv-export="${s.id}" data-fmt="pdf">PDF</button>
+        </div>
+      </div>`;
+    }).join('');
+    return `
+      <div class="pl-detail-section">
+        <div class="pl-section-head">
+          <span class="pl-detail-section-title">📋 Inventory Surveys <span class="pl-section-badge">${surveys.length}</span></span>
+        </div>
+        <div class="pl-data-list">${rows}</div>
+      </div>`;
+  }
+
+  /** Render a row of export pills with an optional overflow (⋯) menu for extra formats. */
+  private exportPills(
+    primary: Array<{ fmt: string; label: string; attrs: string }>,
+    menuId: string,
+    overflow: Array<{ fmt: string; label: string; attrs: string }>,
+  ): string {
+    return `
+      <div class="pl-export-pills">
+        ${primary.map(p => `<button class="pl-pill" ${p.attrs}>${p.label}</button>`).join('')}
+        ${overflow.length > 0 ? `
+        <div class="pl-card-menu-wrap">
+          <button class="pl-pill pl-pill-more" data-menu-id="${menuId}" title="More formats">⋯</button>
+          <div class="pl-card-dropdown" id="pl-menu-${menuId}" style="display:none">
+            ${overflow.map(o => `<button ${o.attrs}>⬇ ${o.label}</button>`).join('')}
+          </div>
+        </div>` : ''}
+      </div>`;
+  }
+
+  // ---- Detail-view data aggregation ----
+
+  /** Build render-ready section data for a project, reading features + layers once. */
+  private async buildDetailData(projectId: string): Promise<DetailData> {
+    const [features, layers] = await Promise.all([
+      this.storage.getFeaturesByProject(projectId),
+      this.storage.getLayersByProject(projectId),
+    ]);
+    this.detailFeatures = features;
+
+    const layerById = new Map<string, LayerPreset>(layers.map(l => [l.id, l]));
+    const isWetland = (f: FieldFeature) => f.layer_id.endsWith('-wetlands') || !!f.wetland_data;
+    const isInventory = (f: FieldFeature) => f.layer_id.endsWith('-inventory') || !!f.inventory_data;
+
+    // ---- User Collected Data: group generic features by preset TYPE ----
+    const groups = new Map<string, FieldFeature[]>();
+    for (const f of features) {
+      if (isWetland(f) || isInventory(f)) continue;
+      const key = featureType(f);
+      const arr = groups.get(key);
+      if (arr) arr.push(f); else groups.set(key, [f]);
+    }
+    const collected: CollectedDataset[] = [];
+    for (const [key, feats] of groups) {
+      const layer = layerById.get(feats[0].layer_id);
+      const isUntyped = key.startsWith('__layer__');
+      const label = isUntyped ? `${layer?.name ?? 'Untyped'} (untyped)` : key;
+      const typePreset = isUntyped ? undefined : layer?.types.find(t => t.label === key);
+      const color = typePreset?.color ?? layer?.color ?? '#4ade80';
+      const geomSet = new Set(feats.map(f => f.geometry_type));
+      const geomLabel = geomSet.size > 1 ? 'Mixed' : geomTypeLabel([...geomSet][0]);
+      const updatedAt = feats.reduce((acc, f) => (f.updated_at > acc ? f.updated_at : acc), '');
+      const collectors = [...new Set(feats.map(f => f.created_by).filter(Boolean))];
+      collected.push({
+        key, label, layerId: feats[0].layer_id, layerName: layer?.name ?? '',
+        color, geomLabel, count: feats.length, updatedAt, collectors,
+      });
+    }
+    collected.sort((a, b) => a.label.localeCompare(b.label));
+
+    // ---- Wetland Plots ----
+    const wetlandPlots: WetlandPlotRow[] = features.filter(isWetland)
+      .sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))
+      .map(f => {
+        const d = f.wetland_data;
+        const plotId = str(d?.PLOT_ID) || str(d?.SiteID) || f.point_id;
+        const collector = f.created_by || str(d?.observer) || '—';
+        const date = str(d?.date) || formatDate(f.created_at);
+        const isUpland = str(d?.PLOT_TYPE).toLowerCase().includes('upland');
+        return { feature: f, plotId, collector, date, isUpland };
+      });
+
+    // ---- Inventory Surveys (reconstructed from observation features) ----
+    const inventorySurveys = this.reconstructSurveys(features.filter(isInventory), projectId);
+
+    const users = [...new Set(features.map(f => f.created_by).filter(Boolean))];
+
+    return { featureCount: features.length, users, collected, wetlandPlots, inventorySurveys };
+  }
+
+  /** Group inventory observation features back into submitted surveys (newest first). */
+  private reconstructSurveys(feats: FieldFeature[], projectId: string): InventorySurveyRow[] {
+    const map = new Map<string, InventorySurvey>();
+    for (const f of feats) {
+      const d = f.inventory_data;
+      if (!d) continue;
+      let s = map.get(d.surveyId);
+      if (!s) {
+        s = {
+          id: d.surveyId, surveyID: d.surveyID, siteName: d.siteName, surveyor: d.surveyor,
+          locale: d.locale, county: d.county, date: d.date, reportNote: '',
+          startTime: d.startTime, endTime: d.endTime, pausedAt: null, pausedDuration: 0,
+          status: 'submitted', project_id: f.project_id || projectId, observations: [],
+        };
+        map.set(d.surveyId, s);
+      }
+      s.observations.push({
+        id: f.id,
+        species: {
+          elcode: d.elcode, taxon: d.taxon, taxonGroup: d.taxonGroup, family: d.family, mcode: d.mcode,
+          commonName: d.commonName, scientificName: d.scientificName, srank: d.srank,
+          grank: d.grank, sprot: d.sprot, nprot: d.nprot,
+        },
+        timestamp: d.obsTimestamp, lat: f.lat ?? 0, lon: f.lon ?? 0, notes: f.notes || '',
+      });
+    }
+    return [...map.values()]
+      .sort((a, b) => b.startTime - a.startTime)
+      .map(survey => {
+        const real = realObservations(survey);
+        return { survey, obsCount: real.length, speciesCount: uniqueSpeciesCount(real) };
+      });
   }
 
   private renderDetailMapCard(m: ProjectMap, activeMapId: string): string {
@@ -654,6 +915,91 @@ export class ProjectLibraryModal {
         if (statusEl) statusEl.textContent = `Error: ${(err as Error).message}`;
       }
     });
+
+    this.wireExportEvents();
+  }
+
+  // ---- Detail-view export wiring ----
+
+  private wireExportEvents(): void {
+    // User Collected Data — per-preset export (GeoJSON / CSV / KML / Shapefile)
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-ds-export]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ds = this.detailData?.collected[Number(btn.dataset.dsExport)];
+        if (!ds) return;
+        const feats = this.detailFeatures.filter(f => f.layer_id === ds.layerId && featureType(f) === ds.key);
+        void this.runFeatureExport(btn.dataset.fmt!, feats, ds.label);
+      });
+    });
+
+    // Wetland Plots — section-level GeoJSON/CSV for all plots
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-wl-export]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const plots = (this.detailData?.wetlandPlots ?? []).map(p => p.feature);
+        if (plots.length === 0) return;
+        void this.runFeatureExport(btn.dataset.wlExport!, plots, 'Wetland_Plots');
+      });
+    });
+
+    // Wetland Plots — per-plot PDF report
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-wl-pdf]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const row = (this.detailData?.wetlandPlots ?? []).find(p => p.feature.id === btn.dataset.wlPdf);
+        const survey = row?.feature.wetland_data;
+        if (!survey) { EventBus.emit('toast', { message: 'No survey data on this plot', type: 'warning' }); return; }
+        btn.disabled = true;
+        try {
+          EventBus.emit('toast', { message: 'Generating PDF…', type: 'info', duration: 1500 });
+          await exportRecordPdf(survey, reportBaseName(survey));
+        } catch (err) {
+          console.error('[project-library] wetland PDF failed:', err);
+          EventBus.emit('toast', { message: 'PDF export failed in this browser', type: 'error' });
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Inventory Surveys — per-survey CSV / GeoJSON / PDF
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-inv-export]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const row = (this.detailData?.inventorySurveys ?? []).find(r => r.survey.id === btn.dataset.invExport);
+        if (!row) return;
+        const fmt = btn.dataset.fmt!;
+        btn.disabled = true;
+        try {
+          if (fmt === 'csv') invExportCSV(row.survey);
+          else if (fmt === 'geojson') invExportGeoJSON(row.survey);
+          else if (fmt === 'pdf') {
+            EventBus.emit('toast', { message: 'Generating PDF…', type: 'info', duration: 1500 });
+            const settings: AppSettings = await this.storage.getAppSettings();
+            await invExportPDF(row.survey, settings);
+          }
+        } catch (err) {
+          console.error('[project-library] inventory export failed:', err);
+          EventBus.emit('toast', { message: 'Export failed in this browser', type: 'error' });
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  }
+
+  /** Export a feature subset via ExportManager in the requested format. */
+  private async runFeatureExport(fmt: string, feats: FieldFeature[], baseName: string): Promise<void> {
+    if (feats.length === 0) {
+      EventBus.emit('toast', { message: 'No features to export', type: 'warning' });
+      return;
+    }
+    try {
+      if (fmt === 'geojson') await this.exporter.exportGeoJSON(feats, baseName);
+      else if (fmt === 'csv') await this.exporter.exportCSV(feats, baseName);
+      else if (fmt === 'kml') await this.exporter.exportKML(feats, baseName);
+      else if (fmt === 'shp') await this.exporter.exportShapefile(feats, baseName);
+    } catch (err) {
+      console.error('[project-library] export failed:', err);
+      EventBus.emit('toast', { message: `Export failed: ${(err as Error).message}`, type: 'error' });
+    }
   }
 
   private async handleOpenAllData(): Promise<void> {
@@ -689,6 +1035,23 @@ function formatDate(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+function str(v: unknown): string {
+  return v == null ? '' : String(v);
+}
+
+/** Stable grouping key for a collected feature: its preset TYPE, or a per-layer
+ *  fallback for features captured without a type. */
+function featureType(f: FieldFeature): string {
+  return (f.type && f.type.trim()) ? f.type.trim() : `__layer__${f.layer_id}`;
+}
+
+function geomTypeLabel(g: string | undefined): string {
+  if (g === 'LineString') return 'Line';
+  if (g === 'Polygon') return 'Polygon';
+  if (g === 'Point') return 'Point';
+  return 'Feature';
 }
 
 function projectColor(id: string): string {

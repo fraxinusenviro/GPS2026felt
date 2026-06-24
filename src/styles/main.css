@@ -11018,3 +11018,55 @@ input[type=color] {
   font-size: 9px; font-weight: 700; border: 1px solid var(--color-accent-border);
 }
 .pl-detail-map-footer { display: flex; justify-content: flex-end; margin-top: auto; }
+
+/* ---- Restructured detail view: scroll container + data sections ---- */
+.pl-detail-scroll {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.pl-detail-users { display: inline-flex; align-items: center; gap: 4px; }
+
+.pl-detail-section { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.pl-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; padding: 2px 0;
+}
+.pl-section-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: rgba(255,255,255,0.08); color: var(--color-text-muted);
+  font-size: 10px; font-weight: 700; vertical-align: middle; margin-left: 4px;
+}
+
+/* Data rows (collected datasets, wetland plots, inventory surveys) */
+.pl-data-list { display: flex; flex-direction: column; gap: 6px; }
+.pl-data-row {
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(255,255,255,0.04); border: 1px solid var(--color-border);
+  border-radius: 8px; padding: 9px 12px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.pl-data-row:hover { border-color: rgba(74,180,120,0.35); background: rgba(255,255,255,0.06); }
+.pl-data-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.pl-data-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pl-data-name {
+  font-size: 13px; font-weight: 600; color: var(--color-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pl-data-meta {
+  font-size: 11px; color: var(--color-text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pl-collector { color: var(--color-text); opacity: 0.85; }
+
+/* Export pill buttons */
+.pl-export-pills { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.pl-pill {
+  background: rgba(255,255,255,0.06); border: 1px solid var(--color-border);
+  border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 600;
+  color: var(--color-text); cursor: pointer; white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.pl-pill:hover { border-color: var(--color-accent, #4ade80); color: var(--color-accent, #4ade80); background: rgba(74,180,120,0.1); }
+.pl-pill:disabled { opacity: 0.5; cursor: default; }
+.pl-pill-more { padding: 4px 8px; line-height: 1; }
