@@ -20,6 +20,13 @@ export interface SurveyMeta {
 
 interface MetaPrefs { surveyor?: string; site?: string; surveyid?: string; locale?: string; county?: string; }
 
+/** Options for opening the form in edit mode (vs. the default "new survey" flow). */
+export interface SurveyFormOptions {
+  title?: string;
+  confirmLabel?: string;
+  initial?: Partial<SurveyMeta>;   // prefill values (overrides remembered prefs)
+}
+
 function loadPrefs(): MetaPrefs {
   try { return JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch { return {}; }
 }
@@ -28,9 +35,10 @@ function savePrefs(p: MetaPrefs): void {
 }
 
 export class InventorySurveyForm {
-  open(onStart: (meta: SurveyMeta) => void): void {
+  open(onStart: (meta: SurveyMeta) => void, options: SurveyFormOptions = {}): void {
     const prefs = loadPrefs();
     const today = new Date().toISOString().slice(0, 10);
+    const init = options.initial ?? {};
     const field = (id: string, label: string, value: string, type = 'text', required = true) => `
       <label class="inv-form-row">
         <span class="inv-form-label">${escapeHtml(label)}${required ? ' *' : ''}</span>
@@ -38,21 +46,21 @@ export class InventorySurveyForm {
       </label>`;
 
     EventBus.emit('show-modal', {
-      title: 'New Inventory Survey',
+      title: options.title ?? 'New Inventory Survey',
       html: `
         <div class="inv-survey-form">
-          ${field('inv-f-surveyor', 'Surveyor', prefs.surveyor || '')}
-          ${field('inv-f-site', 'Site Name', prefs.site || '')}
-          ${field('inv-f-surveyid', 'Survey ID', prefs.surveyid || '')}
-          ${field('inv-f-locale', 'Locale', prefs.locale || '')}
-          ${field('inv-f-county', 'County', prefs.county || '')}
-          ${field('inv-f-date', 'Date', today, 'date')}
+          ${field('inv-f-surveyor', 'Surveyor', init.surveyor ?? prefs.surveyor ?? '')}
+          ${field('inv-f-site', 'Site Name', init.siteName ?? prefs.site ?? '')}
+          ${field('inv-f-surveyid', 'Survey ID', init.surveyID ?? prefs.surveyid ?? '')}
+          ${field('inv-f-locale', 'Locale', init.locale ?? prefs.locale ?? '')}
+          ${field('inv-f-county', 'County', init.county ?? prefs.county ?? '')}
+          ${field('inv-f-date', 'Date', init.date ?? today, 'date')}
           <label class="inv-form-row">
             <span class="inv-form-label">Report Note</span>
-            <textarea id="inv-f-note" class="inv-input" rows="2"></textarea>
+            <textarea id="inv-f-note" class="inv-input" rows="2">${escapeHtml(init.reportNote ?? '')}</textarea>
           </label>
         </div>`,
-      confirmLabel: 'Start Survey',
+      confirmLabel: options.confirmLabel ?? 'Start Survey',
       cancelLabel: 'Cancel',
       onConfirm: () => {
         const val = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value.trim() || '';

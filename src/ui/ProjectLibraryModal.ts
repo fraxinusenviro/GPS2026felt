@@ -24,8 +24,12 @@ export interface ProjectLibraryCallbacks {
   onRenameMap: (id: string, name: string) => Promise<void>;
   onDuplicateMap: (id: string) => Promise<void>;
   onExportBundle: (projectId: string) => void;
+  onEditWetlandPlot: (featureId: string) => Promise<void> | void;
+  onEditInventorySurvey: (surveyId: string) => Promise<void> | void;
   getActiveMapId: () => string;
 }
+
+type SectionKey = 'maps' | 'collected' | 'wetland' | 'inventory';
 
 type View = 'projects' | 'project-detail' | 'new-project' | 'new-map';
 
@@ -88,6 +92,10 @@ export class ProjectLibraryModal {
   private renamingId: string | null = null;
   private renamingKind: 'project' | 'map' | null = null;
 
+  // Per-section collapse state in the detail view. Maps open by default, the
+  // collected-data / wetland / inventory sections collapsed. Persists across re-renders.
+  private sectionOpen: Record<SectionKey, boolean> = { maps: true, collected: false, wetland: false, inventory: false };
+
   constructor() {
     this.overlay = document.getElementById('project-library-overlay')!;
   }
@@ -100,6 +108,7 @@ export class ProjectLibraryModal {
     this.renamingId = null;
     this.renamingKind = null;
     this.sortMode = 'name';
+    this.sectionOpen = { maps: true, collected: false, wetland: false, inventory: false };
     void this.render();
     this.overlay.style.display = 'flex';
     requestAnimationFrame(() => this.overlay.classList.add('pl-open'));
@@ -323,22 +332,34 @@ export class ProjectLibraryModal {
         </div>
       </div>
 
-      ${this.renderCollectedDataSection(data?.collected ?? [])}
-
-      <div class="pl-detail-section">
-        <div class="pl-section-head">
-          <span class="pl-detail-section-title">🗺 Maps <span class="pl-section-badge">${maps.length}</span></span>
-          <button class="btn btn-sm btn-primary" id="pl-new-map-btn">+ New Map</button>
-        </div>
-        ${maps.length === 0
+      ${this.section('maps', '🗺 Maps', maps.length,
+        `<button class="btn btn-sm btn-primary" id="pl-new-map-btn">+ New Map</button>`,
+        maps.length === 0
           ? `<p class="pl-empty">No maps yet. Create one to get started.</p>`
           : maps.map(m => this.renderDetailMapCard(m, activeMapId)).join('')
-        }
-      </div>
-
+      )}
+      ${this.renderCollectedDataSection(data?.collected ?? [])}
       ${this.renderWetlandSection(data?.wetlandPlots ?? [])}
       ${this.renderInventorySection(data?.inventorySurveys ?? [])}
      </div>`;
+  }
+
+  /** Wrap a detail section in a collapsible shell with a caret toggle. The body is
+   *  always rendered; CSS hides it when collapsed (state persists in this.sectionOpen). */
+  private section(key: SectionKey, title: string, count: number, headActions: string, body: string): string {
+    const isOpen = this.sectionOpen[key];
+    return `
+      <div class="pl-detail-section pl-collapsible${isOpen ? '' : ' pl-collapsed'}" data-section="${key}">
+        <div class="pl-section-head">
+          <button class="pl-section-toggle" data-toggle-section="${key}" aria-expanded="${isOpen}">
+            <span class="pl-section-caret" aria-hidden="true">▾</span>
+            <span class="pl-detail-section-title">${title}</span>
+            <span class="pl-section-badge">${count}</span>
+          </button>
+          ${headActions ? `<div class="pl-section-head-actions">${headActions}</div>` : ''}
+        </div>
+        <div class="pl-section-body">${body}</div>
+      </div>`;
   }
 
   /** "User Collected Data" — one row per preset/type that has collected features. */
@@ -359,13 +380,8 @@ export class ProjectLibraryModal {
           { fmt: 'shp', label: 'Shapefile', attrs: `data-ds-export="${i}" data-fmt="shp"` },
         ])}
       </div>`).join('');
-    return `
-      <div class="pl-detail-section">
-        <div class="pl-section-head">
-          <span class="pl-detail-section-title">📊 User Collected Data <span class="pl-section-badge">${datasets.length}</span></span>
-        </div>
-        <div class="pl-data-list">${rows}</div>
-      </div>`;
+    return this.section('collected', '📊 User Collected Data', datasets.length, '',
+      `<div class="pl-data-list">${rows}</div>`);
   }
 
   /** Wetland Plots — per-plot collector + PDF; section-level CSV/GeoJSON for all plots. */
@@ -379,20 +395,14 @@ export class ProjectLibraryModal {
           <span class="pl-data-meta">${escHtml(p.isUpland ? 'Upland Plot' : 'Wetland Plot')} · ${escHtml(p.date)} · <span class="pl-collector">👤 ${escHtml(p.collector)}</span></span>
         </div>
         <div class="pl-export-pills">
+          <button class="pl-pill" data-wl-edit="${p.feature.id}">✏ Edit</button>
           <button class="pl-pill" data-wl-pdf="${p.feature.id}">PDF</button>
         </div>
       </div>`).join('');
-    return `
-      <div class="pl-detail-section">
-        <div class="pl-section-head">
-          <span class="pl-detail-section-title">🌿 Wetland Plots <span class="pl-section-badge">${plots.length}</span></span>
-          <div class="pl-export-pills">
-            <button class="pl-pill" data-wl-export="csv">CSV (all)</button>
-            <button class="pl-pill" data-wl-export="geojson">GeoJSON (all)</button>
-          </div>
-        </div>
-        <div class="pl-data-list">${rows}</div>
-      </div>`;
+    return this.section('wetland', '🌿 Wetland Plots', plots.length,
+      `<button class="pl-pill" data-wl-export="csv">CSV (all)</button>
+       <button class="pl-pill" data-wl-export="geojson">GeoJSON (all)</button>`,
+      `<div class="pl-data-list">${rows}</div>`);
   }
 
   /** Inventory Surveys — per-survey surveyor + CSV/GeoJSON/PDF. */
@@ -409,19 +419,15 @@ export class ProjectLibraryModal {
           <span class="pl-data-meta">${escHtml(s.date || '')} · ${r.obsCount} obs · ${r.speciesCount} spp · <span class="pl-collector">👤 ${escHtml(s.surveyor || '—')}</span></span>
         </div>
         <div class="pl-export-pills">
+          <button class="pl-pill" data-inv-edit="${s.id}">✏ Edit</button>
           <button class="pl-pill" data-inv-export="${s.id}" data-fmt="csv">CSV</button>
           <button class="pl-pill" data-inv-export="${s.id}" data-fmt="geojson">GeoJSON</button>
           <button class="pl-pill" data-inv-export="${s.id}" data-fmt="pdf">PDF</button>
         </div>
       </div>`;
     }).join('');
-    return `
-      <div class="pl-detail-section">
-        <div class="pl-section-head">
-          <span class="pl-detail-section-title">📋 Inventory Surveys <span class="pl-section-badge">${surveys.length}</span></span>
-        </div>
-        <div class="pl-data-list">${rows}</div>
-      </div>`;
+    return this.section('inventory', '📋 Inventory Surveys', surveys.length, '',
+      `<div class="pl-data-list">${rows}</div>`);
   }
 
   /** Render a row of export pills with an optional overflow (⋯) menu for extra formats. */
@@ -922,6 +928,35 @@ export class ProjectLibraryModal {
   // ---- Detail-view export wiring ----
 
   private wireExportEvents(): void {
+    // Collapsible section toggles — flip state + class without a full re-render.
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-toggle-section]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.toggleSection as SectionKey;
+        const nowOpen = !this.sectionOpen[key];
+        this.sectionOpen[key] = nowOpen;
+        btn.closest('.pl-detail-section')?.classList.toggle('pl-collapsed', !nowOpen);
+        btn.setAttribute('aria-expanded', String(nowOpen));
+        const caret = btn.querySelector('.pl-section-caret');
+        if (caret) caret.textContent = nowOpen ? '▾' : '▸';
+      });
+    });
+
+    // Wetland plot — edit survey form
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-wl-edit]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        this.close();
+        await this.callbacks.onEditWetlandPlot(btn.dataset.wlEdit!);
+      });
+    });
+
+    // Inventory survey — edit metadata form
+    this.overlay.querySelectorAll<HTMLButtonElement>('[data-inv-edit]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        this.close();
+        await this.callbacks.onEditInventorySurvey(btn.dataset.invEdit!);
+      });
+    });
+
     // User Collected Data — per-preset export (GeoJSON / CSV / KML / Shapefile)
     this.overlay.querySelectorAll<HTMLButtonElement>('[data-ds-export]').forEach(btn => {
       btn.addEventListener('click', () => {
