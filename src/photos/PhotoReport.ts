@@ -10,6 +10,10 @@ type RGB = [number, number, number];
 let BODY = 'helvetica';
 
 export interface PhotoLogOptions {
+  /** Masthead main heading. Default: "FIELD PHOTO LOG" */
+  title?: string;
+  /** Masthead sub-heading. Default: "Georeferenced Field Photos" */
+  subtitle?: string;
   project?: string;
   site?: string;
   preparedBy?: string;
@@ -20,7 +24,15 @@ export interface PhotoLogOptions {
   basemapUrl?: string;
   /** Locator-map zoom (Web Mercator). */
   zoom?: number;
+  /** When true, prepend a full-page overview map (page 1) showing all photo locations. */
+  includeOverviewMap?: boolean;
 }
+
+/**
+ * Pixel position of a feature on the live MapLibre canvas.
+ * Null when the feature has no location or is outside the current viewport.
+ */
+export type FeatureProjection = { pixelX: number; pixelY: number } | null;
 
 // ── Palette (ADM-001) ────────────────────────────────────────────────────────
 const C: Record<string, RGB> = {
@@ -174,7 +186,7 @@ function drawCameraGlyph(doc: jsPDF, x: number, y: number, s: number): void {
 }
 
 function drawMasthead(doc: jsPDF, x: number, y: number, w: number,
-                      o: { project: string; site: string },
+                      o: { title: string; subtitle: string; project: string; site: string },
                       logo: { dataUrl: string; w: number; h: number } | null): void {
   const glyph = 32;
   let titleX = x + glyph + 10;
@@ -189,11 +201,11 @@ function drawMasthead(doc: jsPDF, x: number, y: number, w: number,
   doc.setFont(BODY, 'bold');
   doc.setFontSize(16);
   setText(doc, C.title);
-  doc.text('FIELD PHOTO LOG', titleX, y + 14);
+  doc.text(o.title, titleX, y + 14);
   doc.setFont(BODY, 'normal');
   doc.setFontSize(8.5);
   setText(doc, C.muted2);
-  doc.text('Georeferenced Field Photos', titleX, y + 25);
+  doc.text(o.subtitle, titleX, y + 25);
 
   // Project / Site key-value block, positioned left of the right margin.
   const rows: [string, string][] = [['PROJECT', o.project], ['SITE', o.site]];
@@ -372,7 +384,7 @@ function drawEntry(doc: jsPDF, x: number, y: number, w: number, h: number, e: En
       doc.text('(from N)', panelX + 6 + labelW + 3, ry + 9);
     }
     const mono = r[0] === 'Latitude' || r[0] === 'Longitude';
-    doc.setFont(mono ? 'courier' : 'helvetica', r[2] === C.accent ? 'bold' : 'normal');
+    doc.setFont(mono ? 'courier' : BODY, r[2] === C.accent ? 'bold' : 'normal');
     doc.setFontSize(mono ? 7 : 7.5);
     setText(doc, r[2]);
     doc.text(r[1], panelX + 62, ry + 9, { maxWidth: panelW - 66 });
@@ -422,6 +434,8 @@ function scaleGeometry(lat: number, zoom: number, panelW: number): EntryData['sc
 export async function generatePhotoLogPdf(
   features: FieldFeature[],
   opts: PhotoLogOptions = {},
+  mapCanvas?: HTMLCanvasElement,
+  featureProjections?: FeatureProjection[],
 ): Promise<void> {
   const zoom = opts.zoom ?? 16;
   const basemapUrl = opts.basemapUrl
@@ -476,17 +490,82 @@ export async function generatePhotoLogPdf(
   const entriesBottom = footerRuleY - 12;
   const entryH = (entriesBottom - entriesTop - 14) / 2;
 
-  const pageCount = Math.max(1, Math.ceil(entries.length / 2));
+  const hasOverview = !!(opts.includeOverviewMap && mapCanvas);
+  const overviewOffset = hasOverview ? 1 : 0;
+  const pageCount = overviewOffset + Math.max(1, Math.ceil(entries.length / 2));
   const company = opts.company ?? 'Fraxinus Environmental & Geomatics Ltd.';
   const preparedBy = opts.preparedBy ?? entries[0]?.observer ?? '—';
+  const mastheadOpts = {
+    title: opts.title ?? 'FIELD PHOTO LOG',
+    subtitle: opts.subtitle ?? 'Georeferenced Field Photos',
+    project: opts.project ?? 'Field Photo Log',
+    site: opts.site ?? '',
+  };
 
+  // ── Overview map page (page 1) ─────────────────────────────────────────────
+  if (hasOverview) {
+    drawMasthead(doc, M, M, contentW, mastheadOpts, logo);
+
+    const mapAreaTop = entriesTop;
+    const mapAreaH = footerRuleY - mapAreaTop - 8;
+    const canvasAspect = mapCanvas!.width / mapCanvas!.height;
+    const mapW = contentW;
+    const mapH = Math.min(mapAreaH, mapW / canvasAspect);
+    const mapImageX = M;
+    const mapImageY = mapAreaTop + (mapAreaH - mapH) / 2;
+
+    doc.addImage(mapCanvas!.toDataURL('image/jpeg', 0.92), 'JPEG', mapImageX, mapImageY, mapW, mapH);
+
+    // Numbered dots + bearing wedges for each feature.
+    if (featureProjections) {
+      const scaleX = mapW / mapCanvas!.width;
+      const scaleY = mapH / mapCanvas!.height;
+      for (let i = 0; i < entries.length; i++) {
+        const proj = featureProjections[i];
+        if (!proj) continue;
+        const px = mapImageX + proj.pixelX * scaleX;
+        const py = mapImageY + proj.pixelY * scaleY;
+        const bearing = entries[i].bearing;
+
+        // Bearing wedge (semi-transparent cone in the view direction).
+        if (bearing != null) {
+          const b = (bearing * Math.PI) / 180;
+          const L = 14;
+          const half = (22 * Math.PI) / 180;
+          const p1x = px + Math.sin(b - half) * L;
+          const p1y = py - Math.cos(b - half) * L;
+          const p2x = px + Math.sin(b + half) * L;
+          const p2y = py - Math.cos(b + half) * L;
+          const gs = (doc as any).GState({ opacity: 0.55 });
+          (doc as any).setGState(gs);
+          setFill(doc, C.accent);
+          doc.triangle(px, py, p1x, p1y, p2x, p2y, 'F');
+          (doc as any).setGState((doc as any).GState({ opacity: 1 }));
+        }
+
+        // Orange dot with white outline.
+        setFill(doc, C.accent);
+        setDraw(doc, C.white);
+        doc.setLineWidth(1);
+        doc.circle(px, py, 5, 'FD');
+        // Sequence label.
+        doc.setFont(BODY, 'bold');
+        doc.setFontSize(6.5);
+        setText(doc, C.white);
+        doc.text(entries[i].seq, px, py + 2.2, { align: 'center' });
+      }
+    }
+
+    drawFooter(doc, M, contentW, footerRuleY, { company, preparedBy, pageNum: 1, pageCount });
+    doc.addPage();
+  }
+
+  // ── Entry pages ────────────────────────────────────────────────────────────
   for (let i = 0; i < entries.length; i++) {
     const onPage = i % 2;
     if (i > 0 && onPage === 0) doc.addPage();
     if (onPage === 0) {
-      drawMasthead(doc, M, M, contentW, {
-        project: opts.project ?? 'Field Photo Log', site: opts.site ?? '',
-      }, logo);
+      drawMasthead(doc, M, M, contentW, mastheadOpts, logo);
     }
     const ey = entriesTop + onPage * (entryH + 14);
     if (onPage === 1) {
@@ -500,7 +579,7 @@ export async function generatePhotoLogPdf(
     if (isLastOnPage) {
       drawFooter(doc, M, contentW, footerRuleY, {
         company, preparedBy,
-        pageNum: Math.floor(i / 2) + 1, pageCount,
+        pageNum: overviewOffset + Math.floor(i / 2) + 1, pageCount,
       });
     }
   }
