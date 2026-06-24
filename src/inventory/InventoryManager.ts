@@ -417,6 +417,45 @@ export class InventoryManager {
     }
   }
 
+  /** Open the survey metadata form for a submitted survey and persist edits back
+   *  across every observation feature in that survey (used by the Project Library). */
+  async editSurveyById(surveyId: string): Promise<void> {
+    const surveys = await this.reconstructSubmitted();
+    const survey = surveys.find(s => s.id === surveyId);
+    if (!survey) { EventBus.emit('toast', { message: 'Survey not found', type: 'error' }); return; }
+    (document.getElementById('modal-close') as HTMLButtonElement | null)?.click();
+    this.form.open(
+      (meta: SurveyMeta) => void this.applySurveyMetaEdit(surveyId, meta),
+      {
+        title: `Edit Survey — ${survey.siteName || survey.surveyID || 'Untitled'}`,
+        confirmLabel: 'Save Changes',
+        initial: {
+          surveyor: survey.surveyor, siteName: survey.siteName, surveyID: survey.surveyID,
+          locale: survey.locale, county: survey.county, date: survey.date, reportNote: survey.reportNote,
+        },
+      },
+    );
+  }
+
+  /** Write edited survey metadata onto every observation feature of the survey. */
+  private async applySurveyMetaEdit(surveyId: string, meta: SurveyMeta): Promise<void> {
+    const feats = (await this.getAllObservations()).filter(f => f.inventory_data?.surveyId === surveyId);
+    if (feats.length === 0) { EventBus.emit('toast', { message: 'No observations to update', type: 'warning' }); return; }
+    const now = new Date().toISOString();
+    for (const f of feats) {
+      const d = f.inventory_data!;
+      d.surveyID = meta.surveyID; d.siteName = meta.siteName; d.surveyor = meta.surveyor;
+      d.locale = meta.locale; d.county = meta.county; d.date = meta.date;
+      if (meta.surveyor) f.created_by = meta.surveyor;
+      f.updated_at = now;
+      await this.storage.saveFeature(f);
+      EventBus.emit('feature-updated', { feature: f });
+    }
+    await this.refreshProjectLayers();
+    void this.renderLegend();
+    EventBus.emit('toast', { message: `Survey updated — ${feats.length} observation(s)`, type: 'success', duration: 2000 });
+  }
+
   private async exportSurvey(id: string, fmt: string, surveys: InventorySurvey[]): Promise<void> {
     const survey = surveys.find(s => s.id === id);
     if (!survey) return;

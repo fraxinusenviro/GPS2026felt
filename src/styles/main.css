@@ -11031,6 +11031,20 @@ input[type=color] {
   display: flex; align-items: center; justify-content: space-between;
   gap: 10px; flex-wrap: wrap; padding: 2px 0;
 }
+/* Collapsible toggle button (caret + title + badge) */
+.pl-section-toggle {
+  display: flex; align-items: center; gap: 8px;
+  flex: 1; min-width: 0; background: none; border: none; cursor: pointer;
+  padding: 4px 2px; color: inherit; text-align: left;
+}
+.pl-section-caret {
+  font-size: 11px; color: var(--color-text-muted); width: 12px; flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.pl-section-head-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* Collapsed state: hide the body */
+.pl-collapsible.pl-collapsed .pl-section-body { display: none; }
+.pl-section-body { display: flex; flex-direction: column; gap: 8px; }
 .pl-section-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;

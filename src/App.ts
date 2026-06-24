@@ -1651,6 +1651,8 @@ export class App {
         onRenameMap: (id, name) => this.renameMap(id, name),
         onDuplicateMap: (id) => this.duplicateMap(id),
         onExportBundle: (projectId) => EventBus.emit('export-project-bundle', { projectId }),
+        onEditWetlandPlot: (featureId) => this.wetlandsManager.editPlotById(featureId),
+        onEditInventorySurvey: (surveyId) => this.inventoryManager.editSurveyById(surveyId),
         getActiveMapId: () => this.activeMapId,
       });
     });

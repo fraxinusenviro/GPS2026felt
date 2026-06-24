@@ -183,8 +183,19 @@ export class WetlandsManager {
     });
   }
 
-  private async handleListAction(act: string, plot: FieldFeature): Promise<void> {
-    if (act === 'edit') {
+  /** Open the wetland survey form for a specific plot by feature id (used by the
+   *  Project Library "Edit" action). */
+  async editPlotById(featureId: string): Promise<void> {
+    const plot = (await this.storage.getAllFeatures()).find(f => f.id === featureId && this.isWetlandPlot(f));
+    if (!plot) { EventBus.emit('toast', { message: 'Wetland plot not found', type: 'error' }); return; }
+    closeActiveModal();
+    this.selectedPlot = plot;
+    hideFeatureEditorPanel();
+    if (plot.lat != null && plot.lon != null) this.mapManager.flyTo(plot.lat, plot.lon);
+    await this.form.open(plot);
+  }
+
+  private async handleListAction(act: string, plot: FieldFeature): Promise<void> {    if (act === 'edit') {
       closeActiveModal();
       this.selectedPlot = plot;
       hideFeatureEditorPanel();
