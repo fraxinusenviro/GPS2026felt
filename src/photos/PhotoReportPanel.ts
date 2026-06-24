@@ -1,7 +1,7 @@
 import type { FieldFeature } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
-import { generatePhotoLogPdf } from './PhotoReport';
+import { generatePhotoLogPdf, type FeatureProjection } from './PhotoReport';
 import type { FontKey } from './pdfFonts';
 import { BASEMAPS } from '../constants';
 import type { MapManager } from '../map/MapManager';
@@ -18,6 +18,13 @@ export class PhotoReportPanel {
   private spatialFilter: 'all' | 'extent' = 'all';
   private selectedObservers = new Set<string>(['all']);
   private selectedFont: FontKey = 'default';
+  // Report Options
+  private reportTitle = 'FIELD PHOTO LOG';
+  private reportSubtitle = 'Georeferenced Field Photos';
+  private reportCompany = 'Fraxinus Environmental & Geomatics Ltd.';
+  private preparedByEnabled = true;
+  private preparedBy = '';
+  private includeOverviewMap = false;
 
   constructor(
     private mapManager: MapManager,
@@ -41,10 +48,11 @@ export class PhotoReportPanel {
   private async reloadFeatures(): Promise<void> {
     const all = await this.storage.getAllFeatures();
     this.allPhotoFeatures = all.filter(f => f.photo_data !== undefined);
-    // Default the PDF font to the app's current Font Appearance setting.
+    // Default PDF font and "Prepared By" from app settings.
     try {
       const settings = await this.storage.getAppSettings();
       this.selectedFont = (settings.font_family ?? 'default') as FontKey;
+      if (!this.preparedBy) this.preparedBy = settings.user_id || '';
     } catch { /* keep default */ }
     if (this.isOpen) this.updateBody();
   }
@@ -124,6 +132,33 @@ export class PhotoReportPanel {
 
         <div class="settings-section">
           <h4>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM160,51.31,188.69,80H160ZM200,216H56V40h88V88a8,8,0,0,0,8,8h48V216Zm-32-80a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,136Zm0,32a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h64A8,8,0,0,1,168,168Z"/></svg>
+            Report Options
+          </h4>
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <label style="font-size:11px;color:var(--color-text-dim)">Title</label>
+              <input type="text" id="photo-report-title" class="felt-input" value="${this.reportTitle.replace(/"/g, '&quot;')}" style="font-size:12px;padding:4px 8px" />
+            </div>
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <label style="font-size:11px;color:var(--color-text-dim)">Subtitle</label>
+              <input type="text" id="photo-report-subtitle" class="felt-input" value="${this.reportSubtitle.replace(/"/g, '&quot;')}" style="font-size:12px;padding:4px 8px" />
+            </div>
+            <label class="export-date-row" style="margin-top:2px">
+              <input type="checkbox" id="photo-prepared-by-cb" ${this.preparedByEnabled ? 'checked' : ''} />
+              <span>Prepared By</span>
+            </label>
+            <input type="text" id="photo-prepared-by" class="felt-input" value="${this.preparedBy.replace(/"/g, '&quot;')}"
+              style="font-size:12px;padding:4px 8px${this.preparedByEnabled ? '' : ';opacity:0.45;pointer-events:none'}" />
+            <label class="export-date-row" style="margin-top:2px">
+              <input type="checkbox" id="photo-overview-map-cb" ${this.includeOverviewMap ? 'checked' : ''} />
+              <span>Include overview map (page 1)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="14" height="14"><path d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM112,184a8,8,0,0,1-16,0V132.94l-4.42,2.22a8,8,0,0,1-7.16-14.32l16-8A8,8,0,0,1,112,120Zm56-8a8,8,0,0,1,0,16H136a8,8,0,0,1-6.4-12.8l28.78-38.37A8,8,0,1,0,145.07,132a8,8,0,1,1-13.85-8A24,24,0,0,1,176,136a23.76,23.76,0,0,1-4.84,14.45L152,176ZM48,80V48H72v8a8,8,0,0,0,16,0V48h80v8a8,8,0,0,0,16,0V48h24V80Z"/></svg>
             Date Range
           </h4>
@@ -198,6 +233,27 @@ export class PhotoReportPanel {
         countEl.textContent = `${n} photo${n !== 1 ? 's' : ''} match`;
       }
     };
+
+    scope.querySelector<HTMLInputElement>('#photo-report-title')?.addEventListener('input', (e) => {
+      this.reportTitle = (e.target as HTMLInputElement).value;
+    });
+    scope.querySelector<HTMLInputElement>('#photo-report-subtitle')?.addEventListener('input', (e) => {
+      this.reportSubtitle = (e.target as HTMLInputElement).value;
+    });
+    scope.querySelector<HTMLInputElement>('#photo-prepared-by-cb')?.addEventListener('change', (e) => {
+      this.preparedByEnabled = (e.target as HTMLInputElement).checked;
+      const pbInput = scope.querySelector<HTMLInputElement>('#photo-prepared-by');
+      if (pbInput) {
+        pbInput.style.opacity = this.preparedByEnabled ? '' : '0.45';
+        pbInput.style.pointerEvents = this.preparedByEnabled ? '' : 'none';
+      }
+    });
+    scope.querySelector<HTMLInputElement>('#photo-prepared-by')?.addEventListener('input', (e) => {
+      this.preparedBy = (e.target as HTMLInputElement).value;
+    });
+    scope.querySelector<HTMLInputElement>('#photo-overview-map-cb')?.addEventListener('change', (e) => {
+      this.includeOverviewMap = (e.target as HTMLInputElement).checked;
+    });
 
     scope.querySelector<HTMLInputElement>('#photo-date-from')?.addEventListener('change', (e) => {
       this.dateFrom = (e.target as HTMLInputElement).value;
@@ -288,13 +344,34 @@ export class PhotoReportPanel {
 
       const basemapUrl = BASEMAPS.find(b => b.id === settings.basemap_id)?.url;
 
+      // Collect overview map canvas + feature projections for the cover page.
+      let mapCanvas: HTMLCanvasElement | undefined;
+      let featureProjections: FeatureProjection[] | undefined;
+      if (this.includeOverviewMap) {
+        try {
+          const map = this.mapManager.getMap();
+          mapCanvas = map.getCanvas();
+          featureProjections = features.map(f => {
+            if (f.lat == null || f.lon == null) return null;
+            try {
+              const pt = map.project([f.lon, f.lat]);
+              return { pixelX: pt.x, pixelY: pt.y };
+            } catch { return null; }
+          });
+        } catch { /* overview map unavailable — skip silently */ }
+      }
+
       await generatePhotoLogPdf(features, {
+        title: this.reportTitle || undefined,
+        subtitle: this.reportSubtitle || undefined,
         project,
         site,
-        preparedBy: settings.user_id || undefined,
+        preparedBy: this.preparedByEnabled ? (this.preparedBy || undefined) : undefined,
+        company: this.reportCompany || undefined,
         basemapUrl,
         fontKey: this.selectedFont,
-      });
+        includeOverviewMap: this.includeOverviewMap,
+      }, mapCanvas, featureProjections);
       EventBus.emit('toast', { message: 'Photo log PDF downloaded', type: 'success' });
       this.close();
     } catch (err) {
