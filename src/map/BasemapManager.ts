@@ -2103,16 +2103,17 @@ export class BasemapManager {
 
     const isWetland = (f: FieldFeature) => f.layer_id?.endsWith('-wetlands') || !!f.wetland_data;
     const isInventory = (f: FieldFeature) => f.layer_id?.endsWith('-inventory') || !!f.inventory_data;
+    const isPhoto = (f: FieldFeature) => f.photo_data !== undefined;
 
     const body = geomGroups.map(({ id, label, icon, geomType }) => {
-      // Wetland plots and inventory observations are their own classes below —
+      // Wetland plots, inventory observations, and photo points are their own classes below —
       // keep them out of the generic geometry groups.
       const layerPreset = this.featureLayerPresets.find(lp =>
-        lp.geometry_type === geomType && !lp.id.endsWith('-wetlands') && !lp.id.endsWith('-inventory'));
+        lp.geometry_type === geomType && !lp.id.endsWith('-wetlands') && !lp.id.endsWith('-inventory') && !lp.id.endsWith('-photo-points'));
       const types = this.typePresets.filter(p => p.geometry_type === geomType || p.geometry_type === 'all');
 
-      // Count features in this geometry group (excluding wetland plots + inventory)
-      const groupCount = this.collectedFeatures.filter(f => f.geometry_type === geomType && !isWetland(f) && !isInventory(f)).length;
+      // Count features in this geometry group (excluding wetland plots, inventory, and photo points)
+      const groupCount = this.collectedFeatures.filter(f => f.geometry_type === geomType && !isWetland(f) && !isInventory(f) && !isPhoto(f)).length;
 
       if (types.length === 0 && groupCount === 0) return '';
 
@@ -2225,6 +2226,35 @@ export class BasemapManager {
         <div class="fd-geom-body${inventoryCollapsed ? ' fd-geom-body-collapsed' : ''}">${inventorySwatches}</div>
       </div>` : '';
 
+    // Photo Points — dedicated class (own map layer + color/size controls)
+    const photoFeats = this.collectedFeatures.filter(isPhoto);
+    const photoPreset = this.featureLayerPresets.find(lp => lp.id.endsWith('-photo-points'));
+    const photoCollapsed = this.collapsedFdGroups.has('PhotoPoints');
+    const photoSize = photoPreset?.size ?? 0.85;
+    const photoGroup = (photoFeats.length > 0 || photoPreset) ? `
+      <div class="fd-geom-group" data-fd-geom="PhotoPoints">
+        <div class="fd-geom-header fd-geom-collapsible" data-fd-collapse="PhotoPoints">
+          <span class="fd-geom-chevron${photoCollapsed ? ' fd-collapsed' : ''}">▾</span>
+          <span class="fd-geom-icon">📷</span>
+          <span class="fd-geom-label">Photo Points</span>
+          ${photoFeats.length > 0 ? `<span class="fd-geom-count">${photoFeats.length}</span>` : ''}
+          <button class="fd-label-btn${photoPreset?.show_labels !== false ? ' active' : ''}" data-fd-photo-label="1" title="Toggle labels" onclick="event.stopPropagation()">${labelOnSvg}</button>
+          <button class="vis-tog fd-group-vis fd-vis-lg${photoPreset?.visible !== false ? ' active' : ''}" data-fd-photo-vis="1" title="Toggle Photo Points" onclick="event.stopPropagation()"></button>
+        </div>
+        <div class="fd-geom-body${photoCollapsed ? ' fd-geom-body-collapsed' : ''}">
+          <div class="fd-type-row">
+            <input type="color" class="fd-photo-color" value="${photoPreset?.color ?? '#f97316'}" title="Photo point color" style="width:20px;height:20px;border:none;border-radius:4px;cursor:pointer;padding:0">
+            <span class="fd-type-label">Icon color</span>
+          </div>
+          <div class="fd-type-row" style="gap:4px">
+            <span class="fd-type-label" style="flex:1">Icon size</span>
+            <button class="fd-photo-size-btn${Math.abs(photoSize - 0.6) < 0.1 ? ' active' : ''}" data-fd-photo-size="0.6">S</button>
+            <button class="fd-photo-size-btn${Math.abs(photoSize - 0.85) < 0.1 ? ' active' : ''}" data-fd-photo-size="0.85">M</button>
+            <button class="fd-photo-size-btn${Math.abs(photoSize - 1.2) < 0.1 ? ' active' : ''}" data-fd-photo-size="1.2">L</button>
+          </div>
+        </div>
+      </div>` : '';
+
     // Untyped features row
     const untypedCount = countByType.get('(untyped)') ?? 0;
     const untypedRow = untypedCount > 0 ? `
@@ -2239,7 +2269,7 @@ export class BasemapManager {
 
     const fdLabel = (this.userId ? this.userId.toUpperCase() : 'Field') + ' Data';
     return this.sectionToggle('field-data', fdLabel, hint) +
-      this.sectionBody('field-data', `<div class="fd-body">${body}${wetlandGroup}${inventoryGroup}${untypedRow}</div>`);
+      this.sectionBody('field-data', `<div class="fd-body">${body}${wetlandGroup}${inventoryGroup}${photoGroup}${untypedRow}</div>`);
   }
 
   private wireFieldData(container: HTMLElement): void {
@@ -2453,6 +2483,53 @@ export class BasemapManager {
       btn.classList.toggle('active', lp.show_labels !== false);
       this.mapManager.setLayerVisibility('inventory-points-labels', lp.show_labels !== false);
       this.onFeatureLayerChange?.(lp);
+    });
+
+    // Photo Points — group visibility
+    container.querySelector<HTMLButtonElement>('[data-fd-photo-vis]')?.addEventListener('click', (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const lp = this.featureLayerPresets.find(l => l.id.endsWith('-photo-points'));
+      if (!lp) return;
+      lp.visible = !(lp.visible !== false);
+      const on = lp.visible !== false;
+      btn.classList.toggle('active', on);
+      this.mapManager.setLayerVisibility('photo-points-layer', on);
+      this.mapManager.setLayerVisibility('photo-points-labels', on && (lp.show_labels !== false));
+      this.onFeatureLayerChange?.(lp);
+    });
+
+    // Photo Points — labels toggle
+    container.querySelector<HTMLButtonElement>('[data-fd-photo-label]')?.addEventListener('click', (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const lp = this.featureLayerPresets.find(l => l.id.endsWith('-photo-points'));
+      if (!lp) return;
+      lp.show_labels = lp.show_labels === false;
+      btn.classList.toggle('active', lp.show_labels !== false);
+      const vis = lp.visible !== false;
+      this.mapManager.setLayerVisibility('photo-points-labels', vis && (lp.show_labels !== false));
+      this.onFeatureLayerChange?.(lp);
+    });
+
+    // Photo Points — size buttons
+    container.querySelectorAll<HTMLButtonElement>('[data-fd-photo-size]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const size = parseFloat(btn.dataset.fdPhotoSize!);
+        if (isNaN(size)) return;
+        const lp = this.featureLayerPresets.find(l => l.id.endsWith('-photo-points'));
+        if (lp) { lp.size = size; this.onFeatureLayerChange?.(lp); }
+        this.mapManager.setPhotoPointSize(size);
+        container.querySelectorAll<HTMLButtonElement>('[data-fd-photo-size]').forEach(b => {
+          b.classList.toggle('active', Math.abs(parseFloat(b.dataset.fdPhotoSize!) - size) < 0.01);
+        });
+      });
+    });
+
+    // Photo Points — color picker
+    container.querySelector<HTMLInputElement>('.fd-photo-color')?.addEventListener('input', (e) => {
+      const color = (e.target as HTMLInputElement).value;
+      const lp = this.featureLayerPresets.find(l => l.id.endsWith('-photo-points'));
+      if (lp) { lp.color = color; this.onFeatureLayerChange?.(lp); }
+      this.mapManager.setPhotoPointColor(color);
     });
   }
 

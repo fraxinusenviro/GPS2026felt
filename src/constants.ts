@@ -923,6 +923,8 @@ export function DEFAULT_PROJECT_LAYER_PRESETS(projectId: string): LayerPreset[] 
     // and sync on their own. Species + survey context live in each feature's
     // inventory_data field. Bright green accent matches the INVENTORY module.
     { id: `${projectId}-inventory`, name: 'Inventory Observations', geometry_type: 'Point', color: '#22c55e', stroke_color: '#ffffff', stroke_width: 2, fill_opacity: 0.9, types: [], project_id: projectId, visible: true },
+    // Photo points — canvas-drawn FOV wedge icon; size controls icon-size on the map.
+    { id: `${projectId}-photo-points`, name: 'Photo Points', geometry_type: 'Point', color: '#f97316', stroke_color: '#ffffff', stroke_width: 2, fill_opacity: 1, size: 0.85, types: [], project_id: projectId, visible: true, show_labels: true },
   ];
 }
 

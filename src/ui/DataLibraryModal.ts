@@ -5,7 +5,7 @@ import type { BasemapDef } from '../types';
 import { EventBus } from '../utils/EventBus';
 
 // Cap on how many cards render at once (the NS REST catalogue is 1,000+ layers)
-const MAX_GRID_CARDS = 200;
+const MAX_GRID_CARDS = 60;
 
 const USER_DATA_GROUP = 'user-data';
 
@@ -268,9 +268,17 @@ export class DataLibraryModal {
 
   constructor() {
     this.overlay = document.getElementById('data-library-overlay')!;
+    // Delegated error handler for tile thumbnails — uses capture phase since 'error'
+    // doesn't bubble. Replaces inline onerror to avoid issues on iOS WebKit.
+    this.overlay.addEventListener('error', (e) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.dataset?.thumbErr) {
+        el.closest('.dl-card-thumb')?.classList.add('dl-thumb-err');
+      }
+    }, true);
   }
 
-  open(callbacks: DataLibraryCallbacks, initialGroup = 'all'): void {
+  open(callbacks: DataLibraryCallbacks, initialGroup = 'basemaps'): void {
     this.callbacks = callbacks;
     this.searchQuery = '';
     this.activeGroup = initialGroup;
@@ -355,7 +363,7 @@ export class DataLibraryModal {
     const hasParams = def.group === 'Raster Functions' && def.id in RF_PARAM_SCHEMAS;
 
     const thumbImg = isTile
-      ? `<img src="${src}" loading="lazy" alt="${displayLabel}" onerror="this.closest('.dl-card-thumb').classList.add('dl-thumb-err')" />`
+      ? `<img src="${src}" loading="lazy" alt="${displayLabel}" data-thumb-err="1" />`
       : `<img src="${src}" alt="${displayLabel}" />`;
 
     let addBtnContent: string;
