@@ -94,6 +94,7 @@ export class App {
 
   private settings!: AppSettings;
   private features: FieldFeature[] = [];
+  private globalFeatures: FieldFeature[] = [];
   private projectLayerPresets: LayerPreset[] = [];
   private wakeLock: WakeLockSentinel | null = null;
   private followUser = false;
@@ -268,9 +269,17 @@ export class App {
     this.basemapManager.initForProject(activeProjectId, mapStack);
     // Persist user-driven stack changes (layers/symbology/labels) to the active map.
     this.basemapManager.onStackPersist = (stackJson) => this.persistStackToProject(stackJson);
+    // Wire cross-project global overlay toggle.
+    this.basemapManager.onGlobalOverlayToggle = (enabled) => {
+      void this.onGlobalOverlayToggle(enabled);
+    };
     this.features = await this.storage.getFeaturesByProject(activeProjectId);
     this.projectLayerPresets = await this.storage.getLayersByProject(activeProjectId);
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+    // Restore global overlay state from the active map setting.
+    const globalOverlayEnabled = activeMap?.show_global_overlay ?? false;
+    this.basemapManager.setGlobalOverlayState(globalOverlayEnabled);
+    if (globalOverlayEnabled) void this.refreshGlobalOverlay(activeProjectId, true);
     this.projectPanel.setActiveProjectId(activeProjectId);
     this.updateHeaderNames(activeProject?.name, activeMap?.name);
     void this.wetlandsManager.renderLegend();
@@ -449,6 +458,38 @@ export class App {
       const current = JSON.stringify((JSON.parse(this.basemapManager.getCurrentStackJson()) as { stack?: unknown }).stack ?? []);
       return incoming !== current;
     } catch { return false; }
+  }
+
+  /** Load cross-project features and push them to the map as a read-only reference overlay. */
+  private async refreshGlobalOverlay(activeProjectId: string, enabled: boolean): Promise<void> {
+    if (!enabled) {
+      this.globalFeatures = [];
+      this.mapManager.updateGlobalFeatures([], new Map());
+      this.mapManager.setGlobalOverlayVisible(false);
+      return;
+    }
+    const [allFeatures, allProjects] = await Promise.all([
+      this.storage.getAllFeatures(),
+      this.storage.getAllProjects(),
+    ]);
+    this.globalFeatures = allFeatures.filter(f => f.project_id !== activeProjectId);
+    const nameMap = new Map(allProjects.map(p => [p.id, p.name]));
+    this.mapManager.updateGlobalFeatures(this.globalFeatures, nameMap);
+    this.mapManager.setGlobalOverlayVisible(true);
+  }
+
+  /** Handle user toggling the cross-project overlay: persist to the active map and refresh. */
+  private async onGlobalOverlayToggle(enabled: boolean): Promise<void> {
+    if (this.allDataMode) return;
+    const activeProjectId = this.settings.active_project_id || 'default';
+    if (this.activeMapId && this.activeMapId !== ALL_DATA_MAP_ID) {
+      const map = await this.storage.getMap(this.activeMapId);
+      if (map) {
+        map.show_global_overlay = enabled;
+        await this.storage.saveMap(map);
+      }
+    }
+    void this.refreshGlobalOverlay(activeProjectId, enabled);
   }
 
   /** Debounced: persist the basemap stack to the active map (and project for compat). */
@@ -2828,6 +2869,11 @@ export class App {
     const uid = this.settings.user_id || 'USER';
     const stackJson = map.user_layer_views?.[uid] ?? map.basemap_stack_json;
     if (stackJson) this.basemapManager.setActiveProjectStack(stackJson, projectId);
+
+    // Restore global overlay state for the new map.
+    const globalEnabled = map.show_global_overlay ?? false;
+    this.basemapManager.setGlobalOverlayState(globalEnabled);
+    void this.refreshGlobalOverlay(projectId, globalEnabled);
 
     // Restore viewport: per-user override → map shared defaults.
     const userViewport = map.user_viewports?.[uid];

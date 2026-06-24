@@ -225,10 +225,18 @@ export class BasemapManager {
   private stylePicker = new StylePicker();
   private mapBgColor = '#000000';
   private userId = '';
+  private globalOverlayEnabled = false;
+
+  onGlobalOverlayToggle: ((enabled: boolean) => void) | null = null;
 
   private currentProjectId: string = '';
 
   setUserId(id: string): void { this.userId = id; }
+
+  setGlobalOverlayState(enabled: boolean): void {
+    this.globalOverlayEnabled = enabled;
+    if (this.panelState) this.renderContent(this.panelState.container, this.panelState.onClose);
+  }
 
   constructor(private mapManager: MapManager) {
     // Load persisted background color and userId
@@ -2056,6 +2064,21 @@ export class BasemapManager {
     });
   }
 
+  // ---- Global dataset overlay toggle row ----
+
+  private renderGlobalOverlaySection(): string {
+    const isOn = this.globalOverlayEnabled;
+    return `
+      <div class="bm-global-overlay-row">
+        <div class="bm-global-overlay-info">
+          <span class="bm-global-overlay-label">Cross-Project Data</span>
+          <span class="bm-global-overlay-hint">Reference overlay from all projects (read-only)</span>
+        </div>
+        <button class="vis-tog bm-global-overlay-vis${isOn ? ' active' : ''}" id="bm-global-overlay-toggle"
+          title="${isOn ? 'Hide' : 'Show'} cross-project data overlay"></button>
+      </div>`;
+  }
+
   // ---- Combined Field Data section (Points / Lines / Polygons groups) ----
 
   private renderFieldDataSection(): string {
@@ -3240,6 +3263,7 @@ export class BasemapManager {
 
         ${this.renderViewAsControl()}
         ${this.renderFieldDataSection()}
+        ${this.renderGlobalOverlaySection()}
         ${this.renderCutFillSection()}
 
         <div class="bm-section-header-row">
@@ -3270,6 +3294,13 @@ export class BasemapManager {
 
   private wireContent(container: HTMLElement, onClose: () => void): void {
     const allDefs = ALL_DEFS();
+
+    // Global overlay toggle
+    container.querySelector<HTMLButtonElement>('#bm-global-overlay-toggle')?.addEventListener('click', () => {
+      this.globalOverlayEnabled = !this.globalOverlayEnabled;
+      this.onGlobalOverlayToggle?.(this.globalOverlayEnabled);
+      this.renderContent(container, onClose);
+    });
 
     // Master refresh
     container.querySelector<HTMLButtonElement>('#bm-refresh-all')?.addEventListener('click', (e) => {

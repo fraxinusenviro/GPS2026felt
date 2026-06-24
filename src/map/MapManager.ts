@@ -425,6 +425,13 @@ export class MapManager {
       data: { type: 'FeatureCollection', features: [] }
     });
 
+    // --- Global dataset overlay sources (cross-project, read-only reference) ---
+    this.map.addSource('global-collected-points', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    this.map.addSource('global-collected-lines', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    this.map.addSource('global-collected-polygons', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    this.map.addSource('global-wetland-plots', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    this.map.addSource('global-photo-points', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+
     // ---- Layers ----
 
     // User accuracy circle
@@ -465,6 +472,71 @@ export class MapManager {
         'line-color': 'rgba(255, 255, 255, 0.4)',
         'line-width': 0.8,
         'line-dasharray': [4, 2]
+      }
+    });
+
+    // ---- Global overlay layers (muted, read-only, hidden by default — render below active project data) ----
+    this.map.addLayer({
+      id: 'global-polygons-fill',
+      type: 'fill',
+      source: 'global-collected-polygons',
+      layout: { visibility: 'none' },
+      paint: { 'fill-color': ['coalesce', ['get', 'color'], '#60a5fa'], 'fill-opacity': 0.18 }
+    });
+    this.map.addLayer({
+      id: 'global-polygons-outline',
+      type: 'line',
+      source: 'global-collected-polygons',
+      layout: { visibility: 'none', 'line-join': 'round' },
+      paint: { 'line-color': ['coalesce', ['get', 'color'], '#60a5fa'], 'line-width': 1.5, 'line-opacity': 0.5, 'line-dasharray': [4, 2] }
+    });
+    this.map.addLayer({
+      id: 'global-lines',
+      type: 'line',
+      source: 'global-collected-lines',
+      layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': ['coalesce', ['get', 'color'], '#60a5fa'], 'line-width': 1.5, 'line-opacity': 0.5, 'line-dasharray': [4, 2] }
+    });
+    this.map.addLayer({
+      id: 'global-points-circle',
+      type: 'circle',
+      source: 'global-collected-points',
+      layout: { visibility: 'none' },
+      paint: {
+        'circle-radius': 5,
+        'circle-color': ['coalesce', ['get', 'color'], '#60a5fa'],
+        'circle-opacity': 0.5,
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 1,
+        'circle-stroke-opacity': 0.4,
+      }
+    });
+    this.map.addLayer({
+      id: 'global-wetland-plots-circle',
+      type: 'circle',
+      source: 'global-wetland-plots',
+      layout: { visibility: 'none' },
+      paint: {
+        'circle-radius': 5,
+        'circle-color': ['coalesce', ['get', 'color'], '#14b8a6'],
+        'circle-opacity': 0.5,
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 1,
+        'circle-stroke-opacity': 0.4,
+      }
+    });
+    this.map.addLayer({
+      id: 'global-photo-points-circle',
+      type: 'circle',
+      source: 'global-photo-points',
+      layout: { visibility: 'none' },
+      paint: {
+        'circle-radius': 5,
+        'circle-color': '#a78bfa',
+        'circle-opacity': 0.5,
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 1,
+        'circle-stroke-opacity': 0.4,
       }
     });
 
@@ -840,6 +912,29 @@ export class MapManager {
       });
     });
 
+    // Global overlay click — attribution popup (read-only, no edit)
+    const globalClickLayers = [
+      'global-points-circle', 'global-wetland-plots-circle', 'global-photo-points-circle',
+      'global-lines', 'global-polygons-fill',
+    ];
+    globalClickLayers.forEach(layerId => {
+      this.map.on('click', layerId, (e: maplibregl.MapLayerMouseEvent) => {
+        const f = e.features?.[0];
+        if (!f?.properties) return;
+        const p = f.properties as Record<string, unknown>;
+        const projectLabel = String(p['project_name'] || p['project_id'] || '—');
+        new maplibregl.Popup({ closeButton: true, maxWidth: '220px', className: 'global-feat-popup' })
+          .setLngLat(e.lngLat)
+          .setHTML(`<div class="gf-popup">
+            <div class="gf-popup-type">${String(p['type'] || 'Feature')}</div>
+            <div class="gf-popup-row">Project: <em>${projectLabel}</em></div>
+            <div class="gf-popup-row">By: <em>${String(p['created_by'] || '—')}</em></div>
+            <div class="gf-popup-badge">Read-only reference</div>
+          </div>`)
+          .addTo(this.map);
+      });
+    });
+
     // Profile preview layers (dedicated, above all C/F and collected layers)
     this.map.addSource('profile-preview', {
       type: 'geojson',
@@ -1167,6 +1262,66 @@ export class MapManager {
     const inventoryFeatProps = inventoryPoints.map(p => ({ properties: (p as { properties: Record<string, unknown> }).properties }));
     this.setInventorySymbology(inventoryLp?.symbologyState ?? null, inventoryFeatProps);
     this.setLayerVisibility('inventory-points-labels', inventoryLp?.show_labels !== false);
+  }
+
+  updateGlobalFeatures(features: FieldFeature[], projectNameMap: Map<string, string>): void {
+    if (!this.initialized) return;
+
+    const points: object[] = [];
+    const lines: object[] = [];
+    const polygons: object[] = [];
+    const wetlandPlots: object[] = [];
+    const photoPoints: object[] = [];
+
+    for (const f of features) {
+      const isWetlandPlot = f.layer_id?.endsWith('-wetlands') || !!f.wetland_data;
+      const isInventory = f.layer_id?.endsWith('-inventory') || !!f.inventory_data;
+      const color = isWetlandPlot
+        ? wetlandPlotColor(String(f.wetland_data?.PLOT_TYPE ?? ''))
+        : isInventory
+        ? getGroupColor(f.inventory_data?.taxon ?? '')
+        : undefined;
+
+      const baseProps: Record<string, unknown> = {
+        id: f.id,
+        type: f.type,
+        project_id: f.project_id,
+        project_name: projectNameMap.get(f.project_id) ?? f.project_id,
+        created_by: f.created_by,
+        created_at: f.created_at,
+      };
+      if (color !== undefined) baseProps['color'] = color;
+
+      const geoFeature = { type: 'Feature', id: f.id, geometry: f.geometry, properties: baseProps };
+
+      if (f.photo_data !== undefined) {
+        photoPoints.push(geoFeature);
+      } else if (isWetlandPlot) {
+        wetlandPlots.push(geoFeature);
+      } else if (f.geometry_type === 'Point') {
+        points.push(geoFeature);
+      } else if (f.geometry_type === 'LineString') {
+        lines.push(geoFeature);
+      } else {
+        polygons.push(geoFeature);
+      }
+    }
+
+    const toFC = (feats: object[]) => ({ type: 'FeatureCollection', features: feats });
+    (this.map.getSource('global-collected-points') as maplibregl.GeoJSONSource)?.setData(toFC(points) as never);
+    (this.map.getSource('global-collected-lines') as maplibregl.GeoJSONSource)?.setData(toFC(lines) as never);
+    (this.map.getSource('global-collected-polygons') as maplibregl.GeoJSONSource)?.setData(toFC(polygons) as never);
+    (this.map.getSource('global-wetland-plots') as maplibregl.GeoJSONSource)?.setData(toFC(wetlandPlots) as never);
+    (this.map.getSource('global-photo-points') as maplibregl.GeoJSONSource)?.setData(toFC(photoPoints) as never);
+  }
+
+  setGlobalOverlayVisible(visible: boolean): void {
+    if (!this.initialized) return;
+    const vis = visible ? 'visible' : 'none';
+    for (const id of ['global-polygons-fill', 'global-polygons-outline', 'global-lines',
+      'global-points-circle', 'global-wetland-plots-circle', 'global-photo-points-circle']) {
+      if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', vis);
+    }
   }
 
   private colorCache: Map<string, string> = new Map();
