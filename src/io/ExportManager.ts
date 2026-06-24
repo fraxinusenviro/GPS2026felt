@@ -51,13 +51,13 @@ export class ExportManager {
   }
 
   /** Trigger a browser download for a GeoJSON string that was already built. */
-  downloadGeoJSONString(json: string): void {
-    this.download(json, `fieldmap_${this.timestamp()}.geojson`, 'application/json');
+  downloadGeoJSONString(json: string, baseName?: string): void {
+    this.download(json, `${this.fileBase(baseName)}.geojson`, 'application/json');
   }
 
-  async exportGeoJSON(features?: FieldFeature[]): Promise<void> {
+  async exportGeoJSON(features?: FieldFeature[], baseName?: string): Promise<void> {
     const json = await this.buildGeoJSON(features);
-    this.downloadGeoJSONString(json);
+    this.downloadGeoJSONString(json, baseName);
   }
 
   private featuresToGeoJSON(features: FieldFeature[]): GeoJSONFeatureCollection {
@@ -91,10 +91,10 @@ export class ExportManager {
   // ============================================================
   // KML Export
   // ============================================================
-  async exportKML(features?: FieldFeature[]): Promise<void> {
+  async exportKML(features?: FieldFeature[], baseName?: string): Promise<void> {
     const data = features ?? await this.storage.getAllFeatures();
     const kml = this.featuresToKML(data);
-    this.download(kml, `fieldmap_${this.timestamp()}.kml`, 'application/vnd.google-earth.kml+xml');
+    this.download(kml, `${this.fileBase(baseName)}.kml`, 'application/vnd.google-earth.kml+xml');
   }
 
   private featuresToKML(features: FieldFeature[]): string {
@@ -157,10 +157,10 @@ export class ExportManager {
   // ============================================================
   // CSV Export
   // ============================================================
-  async exportCSV(features?: FieldFeature[]): Promise<void> {
+  async exportCSV(features?: FieldFeature[], baseName?: string): Promise<void> {
     const data = features ?? await this.storage.getAllFeatures();
     const csv = this.featuresToCSV(data);
-    this.download(csv, `fieldmap_${this.timestamp()}.csv`, 'text/csv');
+    this.download(csv, `${this.fileBase(baseName)}.csv`, 'text/csv');
   }
 
   private featuresToCSV(features: FieldFeature[]): string {
@@ -181,7 +181,7 @@ export class ExportManager {
   // ============================================================
   // Shapefile Export (binary SHP/DBF/SHX)
   // ============================================================
-  async exportShapefile(features?: FieldFeature[]): Promise<void> {
+  async exportShapefile(features?: FieldFeature[], baseName?: string): Promise<void> {
     const data = features ?? await this.storage.getAllFeatures();
     EventBus.emit('toast', { message: 'Generating Shapefile...', type: 'info' });
 
@@ -220,7 +220,7 @@ export class ExportManager {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `fieldmap_${this.timestamp()}.zip`;
+      a.download = `${this.fileBase(baseName)}.zip`;
       a.click();
       URL.revokeObjectURL(url);
 
@@ -498,6 +498,14 @@ export class ExportManager {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  /** Compose an export filename base: `<slug>_<timestamp>` or just `fieldmap_<timestamp>`. */
+  private fileBase(baseName?: string): string {
+    const ts = this.timestamp();
+    if (!baseName) return `fieldmap_${ts}`;
+    const slug = baseName.trim().replace(/[^\w-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'export';
+    return `${slug}_${ts}`;
   }
 
   private timestamp(): string {
