@@ -276,6 +276,13 @@ export class DataLibraryModal {
         el.closest('.dl-card-thumb')?.classList.add('dl-thumb-err');
       }
     }, true);
+    // Close when the backdrop (overlay itself) is clicked. Must live here, not in
+    // wireEvents(), because innerHTML replacement removes child listeners but NOT
+    // listeners on the overlay element — putting it in wireEvents() accumulates a
+    // new listener on every render() call.
+    this.overlay.addEventListener('click', (e) => {
+      if (e.target === this.overlay) this.close();
+    });
   }
 
   open(callbacks: DataLibraryCallbacks, initialGroup = 'basemaps'): void {
@@ -285,6 +292,7 @@ export class DataLibraryModal {
     this.activeView = 'library';
     this.configuringDefId = null;
     this.uploadOpen = false;
+    this.uploading = false;
     this.render();
     this.overlay.style.display = 'flex';
     requestAnimationFrame(() => this.overlay.classList.add('dl-open'));
@@ -827,11 +835,8 @@ export class DataLibraryModal {
   }
 
   private wireEvents(): void {
-    // Close
+    // Close (backdrop click handled once in constructor; only wire the close button here)
     this.overlay.querySelector('#dl-close')?.addEventListener('click', () => this.close());
-    this.overlay.addEventListener('click', (e) => {
-      if (e.target === this.overlay) this.close();
-    });
 
     // Search — refresh only the results grid so the input keeps focus while typing
     const searchEl = this.overlay.querySelector<HTMLInputElement>('#dl-search');
