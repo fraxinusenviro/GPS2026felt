@@ -39,9 +39,9 @@ export interface SyncEntity {
 }
 
 /** The entity collections a /sync request and /changes response carry. */
-export type EntityKind = 'projects' | 'features' | 'layer_presets' | 'type_presets' | 'shared_layers';
+export type EntityKind = 'projects' | 'features' | 'layer_presets' | 'type_presets' | 'shared_layers' | 'project_maps';
 
-export const ENTITY_KINDS: EntityKind[] = ['projects', 'features', 'layer_presets', 'type_presets', 'shared_layers'];
+export const ENTITY_KINDS: EntityKind[] = ['projects', 'features', 'layer_presets', 'type_presets', 'shared_layers', 'project_maps'];
 
 /**
  * Per-entity table config: the SQL table and the columns promoted out of the
@@ -87,5 +87,12 @@ export const TABLES: Record<EntityKind, TableConfig> = {
     table: 'shared_layers',
     extraColumns: ['kind'],
     promote: (e) => ({ kind: (e.kind as string) ?? null }),
+  },
+  // Named map views within a project; the project_id is promoted for per-project
+  // queries, mirroring the schema in migration 0003.
+  project_maps: {
+    table: 'project_maps',
+    extraColumns: ['project_id'],
+    promote: (e) => ({ project_id: (e.project_id as string) ?? null }),
   },
 };

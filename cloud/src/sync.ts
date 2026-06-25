@@ -177,7 +177,7 @@ export async function handleSharedLayers(env: Env): Promise<Response> {
 }
 
 function emptyCounts(): Record<EntityKind, number> {
-  return { projects: 0, features: 0, layer_presets: 0, type_presets: 0, shared_layers: 0 };
+  return { projects: 0, features: 0, layer_presets: 0, type_presets: 0, shared_layers: 0, project_maps: 0 };
 }
 
 async function currentRev(env: Env): Promise<number> {
