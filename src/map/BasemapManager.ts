@@ -985,7 +985,10 @@ export class BasemapManager {
           if (l.hrdemChmFocalPercentile !== undefined && l.hrdemChmFocalPercentile !== 50) e.hcfp = l.hrdemChmFocalPercentile;
           return e;
         });
-      return btoa(JSON.stringify(compact));
+      // Use URL-safe base64 (replace + → - and / → _) so the encoded string
+      // can be placed after the third slash in the hash (#zoom/lng/lat/<stack>)
+      // without hash.split('/') incorrectly splitting the payload.
+      return btoa(JSON.stringify(compact)).replace(/\+/g, '-').replace(/\//g, '_');
     } catch { return ''; }
   }
 
@@ -993,7 +996,9 @@ export class BasemapManager {
   restoreFromUrlStack(encoded: string): void {
     if (!encoded) return;
     try {
-      const compact = JSON.parse(atob(encoded)) as Array<Record<string, unknown>>;
+      // Accept both standard base64 (+/) and URL-safe base64 (-_).
+      const b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+      const compact = JSON.parse(atob(b64)) as Array<Record<string, unknown>>;
       if (!Array.isArray(compact) || compact.length === 0) return;
       const allDefs = ALL_DEFS();
       const stack: StackLayer[] = [];

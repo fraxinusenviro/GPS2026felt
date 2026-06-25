@@ -27,7 +27,7 @@ export class BackendClient {
    */
   async getWhoami(): Promise<{ email: string } | null> {
     try {
-      const r = await fetch(`${this.base}/whoami`, { credentials: 'include' });
+      const r = await fetch(`${this.base}/whoami`, { credentials: 'include', redirect: 'error' });
       if (!r.ok) return null;
       return await r.json() as { email: string };
     } catch {
@@ -38,7 +38,7 @@ export class BackendClient {
   /** Liveness check; never throws. */
   async health(): Promise<boolean> {
     try {
-      const r = await fetch(`${this.base}/health`, { credentials: 'include' });
+      const r = await fetch(`${this.base}/health`, { credentials: 'include', redirect: 'error' });
       return r.ok;
     } catch {
       return false;
@@ -49,6 +49,7 @@ export class BackendClient {
     const r = await fetch(`${this.base}/sync`, {
       method: 'POST',
       credentials: 'include',
+      redirect: 'error',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
@@ -59,6 +60,7 @@ export class BackendClient {
   async getChanges(since: number, limit = 1000): Promise<ChangesResponse> {
     const r = await fetch(`${this.base}/changes?since=${since}&limit=${limit}`, {
       credentials: 'include',
+      redirect: 'error',
     });
     if (!r.ok) throw new Error(`GET /changes failed: ${r.status} ${await safeText(r)}`);
     return r.json() as Promise<ChangesResponse>;
@@ -66,7 +68,7 @@ export class BackendClient {
 
   /** The full org-shared static-data catalogue (all users, all projects). */
   async getSharedLayers(): Promise<SharedLayer[]> {
-    const r = await fetch(`${this.base}/shared-layers`, { credentials: 'include' });
+    const r = await fetch(`${this.base}/shared-layers`, { credentials: 'include', redirect: 'error' });
     if (!r.ok) throw new Error(`GET /shared-layers failed: ${r.status}`);
     const j = await r.json() as { layers?: SharedLayer[] };
     return j.layers ?? [];
@@ -77,6 +79,7 @@ export class BackendClient {
     const r = await fetch(`${this.base}/blobs/${encodeURIComponent(key)}`, {
       method: 'PUT',
       credentials: 'include',
+      redirect: 'error',
       headers: { 'content-type': blob.type || 'application/octet-stream' },
       body: blob,
     });
@@ -85,7 +88,7 @@ export class BackendClient {
 
   /** Proxied blob download; null if the object is missing. */
   async getBlob(key: string): Promise<Blob | null> {
-    const r = await fetch(`${this.base}/blobs/${encodeURIComponent(key)}`, { credentials: 'include' });
+    const r = await fetch(`${this.base}/blobs/${encodeURIComponent(key)}`, { credentials: 'include', redirect: 'error' });
     if (r.status === 404) return null;
     if (!r.ok) throw new Error(`GET /blobs failed: ${r.status} ${await safeText(r)}`);
     return r.blob();
