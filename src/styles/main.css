@@ -11393,6 +11393,27 @@ input[type=color] {
 .pl-pill:disabled { opacity: 0.5; cursor: default; }
 .pl-pill-more { padding: 4px 8px; line-height: 1; }
 
+/* ── iPhone / narrow-screen: single-panel navigation ── */
+@media (max-width: 640px) {
+  #project-library-overlay { padding: 0; }
+
+  .pl-modal {
+    border-radius: 0;
+    max-width: 100%;
+    height: 100%;
+  }
+
+  /* Projects list view: show only the sidebar at full width */
+  .pl-body[data-view="projects"] .pl-main { display: none; }
+  .pl-body[data-view="projects"] .pl-sidebar {
+    width: 100%;
+    border-right: none;
+  }
+
+  /* Detail / form views: hide sidebar, let main fill the screen */
+  .pl-body:not([data-view="projects"]) .pl-sidebar { display: none; }
+}
+
 /* ---- Global dataset overlay toggle row (BasemapManager TOC) ---- */
 .bm-global-overlay-row {
   display: flex; align-items: center; gap: 8px;
