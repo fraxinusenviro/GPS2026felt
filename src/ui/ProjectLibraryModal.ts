@@ -154,7 +154,7 @@ export class ProjectLibraryModal {
       <div class="pl-modal">
         <div class="pl-header">
           <div class="pl-header-left">
-            ${this.view === 'project-detail' || this.view === 'new-map'
+            ${this.view === 'project-detail' || this.view === 'new-map' || this.view === 'new-project'
               ? `<button class="pl-back-btn" id="pl-back">← Projects</button>`
               : `<span class="pl-title">Project Library</span>`
             }
@@ -168,7 +168,7 @@ export class ProjectLibraryModal {
           </div>
         </div>
 
-        <div class="pl-body">
+        <div class="pl-body" data-view="${this.view}">
           <aside class="pl-sidebar">
             <div class="pl-sidebar-section">
               <button class="pl-sidebar-item pl-all-data${activeMapId === ALL_DATA_MAP_ID ? ' active' : ''}" id="pl-all-data">
