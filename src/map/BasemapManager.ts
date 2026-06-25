@@ -114,6 +114,7 @@ interface StackLayer {
   symbologyState?: SymbologyState; // data-driven symbology override
   showInLegend?: boolean;          // default true (non-base layers); base layers excluded
   customLabel?: string;            // user-edited display name (does not affect library name)
+  bounds?: [number, number, number, number]; // known extent [w,s,e,n] for "Zoom to Layer"
 }
 
 interface UserLayerInfo {
@@ -185,6 +186,12 @@ export class BasemapManager {
   private geojsonOverlays = new Map<string, { properties: Record<string, unknown> }[]>();
   private geojsonGeomType = new Map<string, 'point' | 'line' | 'polygon'>();
   private geojsonLoading = new Set<string>();
+  // Geographic extent [w,s,e,n] of each loaded static GeoJSON overlay, computed once
+  // at load so "Zoom to Layer" works even when the layer is off-screen.
+  private geojsonBounds = new Map<string, [number, number, number, number]>();
+  // Geometry+properties of each loaded static GeoJSON overlay, kept so the Symbology
+  // Studio can render a live preview of an already-added layer (capped for memory).
+  private geojsonPreviewFeats = new Map<string, { geometry: GeoJSONGeometry; properties: Record<string, unknown> }[]>();
   // Persist hook for cross-device sync: fires (debounced by the host) on
   // user-driven stack changes with the serialized stack. Suppressed while
   // loading a stack from a project/remote so loads don't re-mark the project dirty.
@@ -812,12 +819,16 @@ export class BasemapManager {
       const cfg = this.getVectorConfig(layer);
       void (async () => {
         let feats: { properties: Record<string, unknown> }[] = [];
+        let previewFeatures: { geometry: GeoJSONGeometry; properties: Record<string, unknown> }[] | undefined;
         let geomStr: 'point' | 'line' | 'polygon' = cfg?.geomType ?? 'polygon';
         try {
           const res = await fetch(layer.url, { credentials: 'include' });
           if (res.ok) {
-            const data = await res.json() as { features?: Array<{ properties?: Record<string, unknown>; geometry?: { type?: string } }> };
+            const data = await res.json() as { features?: Array<{ properties?: Record<string, unknown>; geometry?: GeoJSONGeometry }> };
             feats = (data.features ?? []).map(f => ({ properties: (f.properties ?? {}) as Record<string, unknown> }));
+            previewFeatures = (data.features ?? [])
+              .filter(f => f.geometry)
+              .map(f => ({ geometry: f.geometry as GeoJSONGeometry, properties: (f.properties ?? {}) as Record<string, unknown> }));
             geomStr = this.detectGeomType(data.features);
           }
         } catch (err) {
@@ -827,6 +838,7 @@ export class BasemapManager {
           title: def.label,
           geomType: geomStr,
           features: feats,
+          previewFeatures,
           applyLabel: 'Add to Map',
           onApply: (state) => { layer.symbologyState = state; commit(); },
         });
@@ -893,6 +905,7 @@ export class BasemapManager {
       type: def.type, vector_config: def.vector_config,
       tileSize: def.tile_size ?? 256, maxZoom: def.max_zoom ?? 19,
       opacity: 1.0, visible: true,
+      bounds: def.bounds,
     };
     // Set defaults for COG contour layers
     if (def.type === 'cog-contour') {
@@ -1302,10 +1315,15 @@ export class BasemapManager {
       try {
         const res = await fetch(l.url, { credentials: 'include' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json() as { features?: Array<{ properties?: Record<string, unknown>; geometry?: { type?: string } }> };
+        const data = await res.json() as { features?: Array<{ properties?: Record<string, unknown>; geometry?: GeoJSONGeometry }> };
         const feats = (data.features ?? []).map(f => ({ properties: (f.properties ?? {}) as Record<string, unknown> }));
         this.geojsonOverlays.set(l.instanceId, feats);
         this.geojsonGeomType.set(l.instanceId, this.detectGeomType(data.features));
+        this.geojsonPreviewFeats.set(l.instanceId, (data.features ?? [])
+          .filter(f => f.geometry)
+          .map(f => ({ geometry: f.geometry as GeoJSONGeometry, properties: (f.properties ?? {}) as Record<string, unknown> })));
+        const bbox = BasemapManager.featuresBounds(data.features);
+        if (bbox) this.geojsonBounds.set(l.instanceId, bbox);
         this.mapManager.addGeoJSONLayer(baseId, data, color, l.opacity ?? 1);
         applyState();
         this.refreshLegend();
@@ -1316,6 +1334,45 @@ export class BasemapManager {
         this.geojsonLoading.delete(l.instanceId);
       }
     })();
+  }
+
+  /** Geographic extent [w,s,e,n] of a GeoJSON feature array, or null if empty. */
+  static featuresBounds(features?: Array<{ geometry?: { coordinates?: unknown } | null }>): [number, number, number, number] | null {
+    let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+    const walk = (coords: unknown): void => {
+      if (!Array.isArray(coords)) return;
+      if (typeof coords[0] === 'number') {
+        const [lng, lat] = coords as [number, number];
+        if (Number.isFinite(lng) && Number.isFinite(lat)) {
+          minLng = Math.min(minLng, lng); minLat = Math.min(minLat, lat);
+          maxLng = Math.max(maxLng, lng); maxLat = Math.max(maxLat, lat);
+        }
+      } else {
+        for (const c of coords) walk(c);
+      }
+    };
+    for (const f of features ?? []) walk(f?.geometry?.coordinates);
+    return Number.isFinite(minLng) ? [minLng, minLat, maxLng, maxLat] : null;
+  }
+
+  /**
+   * Resolve the zoom-to extent [w,s,e,n] for a stack layer. Prefers a cached/known
+   * extent (static GeoJSON bbox computed at load; shared-raster `bounds`), and falls
+   * back to querying the layer's actual map source for viewport-loaded vector overlays
+   * (NSHN/NSPRD use `bmsrc-{iid}`; geojson overlays use `src-bm-ov-{iid}`). Returns
+   * null when no extent can be determined (e.g. global rasters / disabled layers).
+   */
+  private resolveZoomBounds(layer: StackLayer, map: maplibregl.Map): [number, number, number, number] | null {
+    const cached = this.geojsonBounds.get(layer.instanceId);
+    if (cached) return cached;
+    if (layer.bounds) return layer.bounds;
+    for (const srcId of [`bmsrc-${layer.instanceId}`, `src-bm-ov-${layer.instanceId}`]) {
+      if (!map.getSource(srcId)) continue;
+      const feats = map.querySourceFeatures(srcId) as Array<{ geometry?: { coordinates?: unknown } }>;
+      const bbox = BasemapManager.featuresBounds(feats);
+      if (bbox) return bbox;
+    }
+    return null;
   }
 
   /** Dominant geometry class of a GeoJSON feature array (for the Symbology Studio). */
@@ -1838,6 +1895,8 @@ export class BasemapManager {
         this.mapManager.removeGeoJSONLayer(`bm-ov-${iid}`);
         this.geojsonOverlays.delete(iid);
         this.geojsonGeomType.delete(iid);
+        this.geojsonBounds.delete(iid);
+        this.geojsonPreviewFeats.delete(iid);
       }
     }
 
@@ -2479,6 +2538,7 @@ export class BasemapManager {
           const feats = this.collectedFeatures
             .filter(f => f.layer_id?.endsWith('-wetlands') || !!f.wetland_data)
             .map(f => ({
+              geometry: f.geometry,
               properties: {
                 PLOT_TYPE: f.wetland_data?.PLOT_TYPE ?? '',
                 PLOT_ID: f.wetland_data?.PLOT_ID ?? f.point_id,
@@ -2490,6 +2550,7 @@ export class BasemapManager {
             title: 'Wetland Plots',
             geomType: 'point',
             features: feats,
+            previewFeatures: feats,
             initialState: preset?.symbologyState,
             onApply: (state: SymbologyState) => {
               if (preset) preset.symbologyState = state;
@@ -2506,6 +2567,7 @@ export class BasemapManager {
           const feats = this.collectedFeatures
             .filter(f => f.layer_id?.endsWith('-inventory') || !!f.inventory_data)
             .map(f => ({
+              geometry: f.geometry,
               properties: {
                 taxon: f.inventory_data?.taxon ?? '',
                 mcode: f.inventory_data?.mcode ?? '',
@@ -2518,6 +2580,7 @@ export class BasemapManager {
             title: 'Inventory Observations',
             geomType: 'point',
             features: feats,
+            previewFeatures: feats,
             initialState: preset?.symbologyState,
             onApply: (state: SymbologyState) => {
               if (preset) preset.symbologyState = state;
@@ -2533,6 +2596,7 @@ export class BasemapManager {
         const features = this.collectedFeatures
           .filter(f => f.geometry_type === geomType)
           .map(f => ({
+            geometry: f.geometry,
             properties: {
               type: f.type,
               elevation: f.elevation,
@@ -2548,6 +2612,7 @@ export class BasemapManager {
           title,
           geomType: geomStr as 'point' | 'line' | 'polygon',
           features,
+          previewFeatures: features,
           initialState: layerPreset?.symbologyState,
           onApply: (state: SymbologyState) => {
             if (layerPreset) layerPreset.symbologyState = state;
@@ -3670,26 +3735,13 @@ export class BasemapManager {
         if (!layer) return;
         const map = this.mapManager.getMap();
         if (!map) return;
-        const features = map.querySourceFeatures(iid);
-        if (!features.length) {
-          EventBus.emit('toast', { message: 'No features to zoom to — enable the layer first', type: 'info', duration: 2500 });
+        const bbox = this.resolveZoomBounds(layer, map);
+        if (!bbox) {
+          EventBus.emit('toast', { message: 'No extent available for this layer', type: 'info', duration: 2500 });
           return;
         }
-        let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
-        const processCoords = (coords: unknown): void => {
-          if (!Array.isArray(coords)) return;
-          if (typeof coords[0] === 'number') {
-            const [lng, lat] = coords as [number, number];
-            minLng = Math.min(minLng, lng); minLat = Math.min(minLat, lat);
-            maxLng = Math.max(maxLng, lng); maxLat = Math.max(maxLat, lat);
-          } else {
-            for (const c of coords) processCoords(c);
-          }
-        };
-        for (const f of features) processCoords(f.geometry && 'coordinates' in f.geometry ? f.geometry.coordinates : []);
-        if (isFinite(minLng)) {
-          map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 60, maxZoom: 18, duration: 600 });
-        }
+        const [w, s, e, n] = bbox;
+        map.fitBounds([[w, s], [e, n]], { padding: 60, maxZoom: 18, duration: 600 });
       });
     });
 
@@ -4276,6 +4328,9 @@ export class BasemapManager {
         // Static GeoJSON uses the geometry detected from the loaded file so the
         // studio offers point/line/polygon controls correctly (not always polygon).
         let geomStr: 'point' | 'line' | 'polygon' = (cfg?.geomType ?? 'polygon');
+        // Live preview geometry — only static GeoJSON caches geometry; NSHN/NSPRD
+        // expose properties only (viewport tiles), so their preview degrades gracefully.
+        let previewFeatures: { geometry: GeoJSONGeometry; properties: Record<string, unknown> }[] | undefined;
         if (ltype === 'nsprd-vector') {
           feats = this.nsprdLayer?.getLoadedFeatureProps() ?? [];
         } else if (ltype === 'nshn-vector') {
@@ -4283,12 +4338,14 @@ export class BasemapManager {
         } else if (ltype === 'geojson') {
           feats = this.geojsonOverlays.get(iid) ?? [];
           geomStr = this.geojsonGeomType.get(iid) ?? 'polygon';
+          previewFeatures = this.geojsonPreviewFeats.get(iid);
         }
 
         this.symbologyStudio.open({
           title: layer.label,
           geomType: geomStr,
           features: feats,
+          previewFeatures,
           initialState: layer.symbologyState,
           onApply: (state: SymbologyState) => {
             layer.symbologyState = state;
@@ -4443,6 +4500,9 @@ export class BasemapManager {
           title: ul.name,
           geomType,
           features: features as { properties: Record<string, unknown> }[],
+          previewFeatures: (features as unknown as Array<{ geometry?: GeoJSONGeometry; properties?: Record<string, unknown> }>)
+            .filter(f => !!f.geometry)
+            .map(f => ({ geometry: f.geometry as GeoJSONGeometry, properties: f.properties ?? {} })),
           initialState: ul.symbologyState,
           onApply: (state) => {
             ul.symbologyState = state;

@@ -427,6 +427,9 @@ export interface BasemapDef {
   cog_colormap?: Array<[number, number, number, number, number]>;
   // For cog-contour layers: default threshold value in native units
   cog_contour_threshold?: number;
+  // Geographic extent [west, south, east, north] when known (e.g. shared layers),
+  // used by "Zoom to Layer" for rasters that have no queryable vector source.
+  bounds?: [number, number, number, number];
 }
 
 // ---- Online Data Connections ----

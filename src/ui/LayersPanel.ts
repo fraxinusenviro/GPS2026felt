@@ -622,10 +622,14 @@ export class LayersPanel {
           const features = layer.data.features.map(f => ({
             properties: (f.properties ?? {}) as Record<string, unknown>,
           }));
+          const previewFeatures = layer.data.features
+            .filter(f => f.geometry)
+            .map(f => ({ geometry: f.geometry as GeoJSONGeometry, properties: (f.properties ?? {}) as Record<string, unknown> }));
           this.symbologyStudio.open({
             title: layer.name,
             geomType: geomStr as 'point' | 'line' | 'polygon',
             features,
+            previewFeatures,
             initialState: layer.symbologyState,
             onApply: async (state: SymbologyState) => {
               layer.symbologyState = state;
