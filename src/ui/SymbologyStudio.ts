@@ -10,6 +10,8 @@ export interface SymbologyOptions {
   geomType: 'point' | 'line' | 'polygon';
   features: { properties: Record<string, unknown> }[];
   initialState?: SymbologyState;
+  /** Label for the confirm button (default 'Apply'). E.g. 'Add to Map' for pre-add flows. */
+  applyLabel?: string;
   onApply: (state: SymbologyState) => void;
 }
 
@@ -250,7 +252,7 @@ export class SymbologyStudio {
         </div><!-- /ss-body -->
         <div class="ss-footer">
           <button class="btn-outline" id="ss-cancel">Cancel</button>
-          <button class="btn-primary" id="ss-apply">Apply</button>
+          <button class="btn-primary" id="ss-apply">${options.applyLabel ?? 'Apply'}</button>
         </div>
       </div>
     `;

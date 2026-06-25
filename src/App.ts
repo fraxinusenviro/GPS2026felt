@@ -1564,6 +1564,7 @@ export class App {
             })();
           }
         },
+        onConfigureSymbology: (def) => { this.basemapManager.configureAndAddDef(def); },
         onRenderImport: (container: HTMLElement) => { this.importDataPanel.renderToContainer(container); },
         onRenderExport: (container: HTMLElement) => { this.exportPanel.renderToContainer(container); },
         isInStack: (defId) => this.basemapManager.isDefInStack(defId),

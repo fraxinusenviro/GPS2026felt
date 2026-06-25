@@ -777,6 +777,109 @@ export class BasemapManager {
     this.addToStack(def, params);
   }
 
+  /** True for a Data Library def whose symbology should be chosen before it is
+   *  added to the stack — currently the org-shared static-data layers (vector
+   *  GeoJSON and COG raster), which ship with only a default style. */
+  static hasConfigurableSymbology(def: BasemapDef): boolean {
+    if (!def.id.startsWith('shared:')) return false;
+    return def.type === 'geojson' || def.url.startsWith('cog://');
+  }
+
+  /**
+   * Open the matching Symbology Studio for a static-data library layer and add
+   * the layer to the stack only once the user applies a choice. Cancelling the
+   * studio adds nothing — so symbology is always selected *before* the layer
+   * joins the map. Falls back to a plain add for layers with no configurable
+   * symbology.
+   */
+  configureAndAddDef(def: BasemapDef): void {
+    if (!BasemapManager.hasConfigurableSymbology(def)) {
+      this.addToStack(def);
+      return;
+    }
+
+    const layer = BasemapManager.defToStackLayer(def);
+    const commit = () => {
+      this.stack.unshift(layer);
+      this.rebuildMap();
+      this.saveStack();
+      EventBus.emit('toast', { message: `Added: ${def.label}`, type: 'success', duration: 2000 });
+    };
+
+    // Vector (static GeoJSON): full data-driven symbology — fetch the file first
+    // so the studio can offer categorical/graduated by the layer's own fields.
+    if (def.type === 'geojson') {
+      const cfg = this.getVectorConfig(layer);
+      void (async () => {
+        let feats: { properties: Record<string, unknown> }[] = [];
+        let geomStr: 'point' | 'line' | 'polygon' = cfg?.geomType ?? 'polygon';
+        try {
+          const res = await fetch(layer.url, { credentials: 'include' });
+          if (res.ok) {
+            const data = await res.json() as { features?: Array<{ properties?: Record<string, unknown>; geometry?: { type?: string } }> };
+            feats = (data.features ?? []).map(f => ({ properties: (f.properties ?? {}) as Record<string, unknown> }));
+            geomStr = this.detectGeomType(data.features);
+          }
+        } catch (err) {
+          console.warn(`[BasemapManager] couldn't pre-load "${def.label}" for symbology:`, err);
+        }
+        this.symbologyStudio.open({
+          title: def.label,
+          geomType: geomStr,
+          features: feats,
+          applyLabel: 'Add to Map',
+          onApply: (state) => { layer.symbologyState = state; commit(); },
+        });
+      })();
+      return;
+    }
+
+    // COG raster: colour-ramp gallery + classification.
+    const cm = def.cog_colormap;
+    const origMin = cm?.[0][0] ?? 0;
+    const origMax = cm?.[cm.length - 1][0] ?? 1;
+    const originalCss = cm
+      ? `linear-gradient(to right,${cm.map(s => `rgba(${s[1]},${s[2]},${s[3]},${s[4] / 255})`).join(',')})`
+      : undefined;
+    void (async () => {
+      const dataValues = await this.mapManager.sampleCogValues(BasemapManager.cogUrlFromLayer(layer));
+      const dataDriven = dataValues.length >= 50;
+      this.rasterSymbologyStudio.open({
+        title: def.label,
+        kind: 'cog',
+        hasOriginal: true,
+        originalCss,
+        dataDriven,
+        dataValues,
+        valueRange: [origMin, origMax],
+        applyLabel: 'Add to Map',
+        initial: {
+          rampId: 'original',
+          invert: false,
+          mode: 'continuous',
+          classifier: 'Natural breaks',
+          classes: 5,
+          stretchMin: origMin,
+          stretchMax: origMax,
+        },
+        onApply: (s) => {
+          layer.cogRampId = s.rampId;
+          layer.cogRampInvert = s.invert;
+          layer.cogClasses = s.mode === 'classified' ? (s.classes ?? 5) : undefined;
+          layer.cogClassifier = s.classifier;
+          layer.cogMin = s.stretchMin;
+          layer.cogMax = s.stretchMax;
+          if (s.mode === 'classified' && dataDriven && s.classifier && s.classifier !== 'Equal interval') {
+            layer.cogBreaks = computeClassBreaks(dataValues, s.classes ?? 5, s.classifier);
+          } else {
+            layer.cogBreaks = undefined;
+          }
+          commit();
+        },
+      });
+    })();
+  }
+
   /**
    * Convert a BasemapDef into a StackLayer with all type-specific defaults
    * (COG, NSHN/NSPRD vector, HRDEM-WCS). Pure + static so it can also build a
