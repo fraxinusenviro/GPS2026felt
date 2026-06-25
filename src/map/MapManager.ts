@@ -1120,6 +1120,19 @@ export class MapManager {
     this.setPhotoPointSize(size);
   }
 
+  /** Choose which feature field labels the photo points on the map. */
+  setPhotoPointLabelField(field: string | undefined): void {
+    if (!this.initialized || !this.map.getLayer('photo-points-labels')) return;
+    const prop = ({
+      point_id: 'point_id',
+      observer: 'observer',
+      notes: 'notes',
+      bearing: 'bearing_label',
+      date: 'date_label',
+    } as Record<string, string>)[field || 'point_id'] ?? 'point_id';
+    this.map.setLayoutProperty('photo-points-labels', 'text-field', ['get', prop] as never);
+  }
+
   private setupUserLocation(): void {
     // User location is handled via GeoJSON source updates
   }
@@ -1253,16 +1266,23 @@ export class MapManager {
       // Photo points, wetland plots, and inventory observations each render in their
       // OWN source/layers (independent TOC classes).
       if (f.photo_data !== undefined) {
-        // Photo point: build a lightweight GeoJSON feature with bearing for icon rotation
+        // Photo point: build a lightweight GeoJSON feature with bearing for icon
+        // rotation plus every label-able field so the label can be re-pointed
+        // without rebuilding the source.
+        const brg = f.photo_data.bearing;
         photoPoints.push({
           type: 'Feature',
           id: f.id,
           geometry: f.geometry,
           properties: {
             id: f.id,
-            bearing: f.photo_data.bearing,
+            bearing: brg,
             observer: f.photo_data.observer ?? f.created_by ?? '',
             label: f.point_id || f.id.slice(0, 6),
+            point_id: f.point_id || f.id.slice(0, 6),
+            notes: f.notes || f.desc || '',
+            bearing_label: brg != null ? `${Math.round(brg)}°` : '',
+            date_label: f.created_at ? f.created_at.slice(0, 10) : '',
             created_at: f.created_at,
           }
         });
@@ -1323,6 +1343,7 @@ export class MapManager {
       this.setLayerVisibility('photo-points-labels', photoOn && photoLp.show_labels !== false);
       this.setPhotoPointSize(photoLp.size ?? 0.85);
       this.setPhotoPointColor(photoLp.color ?? '#f97316');
+      this.setPhotoPointLabelField(photoLp.label_field);
     }
   }
 

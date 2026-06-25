@@ -2252,6 +2252,13 @@ export class BasemapManager {
             <button class="fd-photo-size-btn${Math.abs(photoSize - 0.85) < 0.1 ? ' active' : ''}" data-fd-photo-size="0.85">M</button>
             <button class="fd-photo-size-btn${Math.abs(photoSize - 1.2) < 0.1 ? ' active' : ''}" data-fd-photo-size="1.2">L</button>
           </div>
+          <div class="fd-type-row" style="gap:6px">
+            <span class="fd-type-label" style="flex:1">Label field</span>
+            <select class="fd-photo-label-field" title="Choose which field labels photo points">
+              ${[['point_id', 'Point ID'], ['observer', 'Observer'], ['notes', 'Notes'], ['bearing', 'Bearing'], ['date', 'Date']]
+                .map(([v, l]) => `<option value="${v}"${(photoPreset?.label_field ?? 'point_id') === v ? ' selected' : ''}>${l}</option>`).join('')}
+            </select>
+          </div>
         </div>
       </div>` : '';
 
@@ -2502,12 +2509,21 @@ export class BasemapManager {
     container.querySelector<HTMLButtonElement>('[data-fd-photo-label]')?.addEventListener('click', (e) => {
       const btn = e.currentTarget as HTMLButtonElement;
       const lp = this.featureLayerPresets.find(l => l.id.endsWith('-photo-points'));
-      if (!lp) return;
-      lp.show_labels = lp.show_labels === false;
-      btn.classList.toggle('active', lp.show_labels !== false);
-      const vis = lp.visible !== false;
-      this.mapManager.setLayerVisibility('photo-points-labels', vis && (lp.show_labels !== false));
-      this.onFeatureLayerChange?.(lp);
+      // Toggle relative to the current state even when no preset is stored yet,
+      // so the button never silently does nothing.
+      const showNext = lp ? lp.show_labels === false : !btn.classList.contains('active');
+      const vis = lp ? lp.visible !== false : true;
+      btn.classList.toggle('active', showNext);
+      this.mapManager.setLayerVisibility('photo-points-labels', vis && showNext);
+      if (lp) { lp.show_labels = showNext; this.onFeatureLayerChange?.(lp); }
+    });
+
+    // Photo Points — label field selector
+    container.querySelector<HTMLSelectElement>('.fd-photo-label-field')?.addEventListener('change', (e) => {
+      const field = (e.target as HTMLSelectElement).value;
+      this.mapManager.setPhotoPointLabelField(field);
+      const lp = this.featureLayerPresets.find(l => l.id.endsWith('-photo-points'));
+      if (lp) { lp.label_field = field; this.onFeatureLayerChange?.(lp); }
     });
 
     // Photo Points — size buttons

@@ -73,6 +73,8 @@ export class CutFillPanel {
   private recomputeTimer: ReturnType<typeof setTimeout> | null = null;
   // CutFillRunStore subscription handle
   private cfRunUnsub: (() => void) | null = null;
+  // Persisted dragged position (px, relative to map container) — null = default centred
+  private dragPos: { left: number; top: number } | null = null;
 
   constructor(
     private readonly mapManager: MapManager,
@@ -154,9 +156,9 @@ export class CutFillPanel {
     this.el = el;
 
     el.innerHTML = `
-      <div class="cf-header">
+      <div class="cf-header" id="cf-drag-handle">
         <span class="cf-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/>
             <line x1="20" y1="4" x2="4" y2="20"/>
             <line x1="8.12" y1="3.88" x2="3.88" y2="8.12"/>
@@ -167,119 +169,195 @@ export class CutFillPanel {
         <button class="cf-close" id="cf-close">✕</button>
       </div>
 
-      <div class="cf-section">
-        <div class="cf-label">1 · Polygon footprint</div>
-        <div class="cf-row">
-          <button class="cf-btn" id="cf-draw-btn">Draw</button>
-          <button class="cf-btn" id="cf-draw3d-btn" title="Draw a graded polygon with per-vertex elevations">3D</button>
-          <button class="cf-btn" id="cf-freehand-btn" title="Draw polygon freehand (press and drag)">Freehand</button>
-          <button class="cf-btn cf-btn-sm" id="cf-undo-btn" title="Remove last vertex">↩</button>
-          <button class="cf-btn cf-btn-sm" id="cf-clear-btn">Clear</button>
-          <span class="cf-hint" id="cf-vtx-count">0 pts</span>
+      <div class="cf-body">
+        <div class="cf-col cf-col-left">
+
+          <div class="cf-section">
+            <div class="cf-label"><span class="cf-step">1</span> Polygon footprint</div>
+            <div class="cf-row">
+              <button class="cf-btn" id="cf-draw-btn">Draw</button>
+              <button class="cf-btn" id="cf-draw3d-btn" title="Draw a graded polygon with per-vertex elevations">3D</button>
+              <button class="cf-btn" id="cf-freehand-btn" title="Draw polygon freehand (press and drag)">Freehand</button>
+              <button class="cf-btn cf-btn-sm" id="cf-undo-btn" title="Remove last vertex">↩</button>
+              <button class="cf-btn cf-btn-sm" id="cf-clear-btn">Clear</button>
+            </div>
+            <div class="cf-hint" id="cf-vtx-count">0 pts</div>
+            <div class="cf-hint" id="cf-draw-hint"></div>
+          </div>
+
+          <div class="cf-section" id="cf-3d-source-section" style="display:none">
+            <div class="cf-label"><span class="cf-step">1b</span> Vertex elevation source</div>
+            <div class="cf-row">
+              <select id="cf-vtx-source" class="cf-input" style="flex:1;min-width:0">
+                <option value="hrdem">Ground (HRDEM)</option>
+                <option value="user">Constant elevation</option>
+              </select>
+              <input type="number" id="cf-vtx-elev" class="cf-input" style="width:78px" step="0.1" placeholder="m" disabled>
+            </div>
+            <div class="cf-hint">Each click adds a vertex at the selected source. Switch source between clicks to mix ground-matched and fixed-elevation points.</div>
+          </div>
+
+          <div class="cf-section">
+            <div class="cf-label"><span class="cf-step">2</span> Reference surface</div>
+            <select id="cf-ref-surface" class="cf-input cf-input-full">
+              <option value="hrdem">HRDEM (live data)</option>
+              ${CutFillRunStore.getInstance().getRuns().map(r =>
+                `<option value="${r.id}">${r.name} (elev ${r.params.targetElevation.toFixed(1)}m)</option>`
+              ).join('')}
+            </select>
+          </div>
+
+          <div class="cf-section">
+            <div class="cf-label" id="cf-elev-label"><span class="cf-step">3</span> Target elevation (m)</div>
+            <div class="cf-row">
+              <input type="number" id="cf-target-elev" class="cf-input" step="0.1" placeholder="e.g. 45.0">
+              <button class="cf-btn cf-btn-sm" id="cf-pick-elev" title="Click map to sample elevation">⊕ Pick</button>
+              <button class="cf-btn cf-btn-sm" id="cf-balance" title="Find balanced cut/fill elevation" disabled>⚖ Balance</button>
+            </div>
+            <div class="cf-hint" id="cf-elev-hint" style="display:none;color:#f87171;margin-top:2px"></div>
+          </div>
+
+          <div class="cf-section">
+            <div class="cf-label"><span class="cf-step">4</span> Side slope H:V ratio</div>
+            <input type="number" id="cf-slope" class="cf-input cf-input-full" step="0.5" min="0.5" placeholder="e.g. 2  (blank = vertical walls)">
+          </div>
+
+          <div class="cf-section">
+            <button class="cf-btn cf-btn-primary" id="cf-compute" disabled>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8" y2="10"/><line x1="12" y1="10" x2="12" y2="10"/><line x1="16" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="16" y1="14" x2="16" y2="18"/><line x1="8" y1="18" x2="12" y2="18"/></svg>
+              Compute Cut / Fill
+            </button>
+          </div>
+
         </div>
-        <div class="cf-hint" id="cf-draw-hint"></div>
+
+        <div class="cf-col cf-col-right">
+
+          <div class="cf-section">
+            <div class="cf-label cf-results-title">Results</div>
+            <div class="cf-results" id="cf-results">
+              <div class="cf-result-row">
+                <span class="cf-result-label">Cut</span>
+                <span class="cf-result-val" id="cf-res-cut">—</span>
+              </div>
+              <div class="cf-result-row">
+                <span class="cf-result-label">Fill</span>
+                <span class="cf-result-val" id="cf-res-fill">—</span>
+              </div>
+              <div class="cf-result-net" id="cf-res-net-box">
+                <span class="cf-result-label">Net</span>
+                <span class="cf-result-val" id="cf-res-net">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cf-section cf-view-section" id="cf-view-section" style="display:none">
+            <div class="cf-label">Display</div>
+            <div class="cf-row">
+              <button class="cf-btn cf-btn-active" id="cf-view-elev">▲ Elevation</button>
+              <button class="cf-btn" id="cf-view-diff">◑ Cut/Fill Diff</button>
+            </div>
+            <div class="cf-row" style="margin-top:4px">
+              <label class="cf-toggle-row">
+                <input type="checkbox" id="cf-hillshade-toggle"> Hillshade
+              </label>
+              <button class="cf-btn cf-btn-sm" id="cf-view-3d" title="Open interactive 3D surface viewer" style="margin-left:auto">⬡ 3D View</button>
+            </div>
+
+            <div class="cf-label cf-label-mt">Contours</div>
+            <div class="cf-row">
+              <input type="number" id="cf-contour-interval" class="cf-input" style="width:64px" value="1" min="0.1" step="0.5">
+              <span class="cf-hint">m</span>
+              <button class="cf-btn cf-btn-sm" id="cf-contour-toggle" style="margin-left:auto">Show</button>
+            </div>
+
+            <div class="cf-label cf-label-mt">Daylight limit</div>
+            <div class="cf-row">
+              <button class="cf-btn cf-btn-sm" id="cf-daylight-toggle">☀ Show</button>
+              <button class="cf-btn cf-btn-sm" id="cf-daylight-export">{ } GeoJSON</button>
+            </div>
+
+            <div class="cf-label cf-label-mt">Export</div>
+            <div class="cf-row cf-export-row">
+              <button class="cf-btn cf-btn-sm" id="cf-export-tiff">↓ GeoTIFF</button>
+              <button class="cf-btn cf-btn-sm" id="cf-export-contour">↜ Contours</button>
+            </div>
+
+            <div class="cf-label cf-label-mt">Persist</div>
+            <button class="cf-btn cf-btn-persist" id="cf-save-layers" style="width:100%">⊟ Save to Layer Manager</button>
+          </div>
+
+        </div>
       </div>
 
-      <div class="cf-section" id="cf-3d-source-section" style="display:none">
-        <div class="cf-label">1b · Vertex elevation source</div>
-        <div class="cf-row">
-          <select id="cf-vtx-source" class="cf-input" style="flex:1;min-width:0">
-            <option value="hrdem">Ground (HRDEM)</option>
-            <option value="user">Constant elevation</option>
-          </select>
-          <input type="number" id="cf-vtx-elev" class="cf-input" style="width:78px" step="0.1" placeholder="m" disabled>
-        </div>
-        <div class="cf-hint">Each click adds a vertex at the selected source. Switch source between clicks to mix ground-matched and fixed-elevation points.</div>
-      </div>
-
-      <div class="cf-section">
-        <div class="cf-label">2 · Reference surface</div>
-        <select id="cf-ref-surface" class="cf-input cf-input-full">
-          <option value="hrdem">HRDEM (live data)</option>
-          ${CutFillRunStore.getInstance().getRuns().map(r =>
-            `<option value="${r.id}">${r.name} (elev ${r.params.targetElevation.toFixed(1)}m)</option>`
-          ).join('')}
-        </select>
-      </div>
-
-      <div class="cf-section">
-        <div class="cf-label" id="cf-elev-label">3 · Target elevation (m)</div>
-        <div class="cf-row">
-          <input type="number" id="cf-target-elev" class="cf-input" step="0.1" placeholder="e.g. 45.0">
-          <button class="cf-btn cf-btn-sm" id="cf-pick-elev" title="Click map to sample elevation">⊕ Pick</button>
-          <button class="cf-btn cf-btn-sm" id="cf-balance" title="Find balanced cut/fill elevation" disabled>⚖ Balance</button>
-        </div>
-        <div class="cf-hint" id="cf-elev-hint" style="display:none;color:#f87171;margin-top:2px"></div>
-      </div>
-
-      <div class="cf-section">
-        <div class="cf-label">4 · Side slope H:V ratio</div>
-        <input type="number" id="cf-slope" class="cf-input cf-input-full" step="0.5" min="0.5" placeholder="e.g. 2  (blank = vertical walls)">
-      </div>
-
-      <div class="cf-section">
-        <button class="cf-btn cf-btn-primary" id="cf-compute" disabled>Compute Cut / Fill</button>
-      </div>
-
-      <div class="cf-results" id="cf-results" style="display:none">
-        <div class="cf-result-row">
-          <span class="cf-result-label">Cut</span>
-          <span class="cf-result-val" id="cf-res-cut">—</span>
-        </div>
-        <div class="cf-result-row">
-          <span class="cf-result-label">Fill</span>
-          <span class="cf-result-val" id="cf-res-fill">—</span>
-        </div>
-        <div class="cf-result-row cf-result-net">
-          <span class="cf-result-label">Net</span>
-          <span class="cf-result-val" id="cf-res-net">—</span>
-        </div>
-      </div>
-
-      <div class="cf-section cf-view-section" id="cf-view-section" style="display:none">
-        <div class="cf-label">Display</div>
-        <div class="cf-row">
-          <button class="cf-btn cf-btn-active" id="cf-view-elev">Elevation</button>
-          <button class="cf-btn" id="cf-view-diff">Cut/Fill Diff</button>
-        </div>
-        <div class="cf-row" style="margin-top:4px">
-          <label class="cf-toggle-row">
-            <input type="checkbox" id="cf-hillshade-toggle"> Hillshade
-          </label>
-          <button class="cf-btn cf-btn-sm" id="cf-view-3d" title="Open interactive 3D surface viewer" style="margin-left:auto">⬡ 3D View</button>
-        </div>
-
-        <div class="cf-label cf-label-mt">Contours</div>
-        <div class="cf-row">
-          <input type="number" id="cf-contour-interval" class="cf-input" style="width:64px" value="1" min="0.1" step="0.5">
-          <span class="cf-hint">m</span>
-          <button class="cf-btn cf-btn-sm" id="cf-contour-toggle">Show</button>
-        </div>
-
-        <div class="cf-label cf-label-mt">Daylight limit</div>
-        <div class="cf-row">
-          <button class="cf-btn cf-btn-sm" id="cf-daylight-toggle">Show</button>
-          <button class="cf-btn cf-btn-sm" id="cf-daylight-export">↓ GeoJSON</button>
-        </div>
-
-        <div class="cf-label cf-label-mt">Export</div>
-        <div class="cf-row cf-export-row">
-          <button class="cf-btn cf-btn-sm" id="cf-export-tiff">↓ GeoTIFF</button>
-          <button class="cf-btn cf-btn-sm" id="cf-export-contour">↓ Contours</button>
-        </div>
-
-        <div class="cf-label cf-label-mt">Persist</div>
-        <button class="cf-btn cf-btn-primary" id="cf-save-layers" style="width:100%;margin-bottom:4px">Save to Layer Manager</button>
-        <button class="cf-btn cf-btn-sm" id="cf-clear-data" style="width:100%;color:#f87171;border-color:rgba(248,113,113,0.35)">Clear Current Data</button>
+      <div class="cf-footer">
+        <button class="cf-btn cf-btn-danger" id="cf-clear-data">🗑 Clear Current Data</button>
       </div>
     `;
 
     this.syncDisplayState();
     this.wireEvents();
+    this.makeDraggable();
     this.updateElevLabel();
     this.updateVertexCount();
     this.updateComputeBtn();
     el.style.display = 'flex';
+    // Re-apply any previously dragged position
+    if (this.dragPos) this.applyDragPos(this.dragPos.left, this.dragPos.top);
+  }
+
+  // --------------------------------------------------------------------------
+  // Draggable header — lets the user reposition the floating panel
+  // --------------------------------------------------------------------------
+
+  private applyDragPos(left: number, top: number): void {
+    if (!this.el) return;
+    this.el.style.left = `${left}px`;
+    this.el.style.top = `${top}px`;
+    this.el.style.bottom = 'auto';
+    this.el.style.transform = 'none';
+  }
+
+  private makeDraggable(): void {
+    const handle = this.el?.querySelector<HTMLElement>('#cf-drag-handle');
+    if (!handle || !this.el) return;
+    const panel = this.el;
+
+    handle.addEventListener('pointerdown', (e: PointerEvent) => {
+      // Ignore drags that start on the close button
+      if ((e.target as HTMLElement).closest('#cf-close')) return;
+      e.preventDefault();
+
+      const rect = panel.getBoundingClientRect();
+      const container = panel.offsetParent as HTMLElement | null;
+      const cRect = container?.getBoundingClientRect() ?? { left: 0, top: 0 };
+      const offsetX = e.clientX - rect.left;
+      const offsetY = e.clientY - rect.top;
+
+      handle.setPointerCapture(e.pointerId);
+      handle.classList.add('cf-dragging');
+
+      const onMove = (ev: PointerEvent) => {
+        const maxLeft = (container?.clientWidth ?? window.innerWidth) - rect.width;
+        const maxTop = (container?.clientHeight ?? window.innerHeight) - 40;
+        let left = ev.clientX - cRect.left - offsetX;
+        let top = ev.clientY - cRect.top - offsetY;
+        left = Math.max(0, Math.min(left, Math.max(0, maxLeft)));
+        top = Math.max(0, Math.min(top, Math.max(0, maxTop)));
+        this.dragPos = { left, top };
+        this.applyDragPos(left, top);
+      };
+
+      const onUp = (ev: PointerEvent) => {
+        handle.releasePointerCapture(ev.pointerId);
+        handle.classList.remove('cf-dragging');
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+      };
+
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -499,15 +577,39 @@ export class CutFillPanel {
   private updateVertexCount(): void {
     const el = this.el?.querySelector('#cf-vtx-count');
     if (!el) return;
+    const areaTxt = this.vertices.length >= 3
+      ? ` · ${this.formatArea(this.polygonAreaM2(this.vertices))} ground`
+      : '';
     if (this.poly3D && this.vertexElev.length > 0) {
       const last = this.vertexElev[this.vertexElev.length - 1];
       const lbl = last.source === 'user'
         ? (last.value !== null && isFinite(last.value) ? `${last.value.toFixed(1)}m fixed` : 'fixed')
         : (last.value !== null && isFinite(last.value) ? `${last.value.toFixed(1)}m ground` : 'ground');
-      el.textContent = `${this.vertices.length} pts · ${lbl}`;
+      el.textContent = `${this.vertices.length} pts · ${lbl}${areaTxt}`;
     } else {
-      el.textContent = `${this.vertices.length} pts`;
+      el.textContent = `${this.vertices.length} pts${areaTxt}`;
     }
+  }
+
+  /** Planar ground area (m²) of a lng/lat ring via an equirectangular projection. */
+  private polygonAreaM2(verts: [number, number][]): number {
+    if (verts.length < 3) return 0;
+    const R = 6378137;
+    const latRad = (verts.reduce((s, v) => s + v[1], 0) / verts.length) * Math.PI / 180;
+    const mPerDegLat = (Math.PI / 180) * R;
+    const mPerDegLon = mPerDegLat * Math.cos(latRad);
+    const xy = verts.map(([lon, lat]) => [lon * mPerDegLon, lat * mPerDegLat]);
+    let area = 0;
+    for (let i = 0; i < xy.length; i++) {
+      const [x1, y1] = xy[i];
+      const [x2, y2] = xy[(i + 1) % xy.length];
+      area += x1 * y2 - x2 * y1;
+    }
+    return Math.abs(area) / 2;
+  }
+
+  private formatArea(m2: number): string {
+    return m2 >= 10000 ? `${(m2 / 10000).toFixed(2)} ha` : `${m2.toFixed(1)} m²`;
   }
 
   /** Determine the elevation source/value for a vertex being placed at lng/lat. */
@@ -844,27 +946,29 @@ export class CutFillPanel {
   // --------------------------------------------------------------------------
 
   private showResults(result: CutFillResult): void {
-    const section = this.el?.querySelector<HTMLElement>('#cf-results');
     const viewSec = this.el?.querySelector<HTMLElement>('#cf-view-section');
-    if (section) section.style.display = 'block';
-    if (viewSec) viewSec.style.display = 'block';
+    if (viewSec) viewSec.style.display = 'flex';
 
     const fmt = (m3: number) =>
       `${m3.toLocaleString(undefined, { maximumFractionDigits: 1 })} m³`;
     const fmtArea = (m2: number) =>
       m2 >= 10000 ? `${(m2 / 10000).toFixed(2)} ha` : `${m2.toFixed(0)} m²`;
 
-    const setEl = (id: string, val: string) => {
+    const setEl = (id: string, val: string, sub?: string) => {
       const el = this.el?.querySelector(`#${id}`);
-      if (el) el.textContent = val;
+      if (el) el.innerHTML = sub ? `${val}<span class="cf-result-sub">${sub}</span>` : val;
     };
 
-    setEl('cf-res-cut',  `${fmt(result.cutVolume)} (${fmtArea(result.cutArea)})`);
-    setEl('cf-res-fill', `${fmt(result.fillVolume)} (${fmtArea(result.fillArea)})`);
+    setEl('cf-res-cut',  fmt(result.cutVolume),  `(${fmtArea(result.cutArea)})`);
+    setEl('cf-res-fill', fmt(result.fillVolume), `(${fmtArea(result.fillArea)})`);
 
     const net     = result.fillVolume - result.cutVolume;
     const netSign = net >= 0 ? '+' : '';
-    setEl('cf-res-net', `${netSign}${fmt(Math.abs(net))} ${net >= 0 ? '(net fill)' : '(net cut)'}`);
+    setEl('cf-res-net', `${netSign}${fmt(Math.abs(net))}`, net >= 0 ? '(net fill)' : '(net cut)');
+
+    const netBox = this.el?.querySelector<HTMLElement>('#cf-res-net-box');
+    netBox?.classList.toggle('cf-net-fill', net >= 0);
+    netBox?.classList.toggle('cf-net-cut', net < 0);
   }
 
   // --------------------------------------------------------------------------
@@ -962,10 +1066,16 @@ export class CutFillPanel {
 
     this.cutFillLayer.clear();
 
-    const resultsEl  = this.el?.querySelector<HTMLElement>('#cf-results');
     const viewSecEl  = this.el?.querySelector<HTMLElement>('#cf-view-section');
-    if (resultsEl)  resultsEl.style.display  = 'none';
     if (viewSecEl)  viewSecEl.style.display  = 'none';
+
+    // Reset the result cards to their empty state (card stays visible)
+    ['cf-res-cut', 'cf-res-fill', 'cf-res-net'].forEach(id => {
+      const el = this.el?.querySelector(`#${id}`);
+      if (el) el.textContent = '—';
+    });
+    const netBox = this.el?.querySelector<HTMLElement>('#cf-res-net-box');
+    netBox?.classList.remove('cf-net-fill', 'cf-net-cut');
 
     this.updateComputeBtn();
     this.syncDisplayState();
