@@ -4,6 +4,7 @@ import { EventBus } from '../utils/EventBus';
 import { SwUpdate } from '../utils/SwUpdate';
 import { normalizeUserId, USERID_SOURCE_KEY } from '../utils/userId';
 import { SyncManager } from '../sync/SyncManager';
+import { BackendClient } from '../sync/BackendClient';
 import type { SyncStatus } from '../sync/types';
 import type { PresetManager } from './PresetManager';
 
@@ -243,6 +244,10 @@ export class SettingsPanel {
                 <button class="btn-outline" id="s-sync-now">Sync Now</button>
               </div>
               <div id="s-sync-status" class="settings-hint"></div>
+              <div id="s-auth-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px">
+                <span id="s-auth-label" class="settings-hint" style="flex:1;min-width:0"></span>
+                <button class="btn-outline" id="s-auth-btn" style="flex-shrink:0;font-size:0.8em;padding:4px 8px;display:none"></button>
+              </div>
             </div>
           </div>
 
@@ -325,6 +330,26 @@ export class SettingsPanel {
     // Cloud sync: trigger an immediate sync; App relays to the SyncManager.
     this.panel.querySelector('#s-sync-now')?.addEventListener('click', () => EventBus.emit('sync-now'));
     this.updateSyncStatusUI();
+
+    // Auth status row
+    this.refreshAuthStatus();
+    this.panel.querySelector('#s-auth-btn')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const label = this.panel.querySelector('#s-auth-label');
+      if (btn.dataset.action === 'signout') {
+        window.open('./logout', '_blank');
+        if (label) label.textContent = 'Signing out… tap Check status when done.';
+        btn.textContent = 'Check status';
+        btn.dataset.action = 'check';
+      } else if (btn.dataset.action === 'signin') {
+        window.open(window.location.origin, '_blank');
+        if (label) label.textContent = 'Complete sign-in in the browser tab, then:';
+        btn.textContent = 'Check status';
+        btn.dataset.action = 'check';
+      } else {
+        await this.refreshAuthStatus();
+      }
+    });
 
     // Wire update-reload button (may already be rendered if update arrived before panel opened)
     this.panel.querySelector('#s-sw-reload')?.addEventListener('click', () => SwUpdate.reload());
@@ -510,6 +535,26 @@ export class SettingsPanel {
     if (s.lastSync) bits.push(`last ${new Date(s.lastSync).toLocaleTimeString()}`);
     if (s.lastError) bits.push(`error: ${s.lastError}`);
     el.textContent = bits.join(' · ');
+  }
+
+  private async refreshAuthStatus(): Promise<void> {
+    const label = this.panel.querySelector('#s-auth-label');
+    const btn = this.panel.querySelector<HTMLButtonElement>('#s-auth-btn');
+    if (!label || !btn) return;
+    label.textContent = 'Checking…';
+    btn.style.display = 'none';
+    const who = await new BackendClient(SyncManager.getConfig().url).getWhoami();
+    if (who?.email) {
+      label.textContent = `Signed in as ${who.email}`;
+      btn.textContent = 'Sign Out';
+      btn.style.display = '';
+      btn.dataset.action = 'signout';
+    } else {
+      label.textContent = 'Not signed in';
+      btn.textContent = 'Sign In';
+      btn.style.display = '';
+      btn.dataset.action = 'signin';
+    }
   }
 
   getSettings(): AppSettings { return { ...this.settings }; }
