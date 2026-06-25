@@ -39,6 +39,7 @@ import { WetlandsManager } from './wetlands/WetlandsManager';
 import { InventoryManager } from './inventory/InventoryManager';
 import { PhotoCapturePanel } from './photos/PhotoCapturePanel';
 import { PhotoReportPanel } from './photos/PhotoReportPanel';
+import { PhotoViewerModal } from './photos/PhotoViewerModal';
 import { AttributeTablePanel } from './ui/AttributeTablePanel';
 import type { SharedLayer, BasemapDef, ImportedLayer } from './types';
 import { sharedLayerToDef } from './data/sharedLayerDefs';
@@ -91,6 +92,7 @@ export class App {
   private inventoryManager!: InventoryManager;
   private photoCapturePanel!: PhotoCapturePanel;
   private photoReportPanel!: PhotoReportPanel;
+  private photoViewerModal = new PhotoViewerModal();
 
   private settings!: AppSettings;
   private features: FieldFeature[] = [];
@@ -1888,6 +1890,12 @@ export class App {
 
       const tool = this.captureManager.getCurrentTool();
 
+      // Photo points open the photo viewer on click (independent of the active
+      // tool, except while actively sketching or editing geometry).
+      if (!['edit-geometry', 'sketch-line', 'sketch-polygon', 'measure'].includes(tool)) {
+        if (this.handlePhotoPointClick(lngLat.lng, lngLat.lat)) return;
+      }
+
       if (tool === 'edit-geometry') return; // GeometryEditor handles its own clicks
 
       if (tool === 'measure') {
@@ -1912,6 +1920,31 @@ export class App {
         this.captureManager.handleSketchMouseMove(lngLat.lng, lngLat.lat);
       }
     });
+  }
+
+  /**
+   * Open the photo viewer when a photo point is clicked.
+   * Returns true if a photo point was hit (so the click is consumed).
+   */
+  private handlePhotoPointClick(lng: number, lat: number): boolean {
+    const map = this.mapManager.getMap();
+    if (!map.getLayer('photo-points-layer')) return false;
+    const pt = map.project([lng, lat]);
+    // Small tolerance box so the icon is easy to tap on touch devices
+    const box: [[number, number], [number, number]] = [
+      [pt.x - 12, pt.y - 12],
+      [pt.x + 12, pt.y + 12],
+    ];
+    const hits = map.queryRenderedFeatures(box, { layers: ['photo-points-layer'] });
+    if (hits.length === 0) return false;
+
+    const id = hits[0].properties?.id as string | undefined;
+    if (!id) return false;
+
+    void this.storage.getFeature(id).then((feature) => {
+      if (feature) this.photoViewerModal.open(feature);
+    });
+    return true;
   }
 
   private attachFreehandPointerEvents(): void {

@@ -321,6 +321,7 @@ export interface LayerPreset {
   project_id?: string;          // owning project ID (undefined = legacy global)
   visible?: boolean;            // TOC visibility toggle (default true)
   show_labels?: boolean;        // show point labels on map (default true)
+  label_field?: string;         // which feature field drives map labels (photo points: point_id|observer|notes|bearing|date)
   symbologyState?: SymbologyState; // data-driven symbology override
 }
 
