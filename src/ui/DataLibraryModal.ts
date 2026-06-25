@@ -239,11 +239,23 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Shared static-data layers ship with only a default style, so their symbology is
+// chosen via a studio modal before they join the map stack. (Mirrors
+// BasemapManager.hasConfigurableSymbology — kept local to avoid importing the map
+// layer into the modal.)
+function hasConfigurableSymbology(def: BasemapDef): boolean {
+  if (!isSharedDef(def)) return false;
+  return def.type === 'geojson' || def.url.startsWith('cog://');
+}
+
 // ── Public interface ──────────────────────────────────────────────────────────
 
 export interface DataLibraryCallbacks {
   onAddToMap: (def: BasemapDef) => void;
   onAddToMapWithParams: (def: BasemapDef, params: Record<string, unknown>) => void;
+  // Layer carries configurable symbology (e.g. shared static data) — open a
+  // symbology picker first and add only once the user confirms a style.
+  onConfigureSymbology: (def: BasemapDef) => void;
   onRenderImport: (container: HTMLElement) => void;
   onRenderExport: (container: HTMLElement) => void;
   isInStack: (defId: string) => boolean;
@@ -369,16 +381,18 @@ export class DataLibraryModal {
     const desc = LAYER_DESCRIPTIONS[def.id] ?? def.description ?? 'A geospatial data layer for use in field mapping projects.';
     const source = def.attribution;
     const hasParams = def.group === 'Raster Functions' && def.id in RF_PARAM_SCHEMAS;
+    const hasSymb = hasConfigurableSymbology(def);
+    const hasConfig = hasParams || hasSymb;
 
     const thumbImg = isTile
       ? `<img src="${src}" loading="lazy" alt="${displayLabel}" data-thumb-err="1" />`
       : `<img src="${src}" alt="${displayLabel}" />`;
 
     let addBtnContent: string;
-    if (inStack && !hasParams) {
+    if (inStack && !hasConfig) {
       addBtnContent = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><polyline points="20 6 9 17 4 12"/></svg> Added`;
-    } else if (hasParams) {
-      addBtnContent = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Configure &amp; Add`;
+    } else if (hasConfig) {
+      addBtnContent = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> ${hasSymb ? 'Style &amp; Add' : 'Configure &amp; Add'}`;
     } else {
       addBtnContent = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add to Map`;
     }
@@ -410,7 +424,7 @@ export class DataLibraryModal {
             <span class="dl-card-type">${tl}</span>
           </div>
         </div>
-        <button class="dl-card-add${inStack && !hasParams ? ' dl-card-added' : ''}${hasParams ? ' dl-card-configure' : ''}" data-def-id="${def.id}">
+        <button class="dl-card-add${inStack && !hasConfig ? ' dl-card-added' : ''}${hasConfig ? ' dl-card-configure' : ''}" data-def-id="${def.id}">
           ${addBtnContent}
         </button>
         ${isSharedDef(def) ? `<button class="dl-card-del" data-shared-id="${sharedIdFromDef(def.id)}" title="Delete from shared library" aria-label="Delete from shared library">
@@ -445,11 +459,13 @@ export class DataLibraryModal {
     const displayLabel = LABEL_OVERRIDES[def.id] ?? def.label;
     const tl = typeLabel(def);
     const hasParams = def.group === 'Raster Functions' && def.id in RF_PARAM_SCHEMAS;
+    const hasSymb = hasConfigurableSymbology(def);
+    const hasConfig = hasParams || hasSymb;
     let addBtn: string;
-    if (inStack && !hasParams) {
+    if (inStack && !hasConfig) {
       addBtn = `<button class="dl-list-add dl-list-added" data-def-id="${def.id}" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="20 6 9 17 4 12"/></svg> Added</button>`;
-    } else if (hasParams) {
-      addBtn = `<button class="dl-list-add dl-list-configure" data-def-id="${def.id}">Configure</button>`;
+    } else if (hasConfig) {
+      addBtn = `<button class="dl-list-add dl-list-configure" data-def-id="${def.id}">${hasSymb ? 'Style' : 'Configure'}</button>`;
     } else {
       addBtn = `<button class="dl-list-add" data-def-id="${def.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add</button>`;
     }
@@ -766,6 +782,13 @@ export class DataLibraryModal {
         const def = this.allDefs.find(d => d.id === defId);
         if (!def) return;
         const hasParams = def.group === 'Raster Functions' && defId in RF_PARAM_SCHEMAS;
+        // Configurable symbology (shared static data): pick a style in a studio
+        // modal first, then add. Allowed even if already in stack (re-style copy).
+        if (hasConfigurableSymbology(def)) {
+          this.callbacks.onConfigureSymbology(def);
+          this.close();
+          return;
+        }
         // For configurable raster functions, always open the configure panel (even if already in stack)
         if (hasParams) {
           this.configuringDefId = defId;
@@ -785,6 +808,7 @@ export class DataLibraryModal {
         const defId = btn.dataset.defId!;
         const def = this.allDefs.find(d => d.id === defId);
         if (!def) return;
+        if (hasConfigurableSymbology(def)) { this.callbacks.onConfigureSymbology(def); this.close(); return; }
         const hasParams = def.group === 'Raster Functions' && defId in RF_PARAM_SCHEMAS;
         if (hasParams) { this.configuringDefId = defId; this.render(); return; }
         if (this.callbacks.isInStack(defId)) return;

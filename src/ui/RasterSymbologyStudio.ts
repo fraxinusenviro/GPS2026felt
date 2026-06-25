@@ -26,6 +26,8 @@ export interface RasterSymbologyOptions {
   /** Sampled pixel values — enables data-driven (Natural breaks / Quantile) class legend */
   dataValues?: number[];
   initial?: RasterSymbologyState;
+  /** Label for the confirm button (default 'Apply'). E.g. 'Add to Map' for pre-add flows. */
+  applyLabel?: string;
   onApply: (state: RasterSymbologyState) => void;
 }
 
@@ -179,7 +181,7 @@ export class RasterSymbologyStudio {
         </div>
         <div class="ss-footer">
           <button class="btn-outline" id="rss-cancel">Cancel</button>
-          <button class="btn-primary" id="rss-apply">Apply</button>
+          <button class="btn-primary" id="rss-apply">${options.applyLabel ?? 'Apply'}</button>
         </div>
       </div>
     `;
