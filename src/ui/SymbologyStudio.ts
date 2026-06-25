@@ -1,22 +1,29 @@
-import type { SymbologyState, SymbologyMethod, ClassifierName } from '../types';
+import type { SymbologyState, SymbologyMethod, ClassifierName, GeoJSONFeatureCollection, GeoJSONGeometry } from '../types';
 import {
   SEQ_RAMPS, QUAL_PALETTES, SINGLE_COLORS, OUTLINE_COLORS, LABEL_COLORS,
   sampleRamp, buildLegend, buildFullLayerSpec, detectFields, CLASSIFIERS,
 } from '../lib/symbologyEngine';
 import { ICON_PATHS, ICON_CATEGORIES } from './SymbolRenderer';
+import { SymbologyPreviewMap } from './SymbologyPreviewMap';
 
 export interface SymbologyOptions {
   title: string;
   geomType: 'point' | 'line' | 'polygon';
   features: { properties: Record<string, unknown> }[];
+  /** Real geometry for the live preview map. When absent, the preview shows a placeholder. */
+  previewFeatures?: { geometry: GeoJSONGeometry; properties: Record<string, unknown> }[];
   initialState?: SymbologyState;
   /** Label for the confirm button (default 'Apply'). E.g. 'Add to Map' for pre-add flows. */
   applyLabel?: string;
   onApply: (state: SymbologyState) => void;
 }
 
+const MAX_PREVIEW_FEATURES = 2000;
+
 export class SymbologyStudio {
   private container: HTMLElement | null = null;
+  private preview: SymbologyPreviewMap | null = null;
+  private currentOptions: SymbologyOptions | null = null;
 
   open(options: SymbologyOptions): void {
     this.close();
@@ -24,34 +31,31 @@ export class SymbologyStudio {
     overlay.className = 'ss-overlay';
     document.body.appendChild(overlay);
     this.container = overlay;
+    this.currentOptions = options;
     this.mount(overlay, options);
     requestAnimationFrame(() => overlay.classList.add('open'));
   }
 
   close(): void {
+    this.preview?.destroy();
+    this.preview = null;
     if (this.container) {
       this.container.remove();
       this.container = null;
     }
+    this.currentOptions = null;
   }
 
-  private mount(overlay: HTMLElement, options: SymbologyOptions): void {
-    const { title, geomType, features, initialState, onApply } = options;
-
-    const fieldInfos = detectFields(features);
-    const catFields = fieldInfos.filter(f => f.kind === 'categorical').map(f => f.name);
-    const numFields = fieldInfos.filter(f => f.kind === 'numeric').map(f => f.name);
-    const allFields = fieldInfos.map(f => f.name);
-
-    const defaultColor = SINGLE_COLORS[0];
-    const state: SymbologyState = {
+  /** Build the working SymbologyState from defaults (+ optional persisted overrides). */
+  private buildState(geomType: 'point' | 'line' | 'polygon', initialState?: SymbologyState): SymbologyState {
+    return {
       method: initialState?.method ?? 'single',
       field: initialState?.field,
       palette: initialState?.palette ?? 'Bold',
       ramp: initialState?.ramp ?? 'Viridis',
       classes: initialState?.classes ?? 5,
       classifier: initialState?.classifier ?? 'Natural breaks',
-      color: initialState?.color ?? defaultColor,
+      color: initialState?.color ?? SINGLE_COLORS[0],
       // Lines default to fully opaque; polygons get a translucent fill so basemap
       // shows through; points stay near-opaque.
       opacity: initialState?.opacity ?? (geomType === 'polygon' ? 0.65 : geomType === 'line' ? 1 : 0.9),
@@ -77,6 +81,25 @@ export class SymbologyStudio {
       icon_size: initialState?.icon_size ?? 1,
       icon_rotation: initialState?.icon_rotation ?? 0,
     };
+  }
+
+  /**
+   * Render the studio. `useDefaults` rebuilds from base defaults instead of the
+   * caller's persisted state — used by the "Reset symbology" action.
+   */
+  private mount(overlay: HTMLElement, options: SymbologyOptions, useDefaults = false): void {
+    const { title, geomType, features, initialState, onApply } = options;
+
+    // A re-mount (reset) tears down the previous preview map first.
+    this.preview?.destroy();
+    this.preview = null;
+
+    const fieldInfos = detectFields(features);
+    const catFields = fieldInfos.filter(f => f.kind === 'categorical').map(f => f.name);
+    const numFields = fieldInfos.filter(f => f.kind === 'numeric').map(f => f.name);
+    const allFields = fieldInfos.map(f => f.name);
+
+    const state = this.buildState(geomType, useDefaults ? undefined : initialState);
 
     // Set default field for initial method
     if (!state.field) {
@@ -84,64 +107,21 @@ export class SymbologyStudio {
     }
 
     const geomLabel = geomType === 'point' ? 'Points' : geomType === 'line' ? 'Lines' : 'Polygons';
+    const styleTitle = geomType === 'point' ? 'Point style' : geomType === 'line' ? 'Line style' : 'Polygon style';
+    const legendCount = buildLegend(features, state).length;
 
-    overlay.innerHTML = `
-      <div class="ss-panel">
-        <div class="ss-header">
-          <div class="ss-header-left">
-            <span class="ss-title">${title || geomLabel} Symbology</span>
-            <span class="ss-geom-badge">${geomLabel}</span>
-          </div>
-          <button class="ss-close" id="ss-close">✕</button>
-        </div>
-        <div class="ss-body" id="ss-body">
-          <!-- Method tabs -->
+    // ---- Left-column control groups (reused inside accordions) ----
+    const sizeOpacityHtml = `
           <div class="ss-section">
-            <div class="ss-lbl">Method</div>
-            <div class="ss-seg" id="ss-method-seg">
-              ${[
-                ['single', 'Single'],
-                ['categorical', 'Categories'],
-                ['graduated', 'Graduated'],
-                ...(geomType === 'point' ? [['proportional', 'Size by']] : []),
-              ].map(([v, t]) =>
-                `<button class="ss-seg-btn${state.method === v ? ' on' : ''}" data-method="${v}">${t}</button>`
-              ).join('')}
-            </div>
-          </div>
-
-          <!-- Field selector -->
-          <div class="ss-section${state.method === 'single' ? ' ss-hidden' : ''}" id="ss-field-section">
-            <div class="ss-lbl">Classify by field</div>
-            <select id="ss-field" class="ss-select">
-              ${this.fieldOptions(state.method, catFields, numFields, state.field)}
-            </select>
-          </div>
-
-          <!-- Color / palette / ramp section (rebuilt on method change) -->
-          <div id="ss-color-section">
-            ${this.buildColorSection(state, features)}
-          </div>
-
-          <!-- Classifier + classes (graduated only) -->
-          <div id="ss-classifier-section" class="${state.method === 'graduated' ? '' : 'ss-hidden'}">
-            ${this.buildClassifierSection(state)}
-          </div>
-
-          <!-- Size -->
-          <div class="ss-section">
-            <div class="ss-lbl">${this.sizeLabel(state.method, geomType)} <span class="ss-val" id="ss-size-val">${+(state.size ?? 6)}px</span></div>
+            <div class="ss-lbl"><span id="ss-size-lbl">${this.sizeLabel(state.method, geomType)}</span> <span class="ss-val" id="ss-size-val">${+(state.size ?? 6)}px</span></div>
             <input type="range" id="ss-size" min="${geomType === 'polygon' ? 0 : geomType === 'line' ? 0.5 : 3}" max="${geomType === 'point' ? 16 : 8}" step="0.5" value="${state.size ?? 6}" />
           </div>
-
-          <!-- Opacity -->
           <div class="ss-section">
             <div class="ss-lbl">${geomType === 'polygon' ? 'Fill opacity' : 'Opacity'} <span class="ss-val" id="ss-opacity-val">${Math.round((state.opacity ?? 0.9) * 100)}%</span></div>
             <input type="range" id="ss-opacity" min="0.05" max="1" step="0.05" value="${state.opacity ?? 0.9}" />
-          </div>
+          </div>`;
 
-          <!-- Point: outline colour + width -->
-          ${geomType === 'point' ? `
+    const pointStyleHtml = geomType === 'point' ? `
           <div class="ss-section">
             <div class="ss-lbl">Outline colour</div>
             <div class="ss-swatch-grid" id="ss-outline-swatches">
@@ -150,10 +130,6 @@ export class SymbologyStudio {
             <div class="ss-lbl" style="margin-top:8px">Outline width <span class="ss-val" id="ss-ow-val">${state.outlineWidth ?? 1.5}px</span></div>
             <input type="range" id="ss-ow" min="0" max="4" step="0.5" value="${state.outlineWidth ?? 1.5}" />
           </div>
-          ` : ''}
-
-          <!-- Point: icon overlay -->
-          ${geomType === 'point' ? `
           <div class="ss-section">
             <div class="ss-lbl">Icon overlay</div>
             <div class="ss-icon-grid" id="ss-icon-grid">
@@ -174,10 +150,9 @@ export class SymbologyStudio {
               <input type="range" id="ss-icon-rot" min="0" max="360" step="5" value="${state.icon_rotation ?? 0}" />
             </div>
           </div>
-          ` : ''}
+          ` : '';
 
-          <!-- Line: end cap + casing -->
-          ${geomType === 'line' ? `
+    const lineStyleHtml = geomType === 'line' ? `
           <div class="ss-section">
             <div class="ss-lbl">End cap</div>
             <div class="ss-seg">
@@ -201,10 +176,9 @@ export class SymbologyStudio {
               <input type="range" id="ss-cw" min="0.5" max="5" step="0.5" value="${state.casingWidth ?? 2}" />
             </div>
           </div>
-          ` : ''}
+          ` : '';
 
-          <!-- Polygon: stroke colour + opacity -->
-          ${geomType === 'polygon' ? `
+    const polygonStyleHtml = geomType === 'polygon' ? `
           <div class="ss-section">
             <div class="ss-lbl">Stroke colour</div>
             <div class="ss-swatch-grid">
@@ -213,9 +187,9 @@ export class SymbologyStudio {
             <div class="ss-lbl" style="margin-top:8px">Stroke opacity <span class="ss-val" id="ss-so-val">${Math.round((state.strokeOpacity ?? 0.4) * 100)}%</span></div>
             <input type="range" id="ss-so" min="0" max="1" step="0.05" value="${state.strokeOpacity ?? 0.4}" />
           </div>
-          ` : ''}
+          ` : '';
 
-          <!-- Labels (any attribute) -->
+    const labelsHtml = `
           <div class="ss-section">
             <div class="ss-lbl">Label by field</div>
             <select id="ss-label-field" class="ss-select">
@@ -230,26 +204,83 @@ export class SymbologyStudio {
                 ${this.swatchGrid(LABEL_COLORS, state.label_color, 'label-color')}
               </div>
             </div>
-          </div>
+          </div>`;
 
-          <!-- Legend (labels editable inline) -->
-          <div class="ss-section">
-            <div class="ss-lbl">Legend <span style="font-size:10px;opacity:.55">(click a label to rename)</span></div>
-            <div id="ss-legend">${this.buildLegendHtml(state, features, geomType)}</div>
+    overlay.innerHTML = `
+      <div class="ss-panel">
+        <div class="ss-header">
+          <div class="ss-header-left">
+            <span class="ss-title">${title || geomLabel} Symbology</span>
+            <span class="ss-geom-badge">${geomLabel}</span>
           </div>
-
-          <!-- MapLibre expression output (collapsed by default) -->
-          <div class="ss-section">
-            <details class="ss-expr-details">
-              <summary class="ss-lbl ss-expr-summary">MapLibre layer spec</summary>
-              <div class="ss-expr-box">
-                <pre id="ss-expr-pre">${escapeHtml(JSON.stringify(buildFullLayerSpec(features, state, geomType), null, 2))}</pre>
-                <button class="ss-copy-btn" id="ss-copy">Copy</button>
+          <button class="ss-close" id="ss-close">✕</button>
+        </div>
+        <div class="ss-main">
+          <div class="ss-body" id="ss-body">
+            <!-- Method tabs -->
+            <div class="ss-section">
+              <div class="ss-lbl">Method</div>
+              <div class="ss-seg" id="ss-method-seg">
+                ${[
+                  ['single', 'Single'],
+                  ['categorical', 'Categories'],
+                  ['graduated', 'Graduated'],
+                  ...(geomType === 'point' ? [['proportional', 'Size by']] : []),
+                ].map(([v, t]) =>
+                  `<button class="ss-seg-btn${state.method === v ? ' on' : ''}" data-method="${v}">${t}</button>`
+                ).join('')}
               </div>
-            </details>
-          </div>
+            </div>
 
-        </div><!-- /ss-body -->
+            <!-- Field selector -->
+            <div class="ss-section${state.method === 'single' ? ' ss-hidden' : ''}" id="ss-field-section">
+              <div class="ss-lbl">Classify by field</div>
+              <select id="ss-field" class="ss-select">
+                ${this.fieldOptions(state.method, catFields, numFields, state.field)}
+              </select>
+            </div>
+
+            ${this.accordion('Colour & palette', `
+              <div id="ss-color-section">${this.buildColorSection(state, features)}</div>
+              <div id="ss-classifier-section" class="${state.method === 'graduated' ? '' : 'ss-hidden'}">${this.buildClassifierSection(state)}</div>
+            `)}
+
+            ${this.accordion(styleTitle, `${sizeOpacityHtml}${pointStyleHtml}${lineStyleHtml}${polygonStyleHtml}${labelsHtml}`)}
+
+            ${this.accordion('Legend', `
+              <div class="ss-lbl" style="font-size:10px;opacity:.55;margin-bottom:6px">click a label to rename</div>
+              <div id="ss-legend">${this.buildLegendHtml(state, features, geomType)}</div>`,
+              { collapsed: true, metaId: 'ss-legend-acc-meta', meta: `${legendCount} items` })}
+
+            <!-- MapLibre expression output (collapsed by default) -->
+            <div class="ss-section">
+              <details class="ss-expr-details">
+                <summary class="ss-lbl ss-expr-summary">MapLibre layer spec</summary>
+                <div class="ss-expr-box">
+                  <pre id="ss-expr-pre">${escapeHtml(JSON.stringify(buildFullLayerSpec(features, state, geomType), null, 2))}</pre>
+                  <button class="ss-copy-btn" id="ss-copy">Copy</button>
+                </div>
+              </details>
+            </div>
+          </div><!-- /ss-body -->
+
+          <div class="ss-col-right">
+            <div class="ss-preview-head">
+              <span class="ss-lbl">Preview</span>
+              <a class="ss-link" id="ss-zoom-extent">Zoom to extent</a>
+            </div>
+            <div class="ss-preview-map" id="ss-preview-map"></div>
+            <div class="ss-card">
+              <div class="ss-card-title">Current symbology</div>
+              <div id="ss-summary">${this.buildSummaryHtml(state, geomType)}</div>
+            </div>
+            <div class="ss-card">
+              <div class="ss-card-title">Legend preview</div>
+              <div id="ss-legend-preview">${this.buildLegendPreviewHtml(state, features, geomType)}</div>
+            </div>
+            <button class="btn-outline ss-reset-btn" id="ss-reset">↺ Reset symbology</button>
+          </div>
+        </div>
         <div class="ss-footer">
           <button class="btn-outline" id="ss-cancel">Cancel</button>
           <button class="btn-primary" id="ss-apply">${options.applyLabel ?? 'Apply'}</button>
@@ -258,6 +289,90 @@ export class SymbologyStudio {
     `;
 
     this.wire(overlay, state, geomType, features, catFields, numFields, onApply);
+    this.mountPreview(overlay, options, state);
+  }
+
+  /** Reusable collapsible section wrapper for the left column. */
+  private accordion(
+    title: string,
+    bodyHtml: string,
+    opts?: { collapsed?: boolean; meta?: string; metaId?: string },
+  ): string {
+    const collapsed = opts?.collapsed ? ' collapsed' : '';
+    const meta = opts?.meta !== undefined
+      ? `<span class="ss-acc-meta"${opts.metaId ? ` id="${opts.metaId}"` : ''}>${opts.meta}</span>` : '';
+    return `<div class="ss-acc${collapsed}">
+      <button type="button" class="ss-acc-head" aria-expanded="${opts?.collapsed ? 'false' : 'true'}">
+        <span class="ss-acc-title">${title}</span>
+        ${meta}
+        <svg class="ss-acc-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="ss-acc-body">${bodyHtml}</div>
+    </div>`;
+  }
+
+  /** Create (or replace) the live preview map, or show a placeholder when no geometry. */
+  private mountPreview(overlay: HTMLElement, options: SymbologyOptions, state: SymbologyState): void {
+    const mapEl = overlay.querySelector<HTMLElement>('#ss-preview-map');
+    if (!mapEl) return;
+    const pf = options.previewFeatures;
+    if (pf && pf.length) {
+      const fc: GeoJSONFeatureCollection = {
+        type: 'FeatureCollection',
+        features: pf.slice(0, MAX_PREVIEW_FEATURES).map(f => ({ type: 'Feature', geometry: f.geometry, properties: f.properties })),
+      };
+      this.preview = new SymbologyPreviewMap();
+      this.preview.mount(mapEl, fc);
+      this.preview.restyle(state, options.features, options.geomType);
+      // Container only gets its real size once the open transition settles.
+      requestAnimationFrame(() => this.preview?.resize());
+    } else {
+      mapEl.classList.add('ss-preview-empty');
+      mapEl.innerHTML = '<span>Live preview unavailable for this layer</span>';
+      overlay.querySelector('#ss-zoom-extent')?.classList.add('ss-disabled');
+    }
+  }
+
+  /** "Current symbology" summary rows on the right column. */
+  private buildSummaryHtml(state: SymbologyState, geomType: 'point' | 'line' | 'polygon'): string {
+    const methodNames: Record<SymbologyMethod, string> = {
+      single: 'Single', categorical: 'Categories', graduated: 'Graduated', proportional: 'Size by',
+    };
+    const chip = (c?: string) => `<span class="ss-chip" style="background:${c ?? '#000'}"></span>${c ?? '—'}`;
+    const rows: Array<[string, string]> = [['Method', methodNames[state.method]]];
+    if (state.method !== 'single') rows.push(['Field', state.field || '—']);
+    if (state.method === 'categorical') rows.push(['Palette', state.palette ?? '—']);
+    if (state.method === 'graduated') rows.push(['Ramp', state.ramp ?? '—']);
+    if (state.method === 'single' || state.method === 'proportional') rows.push(['Colour', chip(state.color)]);
+    rows.push([this.sizeLabel(state.method, geomType), `${state.size ?? 6}px`]);
+    rows.push([geomType === 'polygon' ? 'Fill opacity' : 'Opacity', `${Math.round((state.opacity ?? 0.9) * 100)}%`]);
+    if (geomType === 'point') {
+      rows.push(['Outline', chip(state.outlineColor)]);
+      rows.push(['Outline width', `${state.outlineWidth ?? 1.5}px`]);
+      rows.push(['Icon overlay', state.icon ?? 'None']);
+    } else if (geomType === 'line') {
+      rows.push(['End cap', state.cap ?? 'round']);
+      rows.push(['Casing', state.casing ? `${state.casingWidth ?? 2}px` : 'Off']);
+    } else {
+      rows.push(['Stroke', chip(state.strokeColor)]);
+      rows.push(['Stroke opacity', `${Math.round((state.strokeOpacity ?? 0.4) * 100)}%`]);
+    }
+    rows.push(['Label', state.label_field || 'None']);
+    return rows.map(([k, v]) =>
+      `<div class="ss-sum-row"><span class="ss-sum-k">${k}</span><span class="ss-sum-v">${v}</span></div>`).join('');
+  }
+
+  /** Static (read-only) legend chips for the right column. */
+  private buildLegendPreviewHtml(
+    state: SymbologyState,
+    features: { properties: Record<string, unknown> }[],
+    geomType: 'point' | 'line' | 'polygon',
+  ): string {
+    const legend = buildLegend(features, state);
+    if (legend.length === 0) return '<span class="ss-no-data">No classifiable data</span>';
+    return legend.map(l =>
+      `<div class="ss-legpv-row"><span class="ss-chip${geomType === 'line' ? ' ss-chip-line' : ''}" style="background:${l.color}"></span><span class="ss-legpv-lbl">${escapeHtml(l.label)}</span></div>`
+    ).join('');
   }
 
   // ---- Builders for dynamic sections ----
@@ -428,13 +543,45 @@ export class SymbologyStudio {
     overlay.querySelector('#ss-cancel')?.addEventListener('click', () => this.close());
     overlay.addEventListener('click', e => { if (e.target === overlay) this.close(); });
 
-    // Rebuild just the legend + expression
+    // Collapsible accordion sections (delegated so it survives section rebuilds).
+    overlay.querySelector('#ss-body')?.addEventListener('click', e => {
+      const head = (e.target as HTMLElement).closest<HTMLElement>('.ss-acc-head');
+      if (!head) return;
+      const acc = head.closest('.ss-acc');
+      if (!acc) return;
+      const collapsed = acc.classList.toggle('collapsed');
+      head.setAttribute('aria-expanded', String(!collapsed));
+    });
+
+    // Debounced live preview restyle (map paint is heavier than DOM text updates).
+    let restyleTimer: number | undefined;
+    const previewRestyle = () => {
+      if (restyleTimer) clearTimeout(restyleTimer);
+      restyleTimer = window.setTimeout(() => this.preview?.restyle(state, features, geomType), 70);
+    };
+
+    // Rebuild legend + expression + right-column cards, and restyle the preview.
     const rebuildDynamic = () => {
       const leg = overlay.querySelector('#ss-legend');
       if (leg) leg.innerHTML = this.buildLegendHtml(state, features, geomType);
       const pre = overlay.querySelector<HTMLElement>('#ss-expr-pre');
       if (pre) pre.textContent = JSON.stringify(buildFullLayerSpec(features, state, geomType), null, 2);
+      const sum = overlay.querySelector('#ss-summary');
+      if (sum) sum.innerHTML = this.buildSummaryHtml(state, geomType);
+      const lpv = overlay.querySelector('#ss-legend-preview');
+      if (lpv) lpv.innerHTML = this.buildLegendPreviewHtml(state, features, geomType);
+      const legMeta = overlay.querySelector('#ss-legend-acc-meta');
+      if (legMeta) legMeta.textContent = `${buildLegend(features, state).length} items`;
+      previewRestyle();
     };
+
+    // Reset symbology — re-render from base defaults (fresh DOM avoids stale closures).
+    overlay.querySelector('#ss-reset')?.addEventListener('click', () => {
+      if (this.container && this.currentOptions) this.mount(this.container, this.currentOptions, true);
+    });
+
+    // Zoom the preview to the layer's extent.
+    overlay.querySelector('#ss-zoom-extent')?.addEventListener('click', () => this.preview?.zoomToExtent());
 
     // Rebuild the entire color section (after method change)
     const rebuildColorSection = () => {
@@ -474,8 +621,8 @@ export class SymbologyStudio {
         clfSec?.classList.toggle('ss-hidden', state.method !== 'graduated');
 
         // Update size label
-        const sizeDiv = overlay.querySelector('.ss-lbl[for-size]');
-        if (sizeDiv) sizeDiv.textContent = this.sizeLabel(state.method, geomType);
+        const sizeLbl = overlay.querySelector<HTMLElement>('#ss-size-lbl');
+        if (sizeLbl) sizeLbl.textContent = this.sizeLabel(state.method, geomType);
 
         rebuildColorSection();
       });
@@ -535,6 +682,7 @@ export class SymbologyStudio {
           btn.classList.add('on');
           state.icon = btn.dataset.icon || undefined;
           overlay.querySelector<HTMLElement>('#ss-icon-extra')?.classList.toggle('ss-hidden', !state.icon);
+          rebuildDynamic();
         });
       });
       overlay.querySelectorAll<HTMLElement>('[data-icon-color]').forEach(el => {
@@ -621,6 +769,7 @@ export class SymbologyStudio {
     labelSel?.addEventListener('change', () => {
       state.label_field = labelSel.value || undefined;
       overlay.querySelector<HTMLElement>('#ss-label-extra')?.classList.toggle('ss-hidden', !state.label_field);
+      rebuildDynamic();
     });
     const lszSlider = overlay.querySelector<HTMLInputElement>('#ss-label-size');
     const lszVal = overlay.querySelector<HTMLElement>('#ss-lsz-val');

@@ -59,6 +59,7 @@ export function sharedLayerToDef(layer: SharedLayer, baseUrl: string): BasemapDe
       description,
       group,
       max_zoom: 22,
+      bounds: layer.bounds,
     };
   }
 
@@ -72,6 +73,7 @@ export function sharedLayerToDef(layer: SharedLayer, baseUrl: string): BasemapDe
     attribution,
     description,
     group,
+    bounds: layer.bounds,
     vector_config: {
       endpoint: '',
       geomType: layer.geometry_type === 'LineString' ? 'line' : 'polygon',
