@@ -30,6 +30,7 @@ function isApiPath(path: string): boolean {
   return (
     path === '/health' ||
     path === '/force-reload' ||
+    path === '/logout' ||
     path === '/whoami' ||
     path === '/almanac' ||
     path === '/sync' ||
@@ -94,6 +95,12 @@ async function route(request: Request, env: Env, url: URL, ctx: ExecutionContext
 
   // Public GPS almanac proxy — no auth needed (data is publicly available)
   if (path === '/almanac' && method === 'GET') return handleAlmanac(request, env);
+
+  // CF Access logout — redirect to the team logout endpoint (no auth required).
+  if (path === '/logout' && method === 'GET') {
+    if (!env.TEAM_DOMAIN) return Response.redirect('/', 302);
+    return Response.redirect(`${env.TEAM_DOMAIN}/cdn-cgi/access/logout`, 302);
+  }
 
   // --- auth gate: every route below needs a verified Access identity ---
   const who = await authenticate(request, env);
