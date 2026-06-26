@@ -8,7 +8,9 @@
 import maplibregl from 'maplibre-gl';
 import type { SymbologyState, GeoJSONFeatureCollection } from '../types';
 import { BASEMAPS } from '../constants';
-import { buildColorExpression, buildRadiusExpression } from '../lib/symbologyEngine';
+import { buildColorExpression, buildRadiusExpression, buildLegend } from '../lib/symbologyEngine';
+import type { LegendEntry } from '../lib/symbologyEngine';
+import { renderShapeSprite, SHAPE_ICON_SCALE } from './SymbolRenderer';
 
 type GeomType = 'point' | 'line' | 'polygon';
 type PropFeatures = { properties: Record<string, unknown> }[];
@@ -18,11 +20,15 @@ const BASEMAP_URL =
   BASEMAPS.find(b => b.id === 'esri-light-grey')?.url ??
   'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}';
 
+const PREV_SHAPE_SYM = 'preview-point-sym';
+const PREV_SHAPE_PFX = 'pvs';
+
 export class SymbologyPreviewMap {
   private map: maplibregl.Map | null = null;
   private ready = false;
   private pending: Array<() => void> = [];
   private bounds: maplibregl.LngLatBounds | null = null;
+  private shapeSpriteCount = 0;
 
   /** Create the map, add the basemap + the layer's geometry, and fit to its extent. */
   mount(container: HTMLElement, fc: GeoJSONFeatureCollection): void {
@@ -80,15 +86,60 @@ export class SymbologyPreviewMap {
     const fillOpacity = state.opacity ?? 0.8;
     const strokeOpacity = state.strokeOpacity ?? fillOpacity;
 
-    if (geomType === 'point' && map.getLayer('preview-point')) {
-      map.setPaintProperty('preview-point', 'circle-color', colorExpr);
-      map.setPaintProperty('preview-point', 'circle-opacity', fillOpacity);
-      map.setPaintProperty('preview-point', 'circle-radius',
-        state.method === 'proportional'
-          ? (buildRadiusExpression(features, state) as unknown as maplibregl.ExpressionSpecification)
-          : (state.size ?? 5));
-      map.setPaintProperty('preview-point', 'circle-stroke-color', state.outlineColor ?? '#ffffff');
-      map.setPaintProperty('preview-point', 'circle-stroke-width', state.outlineWidth ?? 1);
+    if (geomType === 'point') {
+      const shape = state.shape;
+      if (shape && shape !== 'circle') {
+        // Non-circle shape: register sprites per legend class, use symbol layer.
+        const legend = buildLegend(features, state);
+        const outlineColor = state.outlineColor ?? '#ffffff';
+        const outlineWidth = state.outlineWidth ?? 1;
+        // Remove stale sprites from prior restyle.
+        for (let i = legend.length; i < this.shapeSpriteCount; i++) {
+          if (map.hasImage(`${PREV_SHAPE_PFX}-${i}`)) map.removeImage(`${PREV_SHAPE_PFX}-${i}`);
+        }
+        this.shapeSpriteCount = legend.length;
+        for (let i = 0; i < legend.length; i++) {
+          const imgData = renderShapeSprite(shape, legend[i].color, outlineColor, outlineWidth, fillOpacity);
+          if (map.hasImage(`${PREV_SHAPE_PFX}-${i}`)) map.removeImage(`${PREV_SHAPE_PFX}-${i}`);
+          map.addImage(`${PREV_SHAPE_PFX}-${i}`, imgData, { pixelRatio: 2 });
+        }
+        const iconImgExpr = buildShapeIconExpr(state, legend, PREV_SHAPE_PFX);
+        const iconSizeExpr = buildShapeSizeExpr(features, state);
+        // Hide circle layer.
+        if (map.getLayer('preview-point')) map.setPaintProperty('preview-point', 'circle-opacity', 0);
+        if (map.getLayer(PREV_SHAPE_SYM)) {
+          map.setLayoutProperty(PREV_SHAPE_SYM, 'icon-image', iconImgExpr as maplibregl.ExpressionSpecification);
+          map.setLayoutProperty(PREV_SHAPE_SYM, 'icon-size', iconSizeExpr as maplibregl.ExpressionSpecification);
+        } else {
+          map.addLayer({
+            id: PREV_SHAPE_SYM, type: 'symbol', source: SRC,
+            filter: ['==', '$type', 'Point'],
+            layout: {
+              'icon-image': iconImgExpr as maplibregl.ExpressionSpecification,
+              'icon-size': iconSizeExpr as maplibregl.ExpressionSpecification,
+              'icon-allow-overlap': true,
+              'icon-ignore-placement': true,
+            },
+          });
+        }
+      } else {
+        // Circle: restore circle layer, remove shape layer.
+        if (map.getLayer(PREV_SHAPE_SYM)) map.removeLayer(PREV_SHAPE_SYM);
+        for (let i = 0; i < this.shapeSpriteCount; i++) {
+          if (map.hasImage(`${PREV_SHAPE_PFX}-${i}`)) map.removeImage(`${PREV_SHAPE_PFX}-${i}`);
+        }
+        this.shapeSpriteCount = 0;
+        if (map.getLayer('preview-point')) {
+          map.setPaintProperty('preview-point', 'circle-color', colorExpr);
+          map.setPaintProperty('preview-point', 'circle-opacity', fillOpacity);
+          map.setPaintProperty('preview-point', 'circle-radius',
+            state.method === 'proportional'
+              ? (buildRadiusExpression(features, state) as unknown as maplibregl.ExpressionSpecification)
+              : (state.size ?? 5));
+          map.setPaintProperty('preview-point', 'circle-stroke-color', state.outlineColor ?? '#ffffff');
+          map.setPaintProperty('preview-point', 'circle-stroke-width', state.outlineWidth ?? 1);
+        }
+      }
     }
     if (geomType === 'line' && map.getLayer('preview-line')) {
       map.setPaintProperty('preview-line', 'line-color', colorExpr);
@@ -135,6 +186,40 @@ export class SymbologyPreviewMap {
     if (this.map) { this.map.remove(); this.map = null; }
     this.bounds = null;
   }
+}
+
+function buildShapeIconExpr(
+  state: SymbologyState,
+  legend: LegendEntry[],
+  prefix: string,
+): unknown {
+  if (state.method === 'single' || state.method === 'proportional' || legend.length === 0) {
+    return `${prefix}-0`;
+  }
+  if (state.method === 'categorical') {
+    const expr: unknown[] = ['match', ['to-string', ['get', state.field ?? '']]];
+    legend.forEach((l, i) => { if (l.cat !== undefined) expr.push(l.cat, `${prefix}-${i}`); });
+    expr.push(`${prefix}-0`);
+    return expr;
+  }
+  // graduated
+  const breaks = legend[0].breaks ?? [];
+  const expr: unknown[] = ['step', ['to-number', ['get', state.field ?? '']], `${prefix}-0`];
+  breaks.forEach((b, i) => expr.push(b, `${prefix}-${i + 1}`));
+  return expr;
+}
+
+function buildShapeSizeExpr(
+  features: PropFeatures,
+  state: SymbologyState,
+): unknown {
+  const scale = SHAPE_ICON_SCALE;
+  if (state.method === 'proportional') {
+    const base = buildRadiusExpression(features, state);
+    if (typeof base === 'number') return base / scale;
+    return ['/', base, scale];
+  }
+  return (state.size ?? 6) / scale;
 }
 
 /** Bounding box of a FeatureCollection (handles Point/Line/Polygon + Multi*). */

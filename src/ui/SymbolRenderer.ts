@@ -170,6 +170,40 @@ function renderPresetCanvas(preset: TypePreset): HTMLCanvasElement {
   return canvas;
 }
 
+/** Sprite size and scale constants for shape symbol layers. */
+export const SHAPE_SPRITE_SIZE = 64;
+export const SHAPE_SPRITE_RADIUS = 28;
+/** CSS pixel radius at icon-size=1 when pixelRatio=2 is passed to addImage. */
+export const SHAPE_ICON_SCALE = SHAPE_SPRITE_RADIUS / 2; // = 14
+
+/**
+ * Render a point shape as a MapLibre-ready ImageData sprite.
+ * Use with `map.addImage(id, data, { pixelRatio: 2 })`.
+ * icon-size = desiredScreenRadiusPx / SHAPE_ICON_SCALE
+ */
+export function renderShapeSprite(
+  shape: string,
+  color: string,
+  outlineColor: string,
+  outlineWidth: number,
+  opacity: number,
+): ImageData {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = SHAPE_SPRITE_SIZE;
+  const ctx = canvas.getContext('2d')!;
+  const cx = SHAPE_SPRITE_SIZE / 2;
+  const cy = SHAPE_SPRITE_SIZE / 2;
+  drawShape(ctx, shape, cx, cy, SHAPE_SPRITE_RADIUS);
+  ctx.fillStyle = hexToRgba(color, opacity);
+  ctx.fill();
+  if (outlineWidth > 0) {
+    ctx.strokeStyle = outlineColor;
+    ctx.lineWidth = outlineWidth * 2; // compensate for pixelRatio:2
+    ctx.stroke();
+  }
+  return ctx.getImageData(0, 0, SHAPE_SPRITE_SIZE, SHAPE_SPRITE_SIZE);
+}
+
 /**
  * Rasterize a single icon glyph (no shape behind it) for use as a MapLibre
  * icon-image overlay on point layers (Symbology Studio icon overlay). Returns

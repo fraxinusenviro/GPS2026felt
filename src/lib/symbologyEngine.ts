@@ -314,6 +314,19 @@ export function buildFullLayerSpec(
   const opacity = state.opacity ?? 0.9;
 
   if (geomType === 'point') {
+    const shape = state.shape;
+    if (shape && shape !== 'circle') {
+      // Non-circle shapes use a symbol layer with canvas sprites (see MapManager.setImportedLayerSymbology).
+      return {
+        type: 'symbol',
+        layout: {
+          'icon-image': '<shape-sprite-id>',
+          'icon-size': `<(state.size ?? 6) / 14>`,
+          'icon-allow-overlap': true,
+        },
+        note: `Shape '${shape}' rendered via canvas sprites; see setImportedLayerSymbology`,
+      };
+    }
     const paint: Record<string, unknown> = {
       'circle-color': colorExpr,
       'circle-opacity': opacity,
