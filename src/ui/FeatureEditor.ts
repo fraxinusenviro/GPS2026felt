@@ -3,6 +3,7 @@ import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import type { PresetManager } from './PresetManager';
 import { formatDistance, polygonAreaM2, lineLength } from '../utils/coordinates';
+import { fileToStorageDataUrl } from '../photos/imageUtils';
 
 export class FeatureEditor {
   private panel = document.getElementById('feature-editor-panel')!;
@@ -179,20 +180,13 @@ export class FeatureEditor {
 
   private async addPhotos(feature: FieldFeature, files: File[]): Promise<void> {
     for (const file of files) {
-      const dataUrl = await this.fileToBase64(file);
+      // Downscale before storing — full-resolution camera photos crash mobile.
+      const dataUrl = await fileToStorageDataUrl(file);
+      if (!dataUrl) continue;
       feature.photos = feature.photos ?? [];
       feature.photos.push(dataUrl);
     }
     this.render(feature);
-  }
-
-  private fileToBase64(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
   }
 
   private async save(): Promise<void> {

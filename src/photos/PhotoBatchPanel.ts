@@ -4,6 +4,7 @@ import { EventBus } from '../utils/EventBus';
 import type { CaptureManager } from '../capture/CaptureManager';
 import { readExif, hasExifLocation, type ExifData } from './exif';
 import { buildPhotoFeature } from './photoFeature';
+import { fileToStorageDataUrl, makeThumbnail } from './imageUtils';
 
 function bearingToCardinal(deg: number): string {
   const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -12,7 +13,8 @@ function bearingToCardinal(deg: number): string {
 
 interface BatchItem {
   id: string;
-  dataUrl: string;
+  dataUrl: string;  // downscaled JPEG kept for saving
+  thumb: string;    // small JPEG shown in the grid
   exif: ExifData;
   lat: number | null;
   lon: number | null;
@@ -65,15 +67,12 @@ export class PhotoBatchPanel {
     const gps = this.captureManager.getGPSState();
     const list = Array.from(files).filter(f => f.type.startsWith('image/'));
     let idx = this.items.length;
+    // Process sequentially so only one full-size image is decoded at a time.
     for (const file of list) {
-      const dataUrl = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result ?? ''));
-        reader.onerror = () => resolve('');
-        reader.readAsDataURL(file);
-      });
+      const exif = await readExif(file);              // read EXIF before re-encoding strips it
+      const dataUrl = await fileToStorageDataUrl(file); // bounded JPEG for storage
       if (!dataUrl) continue;
-      const exif = await readExif(file);
+      const thumb = await makeThumbnail(dataUrl);       // small JPEG for the grid
 
       let lat: number | null = null, lon: number | null = null;
       let elevation: number | null = null, accuracy: number | null = null;
@@ -87,6 +86,7 @@ export class PhotoBatchPanel {
       this.items.push({
         id: `pb-${idx++}`,
         dataUrl,
+        thumb,
         exif,
         lat, lon, elevation, accuracy,
         bearing: exif.bearing,
@@ -185,7 +185,7 @@ export class PhotoBatchPanel {
           <label class="pb-card-sel">
             <input type="checkbox" class="pb-include" data-id="${it.id}" ${it.include ? 'checked' : ''} ${disabled ? 'disabled' : ''} />
           </label>
-          <div class="pb-thumb"><img src="${it.dataUrl}" alt="" /></div>
+          <div class="pb-thumb"><img src="${it.thumb || it.dataUrl}" alt="" loading="lazy" /></div>
           <div class="pb-meta">
             <div class="pb-meta-row">${sourceBadge(it)}</div>
             <div class="pb-meta-line"><span>📍</span> ${coords}</div>
