@@ -6,11 +6,11 @@
 // for the link, and destroy() on close to release the WebGL context.
 
 import maplibregl from 'maplibre-gl';
-import type { SymbologyState, GeoJSONFeatureCollection } from '../types';
+import type { SymbologyState, GeoJSONFeatureCollection, HatchPattern } from '../types';
 import { BASEMAPS } from '../constants';
 import { buildColorExpression, buildRadiusExpression, buildLegend } from '../lib/symbologyEngine';
 import type { LegendEntry } from '../lib/symbologyEngine';
-import { renderShapeSprite, SHAPE_ICON_SCALE } from './SymbolRenderer';
+import { renderShapeSprite, SHAPE_ICON_SCALE, renderHatchImageData } from './SymbolRenderer';
 
 type GeomType = 'point' | 'line' | 'polygon';
 type PropFeatures = { properties: Record<string, unknown> }[];
@@ -29,6 +29,7 @@ export class SymbologyPreviewMap {
   private pending: Array<() => void> = [];
   private bounds: maplibregl.LngLatBounds | null = null;
   private shapeSpriteCount = 0;
+  private readonly hatchImgKey = 'preview-hatch-img';
 
   /** Create the map, add the basemap + the layer's geometry, and fit to its extent. */
   mount(container: HTMLElement, fc: GeoJSONFeatureCollection): void {
@@ -54,6 +55,11 @@ export class SymbologyPreviewMap {
       this.map.addLayer({
         id: 'preview-fill', type: 'fill', source: SRC, filter: ['==', '$type', 'Polygon'],
         paint: { 'fill-color': '#3388ff', 'fill-opacity': 0.4 },
+      });
+      this.map.addLayer({
+        id: 'preview-fill-hatch', type: 'fill', source: SRC,
+        filter: ['==', '$type', 'Polygon'],
+        paint: { 'fill-opacity': 0 },
       });
       this.map.addLayer({
         id: 'preview-casing', type: 'line', source: SRC, filter: ['==', '$type', 'LineString'],
@@ -158,8 +164,32 @@ export class SymbologyPreviewMap {
       }
     }
     if (geomType === 'polygon' && map.getLayer('preview-fill')) {
-      map.setPaintProperty('preview-fill', 'fill-color', colorExpr);
-      map.setPaintProperty('preview-fill', 'fill-opacity', fillOpacity);
+      const fp = (state.fill_pattern ?? 'solid') as HatchPattern;
+      if (fp !== 'solid') {
+        // Register / update the hatch sprite then overlay it on a dimmed base fill.
+        const baseColor = typeof (colorExpr as unknown) === 'string'
+          ? (colorExpr as unknown as string)
+          : (state.color ?? '#3388ff');
+        const imgData = renderHatchImageData(fp, baseColor, Math.min(1, fillOpacity * 1.5));
+        if (map.hasImage(this.hatchImgKey)) map.removeImage(this.hatchImgKey);
+        map.addImage(this.hatchImgKey, imgData, { pixelRatio: 2 });
+        map.setPaintProperty('preview-fill', 'fill-color', colorExpr);
+        map.setPaintProperty('preview-fill', 'fill-opacity', fillOpacity * 0.2);
+        if (map.getLayer('preview-fill-hatch')) {
+          map.setPaintProperty('preview-fill-hatch', 'fill-pattern', this.hatchImgKey);
+          map.setPaintProperty('preview-fill-hatch', 'fill-opacity', 1);
+        }
+      } else {
+        // Solid fill — remove any hatch overlay.
+        if (map.getLayer('preview-fill-hatch')) {
+          map.setPaintProperty('preview-fill-hatch', 'fill-opacity', 0);
+          if ((map.getPaintProperty('preview-fill-hatch', 'fill-pattern') as string | undefined)) {
+            map.setPaintProperty('preview-fill-hatch', 'fill-pattern', undefined);
+          }
+        }
+        map.setPaintProperty('preview-fill', 'fill-color', colorExpr);
+        map.setPaintProperty('preview-fill', 'fill-opacity', fillOpacity);
+      }
     }
   }
 

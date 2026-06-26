@@ -253,6 +253,7 @@ export interface SymbologyState {
   // Polygon-specific
   strokeColor?: string;
   strokeOpacity?: number;
+  fill_pattern?: HatchPattern; // polygon fill pattern, default 'solid'
   // Custom legend label overrides, keyed by stable legend-entry key
   // ('all' | 'cat:<value>' | 'g:<index>'). Empty/missing = use generated label.
   legendLabels?: Record<string, string>;
@@ -286,6 +287,7 @@ export interface RasterSymbologyState {
 // ---- Preset / Type configuration ----
 export type PointShape = 'circle' | 'square' | 'diamond' | 'triangle';
 export type DashPattern = 'solid' | 'dashed' | 'dotted';
+export type HatchPattern = 'solid' | 'hatch-h' | 'hatch-v' | 'hatch-cross' | 'hatch-diagonal';
 
 export interface TypePreset {
   id: string;
@@ -301,10 +303,12 @@ export interface TypePreset {
   icon_size?: number;         // icon scale multiplier relative to symbol (default 1.0 = 100%)
   size?: number;              // circle radius / symbol half-size in px (default 7)
   dash_pattern?: DashPattern; // line dash style, default 'solid'
+  cap?: 'butt' | 'round' | 'square';  // line cap style, default 'round'
   rotation?: number;          // shape rotation degrees 0-360, default 0
   icon_rotation?: number;     // icon overlay rotation degrees 0-360, default 0
   casing_color?: string;      // hex, line casing colour (border around line)
   casing_width?: number;      // px, extra width added each side for casing (default 0 = no casing)
+  fill_pattern?: HatchPattern; // polygon fill pattern, default 'solid'
   is_quick_entry: boolean;
   visible?: boolean;          // hide all features of this type on map (default true)
   show_labels?: boolean;      // show type label text on map (default true)

@@ -1,4 +1,4 @@
-import type { TypePreset, PointShape, DashPattern } from '../types';
+import type { TypePreset, PointShape, DashPattern, HatchPattern } from '../types';
 import { ICON_CATEGORIES, ICON_PATHS, renderSwatchDataUrl, renderLineSwatchDataUrl, renderPolygonSwatchDataUrl } from './SymbolRenderer';
 import { SINGLE_COLORS, OUTLINE_COLORS, LABEL_COLORS } from '../lib/symbologyEngine';
 
@@ -15,6 +15,20 @@ const DASH_OPTS: Array<{ value: DashPattern; label: string }> = [
   { value: 'solid',  label: '———' },
   { value: 'dashed', label: '- - -' },
   { value: 'dotted', label: '· · ·' },
+];
+
+const CAP_OPTS: Array<{ value: 'butt' | 'round' | 'square'; label: string }> = [
+  { value: 'round',  label: 'Round' },
+  { value: 'butt',   label: 'Flat' },
+  { value: 'square', label: 'Square' },
+];
+
+const HATCH_OPTS: Array<{ value: HatchPattern; label: string; title: string }> = [
+  { value: 'solid',         label: '■',  title: 'Solid fill' },
+  { value: 'hatch-h',       label: '≡',  title: 'Horizontal hatch' },
+  { value: 'hatch-v',       label: '⦀',  title: 'Vertical hatch' },
+  { value: 'hatch-cross',   label: '⊞',  title: 'Crosshatch' },
+  { value: 'hatch-diagonal',label: '╱╱', title: 'Diagonal hatch' },
 ];
 
 /** Lite single-symbol editor for TypePreset — no classification, same look as SymbologyStudio. */
@@ -129,10 +143,12 @@ export class SingleSymbologyStudio {
       <div class="ss-section">
         <div class="ss-icon-grid" id="sss-icon-grid">
           <button class="ss-icon-btn${!draft.icon ? ' on' : ''}" data-sss-icon="" title="No icon">∅</button>
-          ${ICON_CATEGORIES.flatMap(cat => cat.icons).filter(k => ICON_PATHS[k]).map(k => `
-            <button class="ss-icon-btn${draft.icon === k ? ' on' : ''}" data-sss-icon="${k}" title="${k}">
-              <svg viewBox="0 0 256 256" width="16" height="16" fill="currentColor"><path d="${ICON_PATHS[k]}"/></svg>
-            </button>`).join('')}
+          ${ICON_CATEGORIES.map(cat => `
+            <span class="ss-icon-cat-label">${cat.label}</span>
+            ${cat.icons.filter(k => ICON_PATHS[k]).map(k => `
+              <button class="ss-icon-btn${draft.icon === k ? ' on' : ''}" data-sss-icon="${k}" title="${k}">
+                <svg viewBox="0 0 256 256" width="16" height="16" fill="currentColor"><path d="${ICON_PATHS[k]}"/></svg>
+              </button>`).join('')}`).join('')}
         </div>
         <div id="sss-icon-extra" class="${draft.icon ? '' : 'ss-hidden'}">
           <div class="ss-lbl" style="margin-top:8px">Icon colour</div>
@@ -163,6 +179,12 @@ export class SingleSymbologyStudio {
         </div>
       </div>
       <div class="ss-section">
+        <div class="ss-lbl">End cap</div>
+        <div class="ss-seg">
+          ${CAP_OPTS.map(c => `<button class="ss-seg-btn${(draft.cap ?? 'round') === c.value ? ' on' : ''}" data-sss-cap="${c.value}">${c.label}</button>`).join('')}
+        </div>
+      </div>
+      <div class="ss-section">
         <div class="ss-lbl">Casing width <span style="font-size:10px;opacity:.55">(border around line)</span> <span class="ss-val" id="sss-cw-val">${casingWidth}px</span></div>
         <input type="range" id="sss-cw" min="0" max="8" step="0.5" value="${casingWidth}" />
         <div id="sss-casing-extra" class="${casingWidth > 0 ? '' : 'ss-hidden'}" style="margin-top:8px">
@@ -175,6 +197,12 @@ export class SingleSymbologyStudio {
     `) : '';
 
     const polySection = isPoly ? this.accordion('Fill & stroke', `
+      <div class="ss-section">
+        <div class="ss-lbl">Fill pattern</div>
+        <div class="ss-seg">
+          ${HATCH_OPTS.map(h => `<button class="ss-seg-btn${(draft.fill_pattern ?? 'solid') === h.value ? ' on' : ''}" data-sss-pattern="${h.value}" title="${h.title}">${h.label}</button>`).join('')}
+        </div>
+      </div>
       <div class="ss-section">
         <div class="ss-lbl">Fill opacity <span class="ss-val" id="sss-fop-val">${Math.round(fillOpacity * 100)}%</span></div>
         <input type="range" id="sss-fop" min="0.05" max="1" step="0.05" value="${fillOpacity}" />
@@ -243,6 +271,7 @@ export class SingleSymbologyStudio {
       rows.push(['Outline', chip(draft.stroke_color ?? '#ffffff')]);
       if (draft.icon) rows.push(['Icon', draft.icon]);
     } else if (isPoly) {
+      if (draft.fill_pattern && draft.fill_pattern !== 'solid') rows.push(['Pattern', draft.fill_pattern]);
       rows.push(['Fill opacity', `${Math.round((draft.fill_opacity ?? 0.35) * 100)}%`]);
       rows.push(['Stroke', chip(draft.stroke_color ?? draft.color)]);
       rows.push(['Stroke width', `${draft.stroke_width ?? 2}px`]);
@@ -250,6 +279,7 @@ export class SingleSymbologyStudio {
       rows.push(['Width', `${draft.stroke_width ?? 3}px`]);
       rows.push(['Opacity', `${Math.round((draft.fill_opacity ?? 1) * 100)}%`]);
       if (draft.dash_pattern && draft.dash_pattern !== 'solid') rows.push(['Dash', draft.dash_pattern]);
+      if (draft.cap && draft.cap !== 'round') rows.push(['Cap', draft.cap]);
     }
     return rows.map(([k, v]) =>
       `<div class="ss-sum-row"><span class="ss-sum-k">${k}</span><span class="ss-sum-v">${v}</span></div>`
@@ -419,6 +449,16 @@ export class SingleSymbologyStudio {
         });
       });
 
+      // Line cap
+      overlay.querySelectorAll<HTMLButtonElement>('[data-sss-cap]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          overlay.querySelectorAll('[data-sss-cap]').forEach(b => b.classList.remove('on'));
+          btn.classList.add('on');
+          draft.cap = btn.dataset.sssCap as 'butt' | 'round' | 'square';
+          refresh();
+        });
+      });
+
       // Casing width
       const cwSlider = overlay.querySelector<HTMLInputElement>('#sss-cw');
       const cwVal = overlay.querySelector<HTMLElement>('#sss-cw-val');
@@ -439,6 +479,17 @@ export class SingleSymbologyStudio {
         });
       });
       this.wireCustomColor(overlay, 'sss-casing-color', c => { draft.casing_color = c; }, refresh);
+    }
+
+    if (isPoly) {
+      overlay.querySelectorAll<HTMLButtonElement>('[data-sss-pattern]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          overlay.querySelectorAll('[data-sss-pattern]').forEach(b => b.classList.remove('on'));
+          btn.classList.add('on');
+          draft.fill_pattern = btn.dataset.sssPattern as HatchPattern;
+          refresh();
+        });
+      });
     }
 
     overlay.querySelector('#sss-save')?.addEventListener('click', () => {

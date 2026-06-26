@@ -1,12 +1,12 @@
 import maplibregl from 'maplibre-gl';
 import type { Map as MLMap, LngLat, StyleSpecification } from 'maplibre-gl';
-import type { FieldFeature, AppSettings, LayerPreset, TypePreset, SymbologyState, GeometryType } from '../types';
+import type { FieldFeature, AppSettings, LayerPreset, TypePreset, SymbologyState, GeometryType, HatchPattern } from '../types';
 import { LAYER_IDS, BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import { buildColorExpression, buildRadiusExpression, buildLegend } from '../lib/symbologyEngine';
 import type { LegendEntry } from '../lib/symbologyEngine';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
-import { SymbolRenderer, renderIconImageData, renderShapeSprite, SHAPE_ICON_SCALE } from '../ui/SymbolRenderer';
+import { SymbolRenderer, renderIconImageData, renderShapeSprite, renderHatchImageData, SHAPE_ICON_SCALE } from '../ui/SymbolRenderer';
 import { wetlandPlotColor } from '../wetlands/wetlandSurvey';
 import { getGroupColor } from '../inventory/inventorySurvey';
 import proj4 from 'proj4';
@@ -55,6 +55,7 @@ export class MapManager {
   private initialized = false;
   private basemapOverlayIds: string[] = [];
   private shapeSpriteCounts = new Map<string, number>();
+  private registeredHatchKeys = new Set<string>();
 
   async init(containerId: string, settings: AppSettings): Promise<void> {
     const basemap = BASEMAPS.find(b => b.id === settings.basemap_id) ?? BASEMAPS[0];
@@ -578,6 +579,18 @@ export class MapManager {
       paint: {
         'fill-color': ['coalesce', ['get', 'color'], '#4ade80'],
         'fill-opacity': ['coalesce', ['get', 'fill_opacity'], 0.35]
+      }
+    });
+
+    // Hatch overlay for polygons with a non-solid fill pattern (rendered on top of fill)
+    this.map.addLayer({
+      id: 'collected-polygons-hatch',
+      type: 'fill',
+      source: 'collected-polygons',
+      filter: ['has', 'hatch_sprite'],
+      paint: {
+        'fill-pattern': ['get', 'hatch_sprite'] as maplibregl.ExpressionSpecification,
+        'fill-opacity': 1,
       }
     });
 
@@ -1197,6 +1210,7 @@ export class MapManager {
       const dashPattern = tp?.dash_pattern ?? 'solid';
       const casingColor = tp?.casing_color ?? null;
       const casingWidth = tp?.casing_width ?? 0;
+      const fillPattern = tp?.fill_pattern ?? 'solid';
 
       // use_symbol: true when shape is non-circle OR has icon (triggers symbol layer)
       const useSymbol = (shape !== 'circle') || (icon !== '');
@@ -1262,6 +1276,9 @@ export class MapManager {
           created_at: f.created_at,
           elevation: f.elevation,
           accuracy: f.accuracy,
+          // hatch_sprite presence drives the collected-polygons-hatch filter
+          ...(f.geometry_type === 'Polygon' && fillPattern !== 'solid' && tp?.id
+            ? { hatch_sprite: `cht-${tp.id}` } : {}),
         }
       };
 
@@ -1293,6 +1310,17 @@ export class MapManager {
       else if (f.geometry_type === 'Point') points.push(geoFeature);
       else if (f.geometry_type === 'LineString') lines.push(geoFeature);
       else if (f.geometry_type === 'Polygon') polygons.push(geoFeature);
+    }
+
+    // Register hatch sprites for TypePresets that need them (before setData so the
+    // fill-pattern expression can reference existing images).
+    if (typePresets) {
+      for (const tp of typePresets) {
+        const fp = tp.fill_pattern;
+        if (fp && fp !== 'solid' && tp.id) {
+          this.registerHatchSprite(`cht-${tp.id}`, fp, tp.color, tp.fill_opacity ?? 0.4);
+        }
+      }
     }
 
     const toFC = (feats: object[]) => ({ type: 'FeatureCollection', features: feats });
@@ -1386,6 +1414,7 @@ export class MapManager {
       const icon         = tp?.icon ?? '';
       const shape        = tp?.shape ?? 'circle';
       const dashPattern  = tp?.dash_pattern ?? 'solid';
+      const fillPattern  = tp?.fill_pattern ?? 'solid';
       const useSymbol    = (shape !== 'circle') || (icon !== '');
       const presetId     = tp?.id ?? '';
 
@@ -1406,6 +1435,8 @@ export class MapManager {
         dash_pattern: dashPattern,
         use_symbol: useSymbol,
         preset_id: presetId,
+        ...(f.geometry_type === 'Polygon' && fillPattern !== 'solid' && tp?.id
+          ? { hatch_sprite: `cht-${tp.id}` } : {}),
       };
 
       const geoFeature = { type: 'Feature', id: f.id, geometry: f.geometry, properties: baseProps };
@@ -1765,6 +1796,13 @@ export class MapManager {
     this.clearShapeSprites(id);
     const srcId = `src-${id}`;
     if (this.map.getSource(srcId)) this.map.removeSource(srcId);
+  }
+
+  private registerHatchSprite(key: string, pattern: HatchPattern, color: string, opacity: number): void {
+    const data = renderHatchImageData(pattern, color, opacity);
+    if (this.map.hasImage(key)) this.map.removeImage(key);
+    this.map.addImage(key, data, { pixelRatio: 2 });
+    this.registeredHatchKeys.add(key);
   }
 
   private clearShapeSprites(layerId: string): void {
@@ -2133,8 +2171,32 @@ export class MapManager {
       }
     }
     if (this.map.getLayer(fillId)) {
-      this.map.setPaintProperty(fillId, 'fill-color', colorExpr);
-      this.map.setPaintProperty(fillId, 'fill-opacity', fillOpacity);
+      const hatchId = `${fillId}-hatch-sprite`;
+      const fp = state.fill_pattern;
+      if (fp && fp !== 'solid') {
+        // Register hatch sprite for this layer and switch to fill-pattern.
+        const baseColor = typeof colorExpr === 'string' ? colorExpr : (state.color ?? '#4ade80');
+        this.registerHatchSprite(hatchId, fp, baseColor, fillOpacity * 0.5);
+        this.map.setPaintProperty(fillId, 'fill-color', colorExpr);
+        this.map.setPaintProperty(fillId, 'fill-opacity', fillOpacity * 0.2);
+        // Hatch overlay layer (reuse existing or create new)
+        const hatchLayerId = `${layerId}-fill-hatch`;
+        if (!this.map.getLayer(hatchLayerId)) {
+          this.map.addLayer({
+            id: hatchLayerId, type: 'fill', source: `src-${layerId}`,
+            filter: ['==', '$type', 'Polygon'],
+            paint: { 'fill-pattern': hatchId, 'fill-opacity': 1 },
+          }, fillId);
+        } else {
+          this.map.setPaintProperty(hatchLayerId, 'fill-pattern', hatchId);
+        }
+      } else {
+        // Remove hatch layer if previously set
+        const hatchLayerId = `${layerId}-fill-hatch`;
+        if (this.map.getLayer(hatchLayerId)) this.map.removeLayer(hatchLayerId);
+        this.map.setPaintProperty(fillId, 'fill-color', colorExpr);
+        this.map.setPaintProperty(fillId, 'fill-opacity', fillOpacity);
+      }
     }
   }
 
