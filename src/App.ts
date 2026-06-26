@@ -41,6 +41,7 @@ import { PhotoCapturePanel } from './photos/PhotoCapturePanel';
 import { PhotoBatchPanel } from './photos/PhotoBatchPanel';
 import { PhotoReportPanel } from './photos/PhotoReportPanel';
 import { PhotoViewerModal } from './photos/PhotoViewerModal';
+import { runPhotoDownscaleMigration } from './photos/photoMigration';
 import { AttributeTablePanel } from './ui/AttributeTablePanel';
 import type { SharedLayer, BasemapDef, ImportedLayer } from './types';
 import { sharedLayerToDef } from './data/sharedLayerDefs';
@@ -355,6 +356,10 @@ export class App {
     this.syncManager.start();
 
     EventBus.emit('toast', { message: 'Field Mapper ready', type: 'success', duration: 2000 });
+
+    // One-time, background re-compression of photos captured before on-import
+    // downscaling existed (deferred so it never competes with first paint).
+    setTimeout(() => { void runPhotoDownscaleMigration(); }, 4000);
   }
 
   /**

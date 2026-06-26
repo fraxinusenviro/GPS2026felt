@@ -61,6 +61,46 @@ export async function fileToStorageDataUrl(file: Blob, maxDim = 2048, quality = 
   }
 }
 
+export interface RecompressResult {
+  dataUrl: string;
+  changed: boolean;
+}
+
+/**
+ * Re-encode an already-stored image data URL down to the storage budget. Used by
+ * the one-time migration of photos captured before downscaling existed. Returns
+ * the original unchanged when it is already small enough, isn't a raster image,
+ * or can't be decoded.
+ *
+ * @param maxDim   longest-edge cap (px)
+ * @param minBytes only touch images whose encoded length exceeds this (skips thumbnails)
+ */
+export async function recompressStoredDataUrl(
+  dataUrl: string, maxDim = 2048, quality = 0.82, minBytes = 700_000,
+): Promise<RecompressResult> {
+  if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) {
+    return { dataUrl, changed: false };
+  }
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const bmp = await decode(blob);
+    if (!bmp) return { dataUrl, changed: false };
+    try {
+      const oversized = Math.max(bmp.width, bmp.height) > maxDim;
+      const heavy = dataUrl.length > minBytes;
+      if (!oversized && !heavy) return { dataUrl, changed: false };
+      const out = encodeScaled(bmp, maxDim, quality);
+      // Keep the smaller of the two — never grow an image.
+      if (out && out.length < dataUrl.length * 0.95) return { dataUrl: out, changed: true };
+      return { dataUrl, changed: false };
+    } finally {
+      (bmp as ClosableBitmap).close?.();
+    }
+  } catch {
+    return { dataUrl, changed: false };
+  }
+}
+
 /**
  * Produce a small thumbnail JPEG data URL from a stored image (data URL or Blob).
  * Used for selection grids so we never decode many full-size images at once.

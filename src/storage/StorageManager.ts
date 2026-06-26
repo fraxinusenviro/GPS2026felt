@@ -260,6 +260,12 @@ export class StorageManager {
     return this.db.getAll(STORE_FEATURES);
   }
 
+  /** Feature keys only — lets callers stream features one at a time without
+   *  loading every (potentially photo-heavy) record into memory at once. */
+  async getAllFeatureIds(): Promise<string[]> {
+    return this.db.getAllKeys(STORE_FEATURES) as Promise<string[]>;
+  }
+
   async getFeaturesByProject(projectId: string): Promise<FieldFeature[]> {
     return this.db.getAllFromIndex(STORE_FEATURES, 'by_project', projectId);
   }
