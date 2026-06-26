@@ -2,14 +2,14 @@ import { v4 as uuidv4 } from 'uuid';
 import type { TypePreset, AppSettings, GeometryType } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
-import { StylePicker } from './StylePicker';
+import { SingleSymbologyStudio } from './SingleSymbologyStudio';
 import { renderSwatchDataUrl, renderLineSwatchDataUrl, renderPolygonSwatchDataUrl } from './SymbolRenderer';
 
 export class PresetManager {
   private presets: TypePreset[] = [];
   private quickEntryPresetIds: [string, string, string] = ['', '', ''];
   private storage = StorageManager.getInstance();
-  private stylePicker = new StylePicker();
+  private stylePicker = new SingleSymbologyStudio();
 
   async init(settings: AppSettings): Promise<void> {
     this.presets = await this.storage.getAllTypePresets();

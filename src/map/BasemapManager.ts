@@ -3080,7 +3080,7 @@ export class BasemapManager {
           ${cogRampRow}
           ${!isBase ? `<div class="bm-adj-row">
             <label class="bm-adj-label">Blend</label>
-            <select class="bm-blend-select" data-iid="${layer.instanceId}" style="flex:1;font-size:11px;background:var(--color-bg-2,#1a2a1a);color:var(--color-text,#ccc);border:1px solid var(--color-border);border-radius:3px;padding:2px 4px">
+            <select class="bm-blend-select" data-iid="${layer.instanceId}">
               ${['normal','multiply','screen','overlay','darken','lighten','hard-light','soft-light','difference'].map(m =>
                 `<option value="${m}"${(layer.blendMode ?? 'normal') === m ? ' selected' : ''}>${m.charAt(0).toUpperCase() + m.slice(1)}</option>`
               ).join('')}

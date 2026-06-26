@@ -4,7 +4,7 @@ import { EventBus } from '../utils/EventBus';
 import type { ImportManager } from '../io/ImportManager';
 import type { ExportManager } from '../io/ExportManager';
 import { FeltExportDialog } from './FeltExportDialog';
-import { StylePicker } from './StylePicker';
+import { SingleSymbologyStudio } from './SingleSymbologyStudio';
 import { SymbologyStudio } from './SymbologyStudio';
 import { renderSwatchDataUrl, renderLineSwatchDataUrl, renderPolygonSwatchDataUrl } from './SymbolRenderer';
 import type { PresetManager } from './PresetManager';
@@ -18,7 +18,7 @@ export class LayersPanel {
   private storage = StorageManager.getInstance();
   private fileInput!: HTMLInputElement;
   private feltDialog = new FeltExportDialog();
-  private stylePicker = new StylePicker();
+  private stylePicker = new SingleSymbologyStudio();
   private symbologyStudio = new SymbologyStudio();
 
   private mapBgColor = '#000000';

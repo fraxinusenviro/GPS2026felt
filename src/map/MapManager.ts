@@ -2,10 +2,11 @@ import maplibregl from 'maplibre-gl';
 import type { Map as MLMap, LngLat, StyleSpecification } from 'maplibre-gl';
 import type { FieldFeature, AppSettings, LayerPreset, TypePreset, SymbologyState, GeometryType } from '../types';
 import { LAYER_IDS, BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
-import { buildColorExpression, buildRadiusExpression } from '../lib/symbologyEngine';
+import { buildColorExpression, buildRadiusExpression, buildLegend } from '../lib/symbologyEngine';
+import type { LegendEntry } from '../lib/symbologyEngine';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
-import { SymbolRenderer, renderIconImageData } from '../ui/SymbolRenderer';
+import { SymbolRenderer, renderIconImageData, renderShapeSprite, SHAPE_ICON_SCALE } from '../ui/SymbolRenderer';
 import { wetlandPlotColor } from '../wetlands/wetlandSurvey';
 import { getGroupColor } from '../inventory/inventorySurvey';
 import proj4 from 'proj4';
@@ -53,6 +54,7 @@ export class MapManager {
   private accuracyCircle: maplibregl.Marker | null = null;
   private initialized = false;
   private basemapOverlayIds: string[] = [];
+  private shapeSpriteCounts = new Map<string, number>();
 
   async init(containerId: string, settings: AppSettings): Promise<void> {
     const basemap = BASEMAPS.find(b => b.id === settings.basemap_id) ?? BASEMAPS[0];
@@ -1757,11 +1759,47 @@ export class MapManager {
   }
 
   removeGeoJSONLayer(id: string): void {
-    [`${id}-fill`, `${id}-casing`, `${id}-line`, `${id}-point`, `${id}-labels`, `${id}-icons`].forEach(lid => {
+    [`${id}-fill`, `${id}-casing`, `${id}-line`, `${id}-point`, `${id}-point-sym`, `${id}-labels`, `${id}-icons`].forEach(lid => {
       if (this.map.getLayer(lid)) this.map.removeLayer(lid);
     });
+    this.clearShapeSprites(id);
     const srcId = `src-${id}`;
     if (this.map.getSource(srcId)) this.map.removeSource(srcId);
+  }
+
+  private clearShapeSprites(layerId: string): void {
+    const count = this.shapeSpriteCounts.get(layerId) ?? 0;
+    for (let i = 0; i < count; i++) {
+      const key = `iss-${layerId}-${i}`;
+      if (this.map.hasImage(key)) this.map.removeImage(key);
+    }
+    this.shapeSpriteCounts.delete(layerId);
+  }
+
+  private buildShapeIconExpr(state: SymbologyState, legend: LegendEntry[], prefix: string): unknown {
+    if (state.method === 'single' || state.method === 'proportional' || legend.length === 0) {
+      return `${prefix}-0`;
+    }
+    if (state.method === 'categorical') {
+      const expr: unknown[] = ['match', ['to-string', ['get', state.field ?? '']]];
+      legend.forEach((l, i) => { if (l.cat !== undefined) expr.push(l.cat, `${prefix}-${i}`); });
+      expr.push(`${prefix}-0`);
+      return expr;
+    }
+    // graduated
+    const breaks = legend[0].breaks ?? [];
+    const expr: unknown[] = ['step', ['to-number', ['get', state.field ?? '']], `${prefix}-0`];
+    breaks.forEach((b, i) => expr.push(b, `${prefix}-${i + 1}`));
+    return expr;
+  }
+
+  private buildShapeSizeExpr(features: { properties: Record<string, unknown> }[], state: SymbologyState): unknown {
+    if (state.method === 'proportional') {
+      const base = buildRadiusExpression(features, state);
+      if (typeof base === 'number') return base / SHAPE_ICON_SCALE;
+      return ['/', base, SHAPE_ICON_SCALE];
+    }
+    return (state.size ?? 6) / SHAPE_ICON_SCALE;
   }
 
   // Apply data-driven symbology to a collected-* geometry group.
@@ -1983,12 +2021,12 @@ export class MapManager {
     originalColor: string,
   ): void {
     if (!this.initialized) return;
-    // Optional point icon overlay (no-op for non-point features via the layer filter).
-    this.setPointIconOverlay(`src-${layerId}`, `${layerId}-icons`, state);
     const fillId = `${layerId}-fill`;
     const lineId = `${layerId}-line`;
     const casingId = `${layerId}-casing`;
     const pointId = `${layerId}-point`;
+    const shapeSymId = `${layerId}-point-sym`;
+    const spritePrefix = `iss-${layerId}`;
 
     if (!state) {
       if (this.map.getLayer(pointId)) {
@@ -1996,6 +2034,8 @@ export class MapManager {
         this.map.setPaintProperty(pointId, 'circle-opacity', 0.8);
         this.map.setPaintProperty(pointId, 'circle-radius', 5);
       }
+      if (this.map.getLayer(shapeSymId)) this.map.removeLayer(shapeSymId);
+      this.clearShapeSprites(layerId);
       if (this.map.getLayer(lineId)) {
         this.map.setPaintProperty(lineId, 'line-color', originalColor);
         this.map.setPaintProperty(lineId, 'line-opacity', 0.8);
@@ -2017,16 +2057,65 @@ export class MapManager {
     const strokeOpacity = state.strokeOpacity ?? fillOpacity;
 
     if (this.map.getLayer(pointId)) {
-      this.map.setPaintProperty(pointId, 'circle-color', colorExpr);
-      this.map.setPaintProperty(pointId, 'circle-opacity', fillOpacity);
-      this.map.setPaintProperty(pointId, 'circle-radius',
-        state.method === 'proportional'
-          ? buildRadiusExpression(features, state)
-          : (state.size ?? 5),
-      );
-      this.map.setPaintProperty(pointId, 'circle-stroke-color', state.outlineColor ?? '#ffffff');
-      this.map.setPaintProperty(pointId, 'circle-stroke-width', state.outlineWidth ?? 1);
+      const shape = state.shape;
+      if (shape && shape !== 'circle') {
+        // Non-circle shape: build per-class sprites, use symbol layer.
+        const legend = buildLegend(features, state);
+        const outlineColor = state.outlineColor ?? '#ffffff';
+        const outlineWidth = state.outlineWidth ?? 1;
+        const prevCount = this.shapeSpriteCounts.get(layerId) ?? 0;
+        for (let i = legend.length; i < prevCount; i++) {
+          const key = `${spritePrefix}-${i}`;
+          if (this.map.hasImage(key)) this.map.removeImage(key);
+        }
+        this.shapeSpriteCounts.set(layerId, legend.length);
+        for (let i = 0; i < legend.length; i++) {
+          const imgData = renderShapeSprite(shape, legend[i].color, outlineColor, outlineWidth, fillOpacity);
+          const key = `${spritePrefix}-${i}`;
+          if (this.map.hasImage(key)) this.map.removeImage(key);
+          this.map.addImage(key, imgData, { pixelRatio: 2 });
+        }
+        const iconImgExpr = this.buildShapeIconExpr(state, legend, spritePrefix);
+        const iconSizeExpr = this.buildShapeSizeExpr(features, state);
+        // Hide circle layer.
+        this.map.setPaintProperty(pointId, 'circle-opacity', 0);
+        // Add or update shape symbol layer (inserted below icon overlay if present).
+        const iconLayerId = `${layerId}-icons`;
+        if (this.map.getLayer(shapeSymId)) {
+          this.map.setLayoutProperty(shapeSymId, 'icon-image', iconImgExpr as maplibregl.ExpressionSpecification);
+          this.map.setLayoutProperty(shapeSymId, 'icon-size', iconSizeExpr as maplibregl.ExpressionSpecification);
+        } else {
+          const beforeId = this.map.getLayer(iconLayerId) ? iconLayerId : undefined;
+          this.map.addLayer({
+            id: shapeSymId,
+            type: 'symbol',
+            source: `src-${layerId}`,
+            filter: ['==', '$type', 'Point'],
+            layout: {
+              'icon-image': iconImgExpr as maplibregl.ExpressionSpecification,
+              'icon-size': iconSizeExpr as maplibregl.ExpressionSpecification,
+              'icon-allow-overlap': true,
+              'icon-ignore-placement': true,
+            },
+          }, beforeId);
+        }
+      } else {
+        // Circle shape: show circle layer, remove shape symbol layer.
+        if (this.map.getLayer(shapeSymId)) this.map.removeLayer(shapeSymId);
+        this.clearShapeSprites(layerId);
+        this.map.setPaintProperty(pointId, 'circle-color', colorExpr);
+        this.map.setPaintProperty(pointId, 'circle-opacity', fillOpacity);
+        this.map.setPaintProperty(pointId, 'circle-radius',
+          state.method === 'proportional'
+            ? buildRadiusExpression(features, state)
+            : (state.size ?? 5),
+        );
+        this.map.setPaintProperty(pointId, 'circle-stroke-color', state.outlineColor ?? '#ffffff');
+        this.map.setPaintProperty(pointId, 'circle-stroke-width', state.outlineWidth ?? 1);
+      }
     }
+    // Icon overlay renders on top of shape/circle layer.
+    this.setPointIconOverlay(`src-${layerId}`, `${layerId}-icons`, state);
     if (this.map.getLayer(lineId)) {
       this.map.setPaintProperty(lineId, 'line-color', colorExpr);
       this.map.setPaintProperty(lineId, 'line-opacity', strokeOpacity);

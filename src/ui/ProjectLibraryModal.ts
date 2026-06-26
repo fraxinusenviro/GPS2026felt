@@ -10,6 +10,11 @@ import {
 } from '../inventory/InventoryExport';
 import { realObservations, uniqueSpeciesCount } from '../inventory/inventorySurvey';
 import { EventBus } from '../utils/EventBus';
+import {
+  icGlobe, icMap, icMoreHorizontal, icPencil, icDownload, icTrash2,
+  icFolder, icMapPin, icUser, icBarChart2, icLeaf, icClipboardList,
+  icChevronDown, icChevronRight, icCopy, icX,
+} from './plIcons';
 
 export const ALL_DATA_MAP_ID = '__all_data__';
 
@@ -164,7 +169,7 @@ export class ProjectLibraryModal {
             }
           </div>
           <div class="pl-header-right">
-            <button class="pl-close-btn" id="pl-close">✕</button>
+            <button class="pl-close-btn" id="pl-close">${icX(16)}</button>
           </div>
         </div>
 
@@ -172,7 +177,7 @@ export class ProjectLibraryModal {
           <aside class="pl-sidebar">
             <div class="pl-sidebar-section">
               <button class="pl-sidebar-item pl-all-data${activeMapId === ALL_DATA_MAP_ID ? ' active' : ''}" id="pl-all-data">
-                <span class="pl-sidebar-icon">🌐</span>
+                <span class="pl-sidebar-icon">${icGlobe(16)}</span>
                 <span>All Data</span>
               </button>
             </div>
@@ -221,7 +226,7 @@ export class ProjectLibraryModal {
         </select>
       </div>
       <div class="pl-all-data-card${activeMapId === ALL_DATA_MAP_ID ? ' active' : ''}" id="pl-all-data-card">
-        <div class="pl-all-data-icon">🌐</div>
+        <div class="pl-all-data-icon">${icGlobe(28)}</div>
         <div class="pl-all-data-info">
           <div class="pl-all-data-title">All Data</div>
           <div class="pl-all-data-sub">View all collected features across every project</div>
@@ -251,7 +256,7 @@ export class ProjectLibraryModal {
         <div class="pl-card-thumb"${p.thumbnail_url ? '' : ` style="background: linear-gradient(135deg, ${color}33, ${color}99)"`}>
           ${p.thumbnail_url
             ? `<img class="pl-card-thumb-img" src="${p.thumbnail_url}" alt="${escHtml(p.name)} preview" />`
-            : `<span class="pl-card-thumb-icon">🗺</span>`}
+            : `<span class="pl-card-thumb-icon">${icMap(28)}</span>`}
           ${activeMap ? `<span class="pl-active-badge pl-thumb-badge">Active</span>` : ''}
         </div>
         <div class="pl-card-body">
@@ -259,14 +264,14 @@ export class ProjectLibraryModal {
             ${isRenaming
               ? `<input class="pl-rename-input" id="pl-rename-input-${p.id}" value="${escHtml(p.name)}" maxlength="60" />
                  <button class="btn btn-sm btn-primary" data-save-rename-proj="${p.id}">Save</button>
-                 <button class="btn btn-sm btn-secondary" data-cancel-rename>✕</button>`
+                 <button class="btn btn-sm btn-secondary" data-cancel-rename>${icX()}</button>`
               : `<span class="pl-card-title">${escHtml(p.name)}</span>
                  <div class="pl-card-menu-wrap">
-                   <button class="pl-card-menu-btn" data-menu-id="${p.id}" title="More options">⋯</button>
+                   <button class="pl-card-menu-btn" data-menu-id="${p.id}" title="More options">${icMoreHorizontal(16)}</button>
                    <div class="pl-card-dropdown" id="pl-menu-${p.id}" style="display:none">
-                     <button data-rename-proj="${p.id}">✏ Rename</button>
-                     <button data-export-proj="${p.id}">⬇ Export</button>
-                     <button data-delete-proj="${p.id}" class="pl-danger-item">🗑 Delete</button>
+                     <button data-rename-proj="${p.id}">${icPencil()} Rename</button>
+                     <button data-export-proj="${p.id}">${icDownload()} Export</button>
+                     <button data-delete-proj="${p.id}" class="pl-danger-item">${icTrash2()} Delete</button>
                    </div>
                  </div>`
             }
@@ -317,22 +322,22 @@ export class ProjectLibraryModal {
           </div>
         </div>
         <div class="pl-detail-proj-meta">
-          <span class="pl-detail-meta-item">📁 ${maps.length} map${maps.length !== 1 ? 's' : ''}</span>
-          <span class="pl-detail-meta-item">📍 ${featureCount} feature${featureCount !== 1 ? 's' : ''}</span>
+          <span class="pl-detail-meta-item">${icFolder()} ${maps.length} map${maps.length !== 1 ? 's' : ''}</span>
+          <span class="pl-detail-meta-item">${icMapPin()} ${featureCount} feature${featureCount !== 1 ? 's' : ''}</span>
           <span class="pl-detail-meta-item">Updated ${formatDate(project.updated_at)}</span>
           <span class="pl-detail-meta-item">Created ${formatDate(project.created_at)}</span>
           ${users.length > 0
-            ? `<span class="pl-detail-meta-item pl-detail-users">👤 ${users.map(u => `<span class="pl-user-avatar" title="${escHtml(u)}">${escHtml(u.slice(0,2).toUpperCase())}</span>`).join('')}</span>`
+            ? `<span class="pl-detail-meta-item pl-detail-users">${icUser()} ${users.map(u => `<span class="pl-user-avatar" title="${escHtml(u)}">${escHtml(u.slice(0,2).toUpperCase())}</span>`).join('')}</span>`
             : ''}
         </div>
         <div class="pl-detail-proj-actions">
-          <button class="btn btn-sm btn-outline" data-rename-proj="${project.id}">✏ Rename</button>
-          <button class="btn btn-sm btn-outline" data-export-proj="${project.id}">⬇ Export Project</button>
-          <button class="btn btn-sm btn-outline pl-danger-btn" data-delete-proj="${project.id}">🗑 Delete</button>
+          <button class="btn btn-sm btn-outline" data-rename-proj="${project.id}">${icPencil()} Rename</button>
+          <button class="btn btn-sm btn-outline" data-export-proj="${project.id}">${icDownload()} Export Project</button>
+          <button class="btn btn-sm btn-outline pl-danger-btn" data-delete-proj="${project.id}">${icTrash2()} Delete</button>
         </div>
       </div>
 
-      ${this.section('maps', '🗺 Maps', maps.length,
+      ${this.section('maps', `${icMap(14)} Maps`, maps.length,
         `<button class="btn btn-sm btn-primary" id="pl-new-map-btn">+ New Map</button>`,
         maps.length === 0
           ? `<p class="pl-empty">No maps yet. Create one to get started.</p>`
@@ -352,7 +357,7 @@ export class ProjectLibraryModal {
       <div class="pl-detail-section pl-collapsible${isOpen ? '' : ' pl-collapsed'}" data-section="${key}">
         <div class="pl-section-head">
           <button class="pl-section-toggle" data-toggle-section="${key}" aria-expanded="${isOpen}">
-            <span class="pl-section-caret" aria-hidden="true">▾</span>
+            <span class="pl-section-caret" aria-hidden="true">${isOpen ? icChevronDown() : icChevronRight()}</span>
             <span class="pl-detail-section-title">${title}</span>
             <span class="pl-section-badge">${count}</span>
           </button>
@@ -380,7 +385,7 @@ export class ProjectLibraryModal {
           { fmt: 'shp', label: 'Shapefile', attrs: `data-ds-export="${i}" data-fmt="shp"` },
         ])}
       </div>`).join('');
-    return this.section('collected', '📊 User Collected Data', datasets.length, '',
+    return this.section('collected', `${icBarChart2(14)} User Collected Data`, datasets.length, '',
       `<div class="pl-data-list">${rows}</div>`);
   }
 
@@ -392,14 +397,14 @@ export class ProjectLibraryModal {
         <span class="pl-data-dot" style="background:${p.isUpland ? '#b08d57' : '#0b6b50'}"></span>
         <div class="pl-data-info">
           <span class="pl-data-name" title="${escHtml(p.plotId)}">${escHtml(p.plotId)}</span>
-          <span class="pl-data-meta">${escHtml(p.isUpland ? 'Upland Plot' : 'Wetland Plot')} · ${escHtml(p.date)} · <span class="pl-collector">👤 ${escHtml(p.collector)}</span></span>
+          <span class="pl-data-meta">${escHtml(p.isUpland ? 'Upland Plot' : 'Wetland Plot')} · ${escHtml(p.date)} · <span class="pl-collector">${icUser(12)} ${escHtml(p.collector)}</span></span>
         </div>
         <div class="pl-export-pills">
-          <button class="pl-pill" data-wl-edit="${p.feature.id}">✏ Edit</button>
+          <button class="pl-pill" data-wl-edit="${p.feature.id}">${icPencil()} Edit</button>
           <button class="pl-pill" data-wl-pdf="${p.feature.id}">PDF</button>
         </div>
       </div>`).join('');
-    return this.section('wetland', '🌿 Wetland Plots', plots.length,
+    return this.section('wetland', `${icLeaf(14)} Wetland Plots`, plots.length,
       `<button class="pl-pill" data-wl-export="csv">CSV (all)</button>
        <button class="pl-pill" data-wl-export="geojson">GeoJSON (all)</button>`,
       `<div class="pl-data-list">${rows}</div>`);
@@ -416,17 +421,17 @@ export class ProjectLibraryModal {
         <span class="pl-data-dot" style="background:#22c55e"></span>
         <div class="pl-data-info">
           <span class="pl-data-name" title="${escHtml(title)}">${escHtml(title)}</span>
-          <span class="pl-data-meta">${escHtml(s.date || '')} · ${r.obsCount} obs · ${r.speciesCount} spp · <span class="pl-collector">👤 ${escHtml(s.surveyor || '—')}</span></span>
+          <span class="pl-data-meta">${escHtml(s.date || '')} · ${r.obsCount} obs · ${r.speciesCount} spp · <span class="pl-collector">${icUser(12)} ${escHtml(s.surveyor || '—')}</span></span>
         </div>
         <div class="pl-export-pills">
-          <button class="pl-pill" data-inv-edit="${s.id}">✏ Edit</button>
+          <button class="pl-pill" data-inv-edit="${s.id}">${icPencil()} Edit</button>
           <button class="pl-pill" data-inv-export="${s.id}" data-fmt="csv">CSV</button>
           <button class="pl-pill" data-inv-export="${s.id}" data-fmt="geojson">GeoJSON</button>
           <button class="pl-pill" data-inv-export="${s.id}" data-fmt="pdf">PDF</button>
         </div>
       </div>`;
     }).join('');
-    return this.section('inventory', '📋 Inventory Surveys', surveys.length, '',
+    return this.section('inventory', `${icClipboardList(14)} Inventory Surveys`, surveys.length, '',
       `<div class="pl-data-list">${rows}</div>`);
   }
 
@@ -441,9 +446,9 @@ export class ProjectLibraryModal {
         ${primary.map(p => `<button class="pl-pill" ${p.attrs}>${p.label}</button>`).join('')}
         ${overflow.length > 0 ? `
         <div class="pl-card-menu-wrap">
-          <button class="pl-pill pl-pill-more" data-menu-id="${menuId}" title="More formats">⋯</button>
+          <button class="pl-pill pl-pill-more" data-menu-id="${menuId}" title="More formats">${icMoreHorizontal(14)}</button>
           <div class="pl-card-dropdown" id="pl-menu-${menuId}" style="display:none">
-            ${overflow.map(o => `<button ${o.attrs}>⬇ ${o.label}</button>`).join('')}
+            ${overflow.map(o => `<button ${o.attrs}>${icDownload()} ${o.label}</button>`).join('')}
           </div>
         </div>` : ''}
       </div>`;
@@ -558,7 +563,7 @@ export class ProjectLibraryModal {
         <div class="pl-map-thumb">
           ${m.thumbnail_url
             ? `<img class="pl-map-thumb-img" src="${m.thumbnail_url}" alt="${escHtml(m.name)} preview" />`
-            : `<span class="pl-map-thumb-icon">🗺</span>`}
+            : `<span class="pl-map-thumb-icon">${icMap(22)}</span>`}
         </div>
         <div class="pl-detail-map-content">
           <div class="pl-detail-map-header">
@@ -566,18 +571,18 @@ export class ProjectLibraryModal {
               ${isRenaming
                 ? `<input class="pl-rename-input" id="pl-rename-input-${m.id}" value="${escHtml(m.name)}" maxlength="60" />
                    <button class="btn btn-sm btn-primary" data-save-rename-map="${m.id}">Save</button>
-                   <button class="btn btn-sm btn-secondary" data-cancel-rename>✕</button>`
+                   <button class="btn btn-sm btn-secondary" data-cancel-rename>${icX()}</button>`
                 : `<span class="pl-detail-map-name">${escHtml(m.name)}</span>
                    ${isActive ? `<span class="pl-active-badge">Active</span>` : ''}`
               }
             </div>
             ${!isRenaming ? `
             <div class="pl-card-menu-wrap">
-              <button class="pl-card-menu-btn" data-menu-id="map-${m.id}" title="More options">⋯</button>
+              <button class="pl-card-menu-btn" data-menu-id="map-${m.id}" title="More options">${icMoreHorizontal(16)}</button>
               <div class="pl-card-dropdown" id="pl-menu-map-${m.id}" style="display:none">
-                <button data-rename-map="${m.id}">✏ Rename</button>
-                <button data-dupe-map="${m.id}">⧉ Duplicate</button>
-                <button data-delete-map="${m.id}" class="pl-danger-item">🗑 Delete</button>
+                <button data-rename-map="${m.id}">${icPencil()} Rename</button>
+                <button data-dupe-map="${m.id}">${icCopy()} Duplicate</button>
+                <button data-delete-map="${m.id}" class="pl-danger-item">${icTrash2()} Delete</button>
               </div>
             </div>` : ''}
           </div>
@@ -937,7 +942,7 @@ export class ProjectLibraryModal {
         btn.closest('.pl-detail-section')?.classList.toggle('pl-collapsed', !nowOpen);
         btn.setAttribute('aria-expanded', String(nowOpen));
         const caret = btn.querySelector('.pl-section-caret');
-        if (caret) caret.textContent = nowOpen ? '▾' : '▸';
+        if (caret) caret.innerHTML = nowOpen ? icChevronDown() : icChevronRight();
       });
     });
 

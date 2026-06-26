@@ -260,6 +260,8 @@ export interface SymbologyState {
   label_field?: string;
   label_size?: number;       // text size px
   label_color?: string;      // text colour
+  // Point shape (default 'circle'; non-circle uses a symbol layer)
+  shape?: PointShape;
   // Point icon overlay (key into ICON_PATHS; undefined = plain circle)
   icon?: string;
   icon_color?: string;

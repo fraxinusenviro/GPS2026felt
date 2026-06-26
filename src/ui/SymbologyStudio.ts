@@ -1,4 +1,4 @@
-import type { SymbologyState, SymbologyMethod, ClassifierName, GeoJSONFeatureCollection, GeoJSONGeometry } from '../types';
+import type { SymbologyState, SymbologyMethod, ClassifierName, GeoJSONFeatureCollection, GeoJSONGeometry, PointShape } from '../types';
 import {
   SEQ_RAMPS, QUAL_PALETTES, SINGLE_COLORS, OUTLINE_COLORS, LABEL_COLORS,
   sampleRamp, buildLegend, buildFullLayerSpec, detectFields, CLASSIFIERS,
@@ -76,6 +76,7 @@ export class SymbologyStudio {
       label_field: initialState?.label_field ?? '',
       label_size: initialState?.label_size ?? 12,
       label_color: initialState?.label_color ?? '#f8fafc',
+      shape: initialState?.shape,
       icon: initialState?.icon,
       icon_color: initialState?.icon_color ?? '#ffffff',
       icon_size: initialState?.icon_size ?? 1,
@@ -121,7 +122,24 @@ export class SymbologyStudio {
             <input type="range" id="ss-opacity" min="0.05" max="1" step="0.05" value="${state.opacity ?? 0.9}" />
           </div>`;
 
+    const SHAPE_OPTS: Array<{ value: PointShape; svg: string; label: string }> = [
+      { value: 'circle',   label: 'Circle',   svg: '<circle cx="12" cy="12" r="8" fill="currentColor"/>' },
+      { value: 'square',   label: 'Square',   svg: '<rect x="4" y="4" width="16" height="16" rx="2" fill="currentColor"/>' },
+      { value: 'diamond',  label: 'Diamond',  svg: '<polygon points="12,3 21,12 12,21 3,12" fill="currentColor"/>' },
+      { value: 'triangle', label: 'Triangle', svg: '<polygon points="12,4 22,20 2,20" fill="currentColor"/>' },
+    ];
+
     const pointStyleHtml = geomType === 'point' ? `
+          <div class="ss-section">
+            <div class="ss-lbl">Point shape</div>
+            <div class="ss-seg" id="ss-shape-seg">
+              ${SHAPE_OPTS.map(s => `
+                <button class="ss-seg-btn${(state.shape ?? 'circle') === s.value ? ' on' : ''}" data-shape="${s.value}" title="${s.label}">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="none">${s.svg}</svg>
+                </button>
+              `).join('')}
+            </div>
+          </div>
           <div class="ss-section">
             <div class="ss-lbl">Outline colour</div>
             <div class="ss-swatch-grid" id="ss-outline-swatches">
@@ -347,6 +365,7 @@ export class SymbologyStudio {
     rows.push([this.sizeLabel(state.method, geomType), `${state.size ?? 6}px`]);
     rows.push([geomType === 'polygon' ? 'Fill opacity' : 'Opacity', `${Math.round((state.opacity ?? 0.9) * 100)}%`]);
     if (geomType === 'point') {
+      rows.push(['Shape', state.shape ?? 'circle']);
       rows.push(['Outline', chip(state.outlineColor)]);
       rows.push(['Outline width', `${state.outlineWidth ?? 1.5}px`]);
       rows.push(['Icon overlay', state.icon ?? 'None']);
@@ -655,6 +674,18 @@ export class SymbologyStudio {
       if (opVal) opVal.textContent = `${Math.round(state.opacity * 100)}%`;
       rebuildDynamic();
     });
+
+    // Point: shape buttons
+    if (geomType === 'point') {
+      overlay.querySelectorAll<HTMLButtonElement>('[data-shape]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          overlay.querySelectorAll('[data-shape]').forEach(b => b.classList.remove('on'));
+          btn.classList.add('on');
+          state.shape = (btn.dataset.shape as PointShape) || undefined;
+          rebuildDynamic();
+        });
+      });
+    }
 
     // Point: outline swatches + width
     if (geomType === 'point') {
