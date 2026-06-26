@@ -258,6 +258,7 @@ interface EntryData {
   elevStr: string;
   bearingStr: string;
   notes: string;
+  caption: string;
   scale: { lenPt: number; halfPt: number; fullLabel: string; halfLabel: string };
 }
 
@@ -338,6 +339,23 @@ function drawEntry(doc: jsPDF, x: number, y: number, w: number, h: number, e: En
   doc.roundedRect(x + 8, y + 8, bw, 15, 3, 3, 'F');
   setText(doc, C.white);
   doc.text(e.seq, x + 8 + bw / 2, y + 18, { align: 'center' });
+
+  // Caption band — translucent strip across the bottom of the photo.
+  if (e.caption) {
+    doc.setFont(BODY, 'normal');
+    doc.setFontSize(8.5);
+    const capLines = doc.splitTextToSize(e.caption, photoW - 16) as string[];
+    const lineH = 11;
+    const bandH = 9 + capLines.length * lineH;
+    const gs = (doc as any).GState({ opacity: 0.62 });
+    (doc as any).setGState(gs);
+    setFill(doc, [0, 0, 0]);
+    doc.rect(x, y + h - bandH, photoW, bandH, 'F');
+    (doc as any).setGState((doc as any).GState({ opacity: 1 }));
+    setText(doc, C.white);
+    let cy = y + h - bandH + lineH;
+    for (const line of capLines) { doc.text(line, x + 8, cy); cy += lineH; }
+  }
 
   // ── Panel ──
   const mapH = panelW * 128 / 220;
@@ -472,6 +490,7 @@ export async function generatePhotoLogPdf(
       elevStr: f.elevation != null ? `${f.elevation.toFixed(1)} m` : '—',
       bearingStr: bearing != null ? bearingLabel(bearing) : '—',
       notes: f.notes?.trim() ?? '',
+      caption: f.photo_data?.caption?.trim() ?? '',
       scale: scaleGeometry(lat ?? 45, zoom, panelW),
     });
   }

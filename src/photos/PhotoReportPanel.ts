@@ -320,13 +320,123 @@ export class PhotoReportPanel {
     if (body) this.wireBody(body);
   }
 
-  private async generate(): Promise<void> {
+  private esc(s: string): string {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  /** Step 1 — validate filters, then open the preview/selection panel. */
+  private generate(): void {
     const features = this.getFilteredFeatures();
     if (features.length === 0) {
       EventBus.emit('toast', { message: 'No photo points match the current filters', type: 'warning' });
       return;
     }
+    this.openPreview(features);
+  }
 
+  /** Step 2 — let the user review thumbnails and deselect any photos to omit. */
+  private openPreview(features: FieldFeature[]): void {
+    const selected = new Set<string>(features.map(f => f.id));
+
+    let overlay = document.getElementById('photo-preview-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'photo-preview-overlay';
+      overlay.className = 'pv-overlay';
+      document.body.appendChild(overlay);
+    }
+
+    const fmtDate = (iso: string) => {
+      const d = new Date(iso);
+      return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+
+    const cards = features.map((f, i) => {
+      const seq = String(i + 1).padStart(2, '0');
+      const thumb = f.photos?.[0] ?? '';
+      const caption = f.photo_data?.caption ?? '';
+      const observer = f.photo_data?.observer ?? f.created_by ?? '';
+      const sub = caption || f.notes?.trim() || observer || '';
+      return `
+        <div class="pb-card is-on" data-id="${this.esc(f.id)}">
+          <label class="pb-card-sel">
+            <input type="checkbox" class="pp-include" data-id="${this.esc(f.id)}" checked />
+          </label>
+          <div class="pb-thumb">${thumb ? `<img src="${thumb}" alt="" />` : '<span style="color:#888;font-size:12px">No image</span>'}</div>
+          <div class="pb-meta">
+            <div class="pb-meta-line" style="font-weight:700;color:var(--color-text)"><span>#${seq}</span> ${this.esc(fmtDate(f.created_at))}</div>
+            ${sub ? `<div class="pb-meta-line" style="font-family:inherit">${this.esc(sub)}</div>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div class="pv-backdrop" id="pp-backdrop"></div>
+      <div class="pv-modal pb-modal" role="dialog" aria-modal="true">
+        <div class="pv-header">
+          <span class="pv-title">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="18" height="18"><path d="M208,56H180.28L166.65,35.56A8,8,0,0,0,160,32H96a8,8,0,0,0-6.65,3.56L75.71,56H48A24,24,0,0,0,24,80V192a24,24,0,0,0,24,24H208a24,24,0,0,0,24-24V80A24,24,0,0,0,208,56Zm-80,32a44,44,0,1,1-44,44A44.05,44.05,0,0,0,128,88Z"/></svg>
+            Preview Photos for Log
+          </span>
+          <button class="pv-close" id="pp-close" title="Close">✕</button>
+        </div>
+        <div class="pb-toolbar">
+          <button class="btn-outline pb-tool-btn" id="pp-all">Select all</button>
+          <button class="btn-outline pb-tool-btn" id="pp-none">Select none</button>
+          <span class="settings-hint" id="pp-count" style="margin-left:auto;font-size:12px"></span>
+        </div>
+        <div class="pv-body pb-body" id="pp-body"><div class="pb-grid">${cards}</div></div>
+        <div class="pv-footer">
+          <button class="pv-btn" id="pp-cancel">Cancel</button>
+          <button class="pv-btn pv-btn-primary" id="pp-generate">Generate PDF</button>
+        </div>
+      </div>`;
+
+    const closePreview = () => { overlay?.remove(); };
+    const updateCount = () => {
+      const countEl = overlay!.querySelector<HTMLElement>('#pp-count');
+      const genBtn = overlay!.querySelector<HTMLButtonElement>('#pp-generate');
+      if (countEl) countEl.textContent = `${selected.size} of ${features.length} selected`;
+      if (genBtn) {
+        genBtn.disabled = selected.size === 0;
+        genBtn.textContent = selected.size > 0 ? `Generate PDF (${selected.size})` : 'Generate PDF';
+      }
+    };
+
+    overlay.querySelectorAll<HTMLInputElement>('.pp-include').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const id = cb.dataset.id!;
+        if (cb.checked) selected.add(id); else selected.delete(id);
+        cb.closest('.pb-card')?.classList.toggle('is-on', cb.checked);
+        updateCount();
+      });
+    });
+    overlay.querySelector('#pp-all')?.addEventListener('click', () => {
+      features.forEach(f => selected.add(f.id));
+      overlay!.querySelectorAll<HTMLInputElement>('.pp-include').forEach(cb => { cb.checked = true; cb.closest('.pb-card')?.classList.add('is-on'); });
+      updateCount();
+    });
+    overlay.querySelector('#pp-none')?.addEventListener('click', () => {
+      selected.clear();
+      overlay!.querySelectorAll<HTMLInputElement>('.pp-include').forEach(cb => { cb.checked = false; cb.closest('.pb-card')?.classList.remove('is-on'); });
+      updateCount();
+    });
+    overlay.querySelector('#pp-close')?.addEventListener('click', closePreview);
+    overlay.querySelector('#pp-cancel')?.addEventListener('click', closePreview);
+    overlay.querySelector('#pp-backdrop')?.addEventListener('click', closePreview);
+    overlay.querySelector('#pp-generate')?.addEventListener('click', () => {
+      if (selected.size === 0) return;
+      const chosen = features.filter(f => selected.has(f.id));
+      closePreview();
+      void this.produce(chosen);
+    });
+
+    updateCount();
+  }
+
+  /** Step 3 — build and download the PDF for the chosen subset. */
+  private async produce(features: FieldFeature[]): Promise<void> {
     const btn = this.panel.querySelector<HTMLButtonElement>('#photo-report-generate');
     if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
 

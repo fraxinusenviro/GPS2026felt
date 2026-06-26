@@ -8673,6 +8673,105 @@ input[type=color] {
   color: var(--color-accent-text, #06120b);
 }
 .pv-btn-primary:hover { background: var(--color-accent-bright, #7df5a8); }
+.pv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ============================================================
+   Batch Add Photos modal
+   ============================================================ */
+.pb-modal { width: min(720px, calc(100vw - 24px)); }
+.pb-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+.pb-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 7px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.pb-observer { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.pb-observer label {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.pb-body { max-height: 60vh; }
+.pb-empty {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.pb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+.pb-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-surface-raised);
+  opacity: 0.55;
+  transition: opacity 0.15s ease, border-color 0.15s ease;
+}
+.pb-card.is-on { opacity: 1; border-color: var(--color-accent); }
+.pb-card.is-disabled { opacity: 0.4; }
+.pb-card-sel {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  background: rgba(0,0,0,0.55);
+  border-radius: 6px;
+  padding: 3px;
+  display: flex;
+}
+.pb-card-sel input { width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-accent); }
+.pb-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #0b0f0d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.pb-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pb-meta { padding: 8px; display: flex; flex-direction: column; gap: 5px; }
+.pb-meta-row { display: flex; }
+.pb-meta-line {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  font-family: var(--font-mono, monospace);
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.pb-meta-line span { font-family: initial; }
+.pb-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+.pb-badge-ok { background: rgba(45,160,90,0.18); color: #2da05a; }
+.pb-badge-warn { background: rgba(216,144,48,0.18); color: #d89030; }
+.pb-badge-bad { background: rgba(216,72,72,0.18); color: #d84848; }
+.pb-caption { font-size: 12px; padding: 4px 8px; margin-top: 2px; }
 
 /* ============================================================
    3D Surface Viewer modal

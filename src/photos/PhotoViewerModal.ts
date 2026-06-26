@@ -54,6 +54,7 @@ export class PhotoViewerModal {
     const photos = f.photos ?? [];
     const hasPhoto = photos.length > 0 && !!photos[this.photoIndex];
     const bearing = f.photo_data?.bearing ?? null;
+    const caption = f.photo_data?.caption ?? '';
     const observer = f.photo_data?.observer ?? f.created_by ?? '—';
     const dateStr = f.created_at ? new Date(f.created_at).toLocaleString() : '—';
     const coords = (f.lat != null && f.lon != null)
@@ -61,12 +62,12 @@ export class PhotoViewerModal {
     const elev = f.elevation != null ? `${f.elevation.toFixed(1)} m` : null;
     const acc = f.accuracy != null ? `±${f.accuracy.toFixed(0)} m` : null;
 
-    const meta: Array<[string, string]> = [
-      ['Observer', this.esc(observer)],
-      ['Bearing', bearing != null ? `${Math.round(bearing)}° ${bearingToCardinal(bearing)}` : '—'],
-      ['Date', this.esc(dateStr)],
-      ['Coordinates', this.esc(coords)],
-    ];
+    const meta: Array<[string, string]> = [];
+    if (caption) meta.push(['Caption', this.esc(caption)]);
+    meta.push(['Observer', this.esc(observer)]);
+    meta.push(['Bearing', bearing != null ? `${Math.round(bearing)}° ${bearingToCardinal(bearing)}` : '—']);
+    meta.push(['Date', this.esc(dateStr)]);
+    meta.push(['Coordinates', this.esc(coords)]);
     if (elev) meta.push(['Elevation', elev]);
     if (acc) meta.push(['Accuracy', acc]);
 

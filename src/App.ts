@@ -38,6 +38,7 @@ import { userIdFromEmail, USERID_SOURCE_KEY } from './utils/userId';
 import { WetlandsManager } from './wetlands/WetlandsManager';
 import { InventoryManager } from './inventory/InventoryManager';
 import { PhotoCapturePanel } from './photos/PhotoCapturePanel';
+import { PhotoBatchPanel } from './photos/PhotoBatchPanel';
 import { PhotoReportPanel } from './photos/PhotoReportPanel';
 import { PhotoViewerModal } from './photos/PhotoViewerModal';
 import { AttributeTablePanel } from './ui/AttributeTablePanel';
@@ -91,6 +92,7 @@ export class App {
   private wetlandsManager!: WetlandsManager;
   private inventoryManager!: InventoryManager;
   private photoCapturePanel!: PhotoCapturePanel;
+  private photoBatchPanel!: PhotoBatchPanel;
   private photoReportPanel!: PhotoReportPanel;
   private photoViewerModal = new PhotoViewerModal();
 
@@ -190,6 +192,8 @@ export class App {
       () => this.refreshProjectLayers(),
     );
     this.photoCapturePanel = new PhotoCapturePanel(this.captureManager, () => this.settings);
+    this.photoBatchPanel = new PhotoBatchPanel(this.captureManager, () => this.settings);
+    this.photoCapturePanel.setBatchPanel(this.photoBatchPanel);
     this.photoReportPanel = new PhotoReportPanel(this.mapManager);
     this.geometryEditor = new GeometryEditor(this.mapManager);
     this.importDataPanel = new ImportDataPanel(this.importManager, this.mapManager);
