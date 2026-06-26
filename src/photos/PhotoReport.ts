@@ -86,7 +86,9 @@ async function coverCrop(dataUrl: string, w: number, h: number): Promise<string 
     const dw = bmp.width * scale;
     const dh = bmp.height * scale;
     ctx.drawImage(bmp, (w - dw) / 2, (h - dh) / 2, dw, dh);
-    return canvas.toDataURL('image/jpeg', 0.9);
+    const out = canvas.toDataURL('image/jpeg', 0.9);
+    bmp.close?.(); // release decoded pixels promptly (mobile memory)
+    return out;
   } catch {
     return null;
   }
@@ -117,7 +119,9 @@ async function loadLogo(): Promise<{ dataUrl: string; w: number; h: number } | n
     canvas.width = bmp.width;
     canvas.height = bmp.height;
     canvas.getContext('2d')!.drawImage(bmp, 0, 0);
-    return { dataUrl: canvas.toDataURL('image/png'), w: bmp.width, h: bmp.height };
+    const result = { dataUrl: canvas.toDataURL('image/png'), w: bmp.width, h: bmp.height };
+    bmp.close?.();
+    return result;
   } catch {
     return null;
   }
@@ -157,6 +161,7 @@ async function fetchLocatorMap(
           if (!resp.ok) return;
           const bmp = await createImageBitmap(await resp.blob());
           ctx.drawImage(bmp, tx * TILE - left, ty * TILE - top);
+          bmp.close?.();
           gotAny = true;
         } catch { /* tile unavailable — leave gap */ }
       })());

@@ -4,6 +4,7 @@ import { EventBus } from '../utils/EventBus';
 import type { CaptureManager } from '../capture/CaptureManager';
 import { readExif, hasExifLocation, type ExifData } from './exif';
 import { buildPhotoFeature } from './photoFeature';
+import { fileToStorageDataUrl } from './imageUtils';
 import type { PhotoBatchPanel } from './PhotoBatchPanel';
 
 function bearingToCardinal(deg: number): string {
@@ -150,21 +151,17 @@ export class PhotoCapturePanel {
 
   /** Read a selected file: preview it and pull coordinates/bearing from its EXIF. */
   private async loadFile(file: File): Promise<void> {
-    // Show preview immediately.
-    const dataUrl = await new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => resolve('');
-      reader.readAsDataURL(file);
-    });
+    // Pull EXIF from the ORIGINAL bytes first — re-encoding strips it.
+    this.exif = await readExif(file);
+
+    // Downscale to a bounded JPEG before holding it in memory / storing it.
+    const dataUrl = await fileToStorageDataUrl(file);
     this.photoDataUrl = dataUrl;
     const img = this.panel.querySelector<HTMLImageElement>('#photo-preview-img');
     const placeholder = this.panel.querySelector<HTMLElement>('#photo-placeholder');
     if (img) { img.src = dataUrl; img.style.display = 'block'; }
     if (placeholder) placeholder.style.display = 'none';
 
-    // Pull EXIF (no-op for camera captures / stripped images).
-    this.exif = await readExif(file);
     const exifNote = this.panel.querySelector<HTMLElement>('#photo-exif-note');
 
     if (this.exif.bearing != null) {

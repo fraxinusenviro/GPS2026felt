@@ -2,6 +2,7 @@ import type { FieldFeature } from '../types';
 import { StorageManager } from '../storage/StorageManager';
 import { EventBus } from '../utils/EventBus';
 import { generatePhotoLogPdf, type FeatureProjection } from './PhotoReport';
+import { makeThumbnail } from './imageUtils';
 import type { FontKey } from './pdfFonts';
 import { BASEMAPS } from '../constants';
 import type { MapManager } from '../map/MapManager';
@@ -354,7 +355,7 @@ export class PhotoReportPanel {
 
     const cards = features.map((f, i) => {
       const seq = String(i + 1).padStart(2, '0');
-      const thumb = f.photos?.[0] ?? '';
+      const hasPhoto = !!f.photos?.[0];
       const caption = f.photo_data?.caption ?? '';
       const observer = f.photo_data?.observer ?? f.created_by ?? '';
       const sub = caption || f.notes?.trim() || observer || '';
@@ -363,7 +364,7 @@ export class PhotoReportPanel {
           <label class="pb-card-sel">
             <input type="checkbox" class="pp-include" data-id="${this.esc(f.id)}" checked />
           </label>
-          <div class="pb-thumb">${thumb ? `<img src="${thumb}" alt="" />` : '<span style="color:#888;font-size:12px">No image</span>'}</div>
+          <div class="pb-thumb" data-thumb-for="${this.esc(f.id)}">${hasPhoto ? '<span style="color:#888;font-size:11px">Loading…</span>' : '<span style="color:#888;font-size:12px">No image</span>'}</div>
           <div class="pb-meta">
             <div class="pb-meta-line" style="font-weight:700;color:var(--color-text)"><span>#${seq}</span> ${this.esc(fmtDate(f.created_at))}</div>
             ${sub ? `<div class="pb-meta-line" style="font-family:inherit">${this.esc(sub)}</div>` : ''}
@@ -433,6 +434,22 @@ export class PhotoReportPanel {
     });
 
     updateCount();
+    void this.fillPreviewThumbs(overlay, features);
+  }
+
+  /** Generate small thumbnails one at a time so we never decode many full-size images at once. */
+  private async fillPreviewThumbs(overlay: HTMLElement, features: FieldFeature[]): Promise<void> {
+    for (const f of features) {
+      // Stop if the preview was dismissed mid-load.
+      if (!document.body.contains(overlay)) return;
+      const cell = overlay.querySelector<HTMLElement>(`.pb-thumb[data-thumb-for="${CSS.escape(f.id)}"]`);
+      if (!cell) continue;
+      const src = f.photos?.[0];
+      if (!src) continue;
+      const thumb = await makeThumbnail(src);
+      if (!document.body.contains(overlay)) return;
+      cell.innerHTML = thumb ? `<img src="${thumb}" alt="" />` : '<span style="color:#888;font-size:12px">No image</span>';
+    }
   }
 
   /** Step 3 — build and download the PDF for the chosen subset. */
