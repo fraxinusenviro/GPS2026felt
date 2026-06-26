@@ -39,6 +39,8 @@ export interface FieldFeature {
 export interface PhotoPointData {
   bearing: number;     // camera bearing 0–360° (direction the lens faces)
   observer?: string;   // observer name / initials
+  caption?: string;    // short caption printed beneath the photo in the PDF log
+  source?: 'gps' | 'exif'; // where coordinates/bearing came from (live GPS vs image EXIF)
 }
 
 // ---- Biodiversity inventory (ported from the NSINV app) ----
