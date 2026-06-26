@@ -14,7 +14,7 @@ import { CogContourLayer } from './CogContourLayer';
 import { HRDEM_RAMPS, SLOPE_RAMPS, TPI_RAMPS, CHM_RAMPS, CHM_CLASSES, CHM_CLASS_PALETTES, invertRamp, rampToHorizontalGradient, type ColorRamp } from '../lib/elevationRenderer';
 import { EventBus } from '../utils/EventBus';
 import { StorageManager } from '../storage/StorageManager';
-import { StylePicker } from '../ui/StylePicker';
+import { SingleSymbologyStudio } from '../ui/SingleSymbologyStudio';
 import { renderSwatchDataUrl, renderLineSwatchDataUrl, renderPolygonSwatchDataUrl } from '../ui/SymbolRenderer';
 import { WETLAND_PLOT_COLOR, UPLAND_PLOT_COLOR } from '../wetlands/wetlandSurvey';
 import { getGroupColor, TAXON_GROUP_MAP } from '../inventory/inventorySurvey';
@@ -229,7 +229,7 @@ export class BasemapManager {
   private typePresets: TypePreset[] = [];
   private collectedFeatures: FieldFeature[] = [];
   private onTypePresetChange: ((preset: TypePreset) => void) | null = null;
-  private stylePicker = new StylePicker();
+  private stylePicker = new SingleSymbologyStudio();
   private mapBgColor = '#000000';
   private userId = '';
   private globalOverlayEnabled = false;

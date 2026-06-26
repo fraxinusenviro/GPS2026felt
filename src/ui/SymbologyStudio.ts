@@ -81,6 +81,7 @@ export class SymbologyStudio {
       icon_color: initialState?.icon_color ?? '#ffffff',
       icon_size: initialState?.icon_size ?? 1,
       icon_rotation: initialState?.icon_rotation ?? 0,
+      fill_pattern: initialState?.fill_pattern,
     };
   }
 
@@ -152,10 +153,12 @@ export class SymbologyStudio {
             <div class="ss-lbl">Icon overlay</div>
             <div class="ss-icon-grid" id="ss-icon-grid">
               <button class="ss-icon-btn${!state.icon ? ' on' : ''}" data-icon="" title="No icon">∅</button>
-              ${ICON_CATEGORIES.flatMap(cat => cat.icons).filter(k => ICON_PATHS[k]).map(k => `
-                <button class="ss-icon-btn${state.icon === k ? ' on' : ''}" data-icon="${k}" title="${k}">
-                  <svg viewBox="0 0 256 256" width="16" height="16" fill="currentColor"><path d="${ICON_PATHS[k]}"/></svg>
-                </button>`).join('')}
+              ${ICON_CATEGORIES.map(cat => `
+                <span class="ss-icon-cat-label">${cat.label}</span>
+                ${cat.icons.filter(k => ICON_PATHS[k]).map(k => `
+                  <button class="ss-icon-btn${state.icon === k ? ' on' : ''}" data-icon="${k}" title="${k}">
+                    <svg viewBox="0 0 256 256" width="16" height="16" fill="currentColor"><path d="${ICON_PATHS[k]}"/></svg>
+                  </button>`).join('')}`).join('')}
             </div>
             <div id="ss-icon-extra" class="${state.icon ? '' : 'ss-hidden'}">
               <div class="ss-lbl" style="margin-top:8px">Icon colour</div>
@@ -197,6 +200,18 @@ export class SymbologyStudio {
           ` : '';
 
     const polygonStyleHtml = geomType === 'polygon' ? `
+          <div class="ss-section">
+            <div class="ss-lbl">Fill pattern</div>
+            <div class="ss-seg">
+              ${[
+                { value: 'solid',          label: '■',   title: 'Solid fill' },
+                { value: 'hatch-h',        label: '≡',   title: 'Horizontal hatch' },
+                { value: 'hatch-v',        label: '⦀',   title: 'Vertical hatch' },
+                { value: 'hatch-cross',    label: '⊞',   title: 'Crosshatch' },
+                { value: 'hatch-diagonal', label: '╱╱',  title: 'Diagonal hatch' },
+              ].map(h => `<button class="ss-seg-btn${(state.fill_pattern ?? 'solid') === h.value ? ' on' : ''}" data-fill-pattern="${h.value}" title="${h.title}">${h.label}</button>`).join('')}
+            </div>
+          </div>
           <div class="ss-section">
             <div class="ss-lbl">Stroke colour</div>
             <div class="ss-swatch-grid">
@@ -373,6 +388,7 @@ export class SymbologyStudio {
       rows.push(['End cap', state.cap ?? 'round']);
       rows.push(['Casing', state.casing ? `${state.casingWidth ?? 2}px` : 'Off']);
     } else {
+      if (state.fill_pattern && state.fill_pattern !== 'solid') rows.push(['Pattern', state.fill_pattern]);
       rows.push(['Stroke', chip(state.strokeColor)]);
       rows.push(['Stroke opacity', `${Math.round((state.strokeOpacity ?? 0.4) * 100)}%`]);
     }
@@ -777,6 +793,14 @@ export class SymbologyStudio {
 
     // Polygon: stroke colour + opacity
     if (geomType === 'polygon') {
+      overlay.querySelectorAll<HTMLButtonElement>('[data-fill-pattern]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          overlay.querySelectorAll('[data-fill-pattern]').forEach(b => b.classList.remove('on'));
+          btn.classList.add('on');
+          state.fill_pattern = btn.dataset.fillPattern as import('../types').HatchPattern || undefined;
+          rebuildDynamic();
+        });
+      });
       overlay.querySelectorAll<HTMLElement>('[data-stroke]').forEach(el => {
         el.addEventListener('click', () => {
           el.parentElement?.querySelectorAll('.ss-sw').forEach(e => e.classList.remove('on'));

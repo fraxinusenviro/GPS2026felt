@@ -1,5 +1,5 @@
 import type { Map as MLMap } from 'maplibre-gl';
-import type { TypePreset } from '../types';
+import type { TypePreset, HatchPattern } from '../types';
 
 // Phosphor fill icon paths — 256×256 coordinate space, fill-based
 export const ICON_PATHS: Record<string, string> = {
@@ -225,6 +225,45 @@ export function renderIconImageData(iconKey: string, color: string): ImageData |
   return ctx.getImageData(0, 0, SIZE, SIZE);
 }
 
+/**
+ * Render a tileable hatch pattern sprite for use with MapLibre's fill-pattern.
+ * The tile is 16×16 CSS pixels (32×32 canvas pixels at pixelRatio:2).
+ * Lines are drawn transparent-background so the fill-color shows through.
+ * Use with `map.addImage(id, data, { pixelRatio: 2 })`.
+ */
+export function renderHatchImageData(pattern: HatchPattern, color: string, opacity: number): ImageData {
+  const T = 32; // canvas pixels → 16 CSS px at pixelRatio:2
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = T;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, T, T);
+  ctx.strokeStyle = hexToRgba(color, Math.min(1, opacity * 1.5));
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'square';
+  ctx.beginPath();
+  switch (pattern) {
+    case 'hatch-h':
+      ctx.moveTo(0, T / 2); ctx.lineTo(T, T / 2);
+      break;
+    case 'hatch-v':
+      ctx.moveTo(T / 2, 0); ctx.lineTo(T / 2, T);
+      break;
+    case 'hatch-cross':
+      ctx.moveTo(0, T / 2); ctx.lineTo(T, T / 2);
+      ctx.moveTo(T / 2, 0); ctx.lineTo(T / 2, T);
+      break;
+    case 'hatch-diagonal':
+      // / diagonal: two halves tile seamlessly
+      ctx.moveTo(0, T / 2); ctx.lineTo(T / 2, 0);
+      ctx.moveTo(T / 2, T); ctx.lineTo(T, T / 2);
+      break;
+    default:
+      break;
+  }
+  ctx.stroke();
+  return ctx.getImageData(0, 0, T, T);
+}
+
 export class SymbolRenderer {
   private registeredIds = new Set<string>();
 
@@ -299,7 +338,7 @@ export function renderLineSwatchDataUrl(preset: TypePreset, displaySize = 22): s
 }
 
 /**
- * Render a polygon swatch showing fill color/opacity and stroke.
+ * Render a polygon swatch showing fill color/opacity, optional hatch, and stroke.
  */
 export function renderPolygonSwatchDataUrl(preset: TypePreset, displaySize = 22): string {
   const canvas = document.createElement('canvas');
@@ -314,11 +353,49 @@ export function renderPolygonSwatchDataUrl(preset: TypePreset, displaySize = 22)
   ctx.lineTo(displaySize - p - displaySize * 0.06, displaySize - p);
   ctx.lineTo(p, displaySize - p - displaySize * 0.08);
   ctx.closePath();
-  ctx.fillStyle = hexToRgba(preset.color, preset.fill_opacity ?? 0.35);
+  const fillOpacity = preset.fill_opacity ?? 0.35;
+  const fp = preset.fill_pattern;
+  // With a hatch pattern use a lighter base fill so lines stand out
+  ctx.fillStyle = hexToRgba(preset.color, fp && fp !== 'solid' ? fillOpacity * 0.25 : fillOpacity);
   ctx.fill();
+  if (fp && fp !== 'solid') {
+    ctx.save();
+    ctx.clip();
+    drawHatchOnCanvas(ctx, fp, preset.color, fillOpacity, displaySize);
+    ctx.restore();
+  }
   const sc = preset.stroke_color ?? preset.color;
   ctx.strokeStyle = sc.startsWith('#') ? sc : preset.color;
   ctx.lineWidth = Math.max(1, Math.min(preset.stroke_width ?? 1.5, 3));
   ctx.stroke();
   return canvas.toDataURL();
+}
+
+function drawHatchOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  pattern: HatchPattern,
+  color: string,
+  opacity: number,
+  size: number,
+): void {
+  ctx.strokeStyle = hexToRgba(color, Math.min(1, opacity * 2));
+  ctx.lineWidth = Math.max(1, size * 0.04);
+  ctx.lineCap = 'square';
+  const sp = size * 0.22; // spacing between hatch lines
+  ctx.beginPath();
+  if (pattern === 'hatch-h') {
+    for (let y = sp; y < size; y += sp) { ctx.moveTo(0, y); ctx.lineTo(size, y); }
+  } else if (pattern === 'hatch-v') {
+    for (let x = sp; x < size; x += sp) { ctx.moveTo(x, 0); ctx.lineTo(x, size); }
+  } else if (pattern === 'hatch-cross') {
+    for (let y = sp; y < size; y += sp) { ctx.moveTo(0, y); ctx.lineTo(size, y); }
+    for (let x = sp; x < size; x += sp) { ctx.moveTo(x, 0); ctx.lineTo(x, size); }
+  } else if (pattern === 'hatch-diagonal') {
+    // / diagonal lines, seamless by drawing beyond bounds
+    for (let k = -size; k < size * 2; k += sp) {
+      ctx.moveTo(k, size);
+      ctx.lineTo(k + size, 0);
+    }
+  }
+  ctx.stroke();
 }
