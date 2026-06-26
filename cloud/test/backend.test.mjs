@@ -117,6 +117,17 @@ async function main() {
   const del = (c3.features ?? []).find((f) => f.id === featId);
   check('deleted feature appears with deleted=true', del && del.deleted === true, JSON.stringify(c3).slice(0, 160));
 
+  // A project_map delete is a tombstone with no project_id — must not 500 on the
+  // NOT NULL constraint (regression: project_maps.project_id was NOT NULL).
+  const mapDel = await post('/sync',
+    { project_maps: [{ id: `map-${now}-a`, deleted: true, updated_at: new Date(now + 9000).toISOString() }] });
+  const mapDelBody = await mapDel.json();
+  check('project_map delete (tombstone, no project_id) applied', mapDel.ok && mapDelBody.applied.project_maps === 1,
+    `${mapDel.status} ${JSON.stringify(mapDelBody)}`);
+  const c3b = await (await get(`/changes?since=${cursor}`)).json();
+  const mapGone = (c3b.project_maps ?? []).find((m) => m.id === `map-${now}-a`);
+  check('deleted project_map appears with deleted=true', mapGone && mapGone.deleted === true, JSON.stringify(c3b).slice(0, 160));
+
   // 6. presigned (only if R2 keys configured) -----------------------------
   console.log('\n[6] R2 presigned URL round-trip');
   const signRes = await post('/uploads/sign', { key: `photos/presigned-${now}.txt` });
