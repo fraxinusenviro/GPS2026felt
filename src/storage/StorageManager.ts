@@ -547,8 +547,15 @@ export class StorageManager {
     return this.db.countFromIndex(STORE_PROJECT_MAPS, 'by_project', projectId);
   }
 
-  /** One-time migration: for each Project that has no maps yet, create one from its legacy map fields. */
-  private async seedMapsFromProjects(): Promise<void> {
+  /**
+   * For each Project that has no maps yet, create a seed map from its legacy map fields.
+   * Uses a deterministic map ID derived from the project ID so that all devices produce
+   * the same entity — preventing duplicate seed maps from accumulating via sync when
+   * the app is first opened on multiple devices or after clearing local storage.
+   *
+   * Safe to call multiple times (idempotent: skips projects that already have maps).
+   */
+  async seedMapsFromProjects(): Promise<void> {
     const projects = await this.getAllProjects();
     const settings = await this.getAppSettings();
     let updatedSettings = false;
@@ -557,9 +564,9 @@ export class StorageManager {
       const existingMaps = await this.getMapsByProject(project.id);
       if (existingMaps.length > 0) continue;
 
-      const now = project.updated_at ?? project.created_at ?? new Date().toISOString();
+      const createdAt = project.created_at ?? new Date().toISOString();
       const map: ProjectMap = {
-        id: crypto.randomUUID(),
+        id: seedMapIdForProject(project.id),
         project_id: project.id,
         name: project.name,
         basemap_stack_json: project.basemap_stack_json ?? buildDefaultProjectStack(),
@@ -567,10 +574,10 @@ export class StorageManager {
         map_center: project.map_center ?? [-63.5, 45.0],
         map_zoom: project.map_zoom ?? 10,
         default_layer_id: project.default_layer_id ?? '',
-        created_at: project.created_at ?? now,
-        updated_at: now,
+        created_at: createdAt,
+        updated_at: new Date().toISOString(),
       };
-      // Save without triggering the sync hook (this is a local migration).
+      // Save without triggering the sync hook (bootstrap or cloud-data-changed will handle it).
       this.applyingRemote = true;
       try {
         await this.db.put(STORE_PROJECT_MAPS, map);
@@ -644,4 +651,16 @@ export class StorageManager {
       layers
     }, null, 2);
   }
+}
+
+/**
+ * Derive a stable, deterministic UUID-format map ID from a project ID.
+ * All devices seed the same map entity for the same project, so sync's
+ * last-write-wins collapses multiple seeds into one — no duplicates accumulate.
+ */
+function seedMapIdForProject(projectId: string): string {
+  if (projectId === 'default') return '5eed0001-defa-4000-8000-000000000001';
+  // For UUID project IDs (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx),
+  // replace the first segment with '5eed0000' to produce a distinct but stable ID.
+  return '5eed0000' + projectId.slice(8);
 }
