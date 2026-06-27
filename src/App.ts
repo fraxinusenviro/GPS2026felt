@@ -1202,8 +1202,8 @@ export class App {
   private initHudDraggable(): void {
     const pointHud    = document.getElementById('point-entry-hud');
     const captureHud  = document.getElementById('capture-controls');
-    const pointHandle   = pointHud?.querySelector<HTMLElement>('.hud-drag-handle');
-    const captureHandle = captureHud?.querySelector<HTMLElement>('.hud-drag-handle');
+    const pointHandle   = pointHud?.querySelector<HTMLElement>('.hud-accent-head');
+    const captureHandle = captureHud?.querySelector<HTMLElement>('.hud-accent-head');
     if (pointHud    && pointHandle)   this.makeDraggable(pointHud,    pointHandle);
     if (captureHud  && captureHandle) this.makeDraggable(captureHud,  captureHandle);
 
@@ -2189,6 +2189,18 @@ export class App {
     document.getElementById('shape-cancel')?.addEventListener('click', () => this.shapeTool.deactivate());
     document.getElementById('f-tritype')?.addEventListener('change', () => this.updateTriangleRows());
     document.getElementById('anno-cancel')?.addEventListener('click', () => this.closeAnnoCard());
+
+    // Rectangle: when "Constrain to square" is on, keep Width and Height in lock-step,
+    // including values typed into the manual dimension boxes.
+    const fSquare = document.getElementById('f-square') as HTMLInputElement | null;
+    const fWidth  = document.getElementById('f-width') as HTMLInputElement | null;
+    const fHeight = document.getElementById('f-rheight') as HTMLInputElement | null;
+    const mirror = (from: HTMLInputElement | null, to: HTMLInputElement | null) => {
+      if (fSquare?.checked && from && to && from.value) to.value = from.value;
+    };
+    fWidth?.addEventListener('input', () => mirror(fWidth, fHeight));
+    fHeight?.addEventListener('input', () => mirror(fHeight, fWidth));
+    fSquare?.addEventListener('change', () => mirror(fWidth, fHeight));
   }
 
   private closeAnnoCard(): void {

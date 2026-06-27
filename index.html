@@ -636,10 +636,9 @@
       <!-- Persistent Point Entry HUD (gps-point and sketch-point tools) -->
       <div id="point-entry-hud" style="display:none">
         <button id="btn-point-hud-close" class="hud-close-btn" title="Close">×</button>
-        <div class="hud-drag-handle" title="Drag to reposition"></div>
 
-        <!-- Title row -->
-        <div class="point-hud-title-row">
+        <!-- Title row (accent header; doubles as the drag handle) -->
+        <div class="point-hud-title-row hud-accent-head" title="Drag to reposition">
           <span class="point-hud-title">
             <svg id="point-hud-title-icon" viewBox="0 0 24 24" fill="currentColor" width="11" height="11"><circle cx="12" cy="12" r="5"/></svg>
             <span id="point-hud-title-text">GPS Point Capture</span>
@@ -676,7 +675,11 @@
       <!-- GPS Capture Controls (shown when GPS capture active or in setup) -->
       <div id="capture-controls" style="display:none">
         <button id="btn-capture-hud-close" class="hud-close-btn" title="Close">×</button>
-        <div class="hud-drag-handle" title="Drag to reposition"></div>
+        <!-- Title row (accent header; doubles as the drag handle) -->
+        <div class="hud-accent-head" title="Drag to reposition">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6m0 8v6M2 12h6m8 0h6"/><circle cx="12" cy="12" r="3"/></svg>
+          <span id="capture-hud-title-text">Capture</span>
+        </div>
         <!-- Type + Description (meta fields) -->
         <div id="capture-meta">
           <select id="capture-type">
