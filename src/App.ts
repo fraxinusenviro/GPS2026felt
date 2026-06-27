@@ -729,6 +729,7 @@ export class App {
 
     // User ID in TOC
     this.basemapManager.setUserId(settings.user_id ?? '');
+    this.updateHeaderAvatar(settings.user_id ?? '');
 
     this.gridOverlay.setVisible(settings.grid_visible);
     this.updateButtonState('btn-grid', settings.grid_visible);
@@ -1582,7 +1583,12 @@ export class App {
             })();
           }
         },
-        onConfigureSymbology: (def) => { this.basemapManager.configureAndAddDef(def); },
+        onConfigureSymbology: (def) => {
+          // Remember where the user was so a cancelled add returns them to the
+          // same Data Library view instead of dropping them back onto the map.
+          const returnGroup = this.dataLibraryModal.getActiveGroup();
+          this.basemapManager.configureAndAddDef(def, () => { void this.openDataLibrary(returnGroup); });
+        },
         onRenderImport: (container: HTMLElement) => { this.importDataPanel.renderToContainer(container); },
         onRenderExport: (container: HTMLElement) => { this.exportPanel.renderToContainer(container); },
         isInStack: (defId) => this.basemapManager.isDefInStack(defId),
@@ -2859,6 +2865,22 @@ export class App {
 
     if (mapEl) mapEl.textContent = mapName ?? '';
     if (sepMap) sepMap.style.display = mapName ? '' : 'none';
+  }
+
+  /** Show the logged-in user's initials in the header avatar (left of the theme toggle). */
+  private updateHeaderAvatar(userId: string): void {
+    const el = document.getElementById('header-user-avatar');
+    if (!el) return;
+    const id = (userId ?? '').trim();
+    if (!id) {
+      el.style.display = 'none';
+      el.textContent = '';
+      el.title = '';
+      return;
+    }
+    el.style.display = '';
+    el.textContent = id.slice(0, 2).toUpperCase();
+    el.title = `Signed in as ${id}`;
   }
 
   // ============================================================

@@ -16,6 +16,8 @@ export interface SymbologyOptions {
   /** Label for the confirm button (default 'Apply'). E.g. 'Add to Map' for pre-add flows. */
   applyLabel?: string;
   onApply: (state: SymbologyState) => void;
+  /** Invoked when the studio is dismissed without applying (cancel / close / backdrop). */
+  onCancel?: () => void;
 }
 
 const MAX_PREVIEW_FEATURES = 2000;
@@ -44,6 +46,13 @@ export class SymbologyStudio {
       this.container = null;
     }
     this.currentOptions = null;
+  }
+
+  /** Dismiss without applying — notify the caller (e.g. to reopen the Data Library) then close. */
+  private cancel(): void {
+    const cb = this.currentOptions?.onCancel;
+    this.close();
+    cb?.();
   }
 
   /** Build the working SymbologyState from defaults (+ optional persisted overrides). */
@@ -578,9 +587,9 @@ export class SymbologyStudio {
     onApply: (s: SymbologyState) => void,
   ): void {
     // Close / cancel
-    overlay.querySelector('#ss-close')?.addEventListener('click', () => this.close());
-    overlay.querySelector('#ss-cancel')?.addEventListener('click', () => this.close());
-    overlay.addEventListener('click', e => { if (e.target === overlay) this.close(); });
+    overlay.querySelector('#ss-close')?.addEventListener('click', () => this.cancel());
+    overlay.querySelector('#ss-cancel')?.addEventListener('click', () => this.cancel());
+    overlay.addEventListener('click', e => { if (e.target === overlay) this.cancel(); });
 
     // Collapsible accordion sections (delegated so it survives section rebuilds).
     overlay.querySelector('#ss-body')?.addEventListener('click', e => {

@@ -785,6 +785,11 @@ export class BasemapManager {
     this.addToStack(def, params);
   }
 
+  /** Re-render the open Table of Contents panel (if any) so stack/legend changes show immediately. */
+  private refreshPanel(): void {
+    if (this.panelState) this.renderContent(this.panelState.container, this.panelState.onClose);
+  }
+
   /** True for a Data Library def whose symbology should be chosen before it is
    *  added to the stack — currently the org-shared static-data layers (vector
    *  GeoJSON and COG raster), which ship with only a default style. */
@@ -800,7 +805,7 @@ export class BasemapManager {
    * joins the map. Falls back to a plain add for layers with no configurable
    * symbology.
    */
-  configureAndAddDef(def: BasemapDef): void {
+  configureAndAddDef(def: BasemapDef, onCancel?: () => void): void {
     if (!BasemapManager.hasConfigurableSymbology(def)) {
       this.addToStack(def);
       return;
@@ -811,6 +816,7 @@ export class BasemapManager {
       this.stack.unshift(layer);
       this.rebuildMap();
       this.saveStack();
+      this.refreshPanel();
       EventBus.emit('toast', { message: `Added: ${def.label}`, type: 'success', duration: 2000 });
     };
 
@@ -842,6 +848,7 @@ export class BasemapManager {
           previewFeatures,
           applyLabel: 'Add to Map',
           onApply: (state) => { layer.symbologyState = state; commit(); },
+          onCancel,
         });
       })();
       return;
@@ -889,6 +896,7 @@ export class BasemapManager {
           }
           commit();
         },
+        onCancel,
       });
     })();
   }
@@ -1006,6 +1014,7 @@ export class BasemapManager {
     }
     this.rebuildMap();
     this.saveStack();
+    this.refreshPanel();
   }
 
   private removeFromStack(instanceId: string): void {
@@ -2320,12 +2329,14 @@ export class BasemapManager {
       // Count features in this geometry group (excluding wetland plots, inventory, and photo points)
       const groupCount = this.collectedFeatures.filter(f => f.geometry_type === geomType && !isWetland(f) && !isInventory(f) && !isPhoto(f)).length;
 
-      if (types.length === 0 && groupCount === 0) return '';
+      // Only surface preset categories that currently have collected data.
+      const typesWithData = types.filter(p => (countByType.get(p.label) ?? 0) > 0);
+      if (typesWithData.length === 0 && groupCount === 0) return '';
 
       const isGroupCollapsed = this.collapsedFdGroups.has(geomType);
       const layerVis = layerPreset ? layerPreset.visible !== false : true;
 
-      const typeRows = types.map(p => {
+      const typeRows = typesWithData.map(p => {
         const count = countByType.get(p.label) ?? 0;
         const swatchUrl =
           geomType === 'LineString' ? renderLineSwatchDataUrl(p, 20)
@@ -2377,7 +2388,7 @@ export class BasemapManager {
         <span class="fd-type-label">Upland Plot</span>
         <span class="fd-type-count">${wetlandUpland > 0 ? wetlandUpland : '—'}</span>
       </div>`;
-    const wetlandGroup = (wetlandFeats.length > 0 || wetlandPreset) ? `
+    const wetlandGroup = wetlandFeats.length > 0 ? `
       <div class="fd-geom-group" data-fd-geom="WetlandPlot">
         <div class="fd-geom-header fd-geom-collapsible" data-fd-collapse="WetlandPlot">
           <span class="fd-geom-chevron${wetlandCollapsed ? ' fd-collapsed' : ''}">▾</span>
@@ -2418,7 +2429,7 @@ export class BasemapManager {
           <span class="fd-type-label">SoCI</span>
           <span class="fd-type-count">${soci}</span>
         </div>` : '');
-    const inventoryGroup = (inventoryFeats.length > 0 || inventoryPreset) ? `
+    const inventoryGroup = inventoryFeats.length > 0 ? `
       <div class="fd-geom-group" data-fd-geom="Inventory">
         <div class="fd-geom-header fd-geom-collapsible" data-fd-collapse="Inventory">
           <span class="fd-geom-chevron${inventoryCollapsed ? ' fd-collapsed' : ''}">▾</span>
@@ -2436,7 +2447,7 @@ export class BasemapManager {
     const photoPreset = this.featureLayerPresets.find(lp => lp.id.endsWith('-photo-points'));
     const photoCollapsed = this.collapsedFdGroups.has('PhotoPoints');
     const photoSize = photoPreset?.size ?? 0.85;
-    const photoGroup = (photoFeats.length > 0 || photoPreset) ? `
+    const photoGroup = photoFeats.length > 0 ? `
       <div class="fd-geom-group" data-fd-geom="PhotoPoints">
         <div class="fd-geom-header fd-geom-collapsible" data-fd-collapse="PhotoPoints">
           <span class="fd-geom-chevron${photoCollapsed ? ' fd-collapsed' : ''}">▾</span>
@@ -2476,10 +2487,15 @@ export class BasemapManager {
         <span class="cd-type-count">${untypedCount}</span>
       </div>` : '';
 
+    // With empty preset categories filtered out, the section may have nothing to
+    // show even when presets exist — hide it entirely rather than render a bare header.
+    const hasContent = body || wetlandGroup || inventoryGroup || photoGroup || untypedRow;
+    if (!hasContent) return '';
+
     const totalCount = this.collectedFeatures.length;
     const hint = totalCount > 0 ? `${totalCount} features` : '';
 
-    const fdLabel = (this.userId ? this.userId.toUpperCase() : 'Field') + ' Data';
+    const fdLabel = 'Project Data Collection';
     return this.sectionToggle('field-data', fdLabel, hint) +
       this.sectionBody('field-data', `<div class="fd-body">${body}${wetlandGroup}${inventoryGroup}${photoGroup}${untypedRow}</div>`);
   }
@@ -3571,7 +3587,7 @@ export class BasemapManager {
         ${this.renderCutFillSection()}
 
         <div class="bm-section-header-row">
-          ${this.sectionToggle('active-layers', 'Basemap Stack', '', false)}
+          ${this.sectionToggle('active-layers', 'Basemap/Static Stack', '', false)}
           <button id="bm-stack-vis-all" class="vis-tog bm-stack-vis-all ${this.stack.some(l => l.visible) ? 'active' : ''}" title="Show/hide all layers"></button>
           <button id="bm-refresh-all" class="bm-refresh-all-btn" title="Reload all basemap layers"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor" width="13" height="13"><path d="M240,56v48a8,8,0,0,1-8,8H184a8,8,0,0,1,0-16h28.69L197.31,80.69A96.09,96.09,0,0,0,43.81,116.8a8,8,0,1,1-15.62-3.6A112.11,112.11,0,0,1,208,70.69l15.33,15.32V56a8,8,0,0,1,16,0Zm-16.19,82.8a8,8,0,0,0-10,5.39A96.09,96.09,0,0,1,58.69,175.31L71.31,162.69A8,8,0,0,0,65.82,149H16a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V176.69l15.32,15.32a112.11,112.11,0,0,0,179.81-45.21A8,8,0,0,0,223.81,138.8Z"/></svg></button>
         </div>
