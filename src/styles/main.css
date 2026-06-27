@@ -6437,6 +6437,69 @@ input[type=color] {
   border-color: var(--color-accent);
 }
 
+/* ---- Shape tool options card (e.g. Circle) ---- */
+.shape-card {
+  position: absolute;
+  top: calc(var(--header-height) + 16px);
+  left: 96px;
+  z-index: 205;
+  width: min(360px, calc(100vw - 120px));
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-hover);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--color-text);
+  font-family: var(--font);
+}
+.shape-card.hidden { display: none; }
+.shape-card-head { display: flex; align-items: flex-start; gap: 10px; }
+.shape-card-glyph { color: var(--color-accent); flex-shrink: 0; }
+.shape-card-glyph svg { width: 26px; height: 26px; }
+.shape-card-titles { flex: 1; min-width: 0; }
+.shape-card-title { font-size: 15px; font-weight: 700; }
+.shape-card-sub { font-size: 12px; color: var(--color-text-muted); margin-top: 1px; }
+.shape-card-cancel {
+  background: none; border: none; color: var(--color-accent);
+  font-size: 13px; font-weight: 600; cursor: pointer; padding: 2px 4px; flex-shrink: 0;
+}
+.shape-card-check { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.shape-card-check input { width: 18px; height: 18px; margin-top: 1px; accent-color: var(--color-accent); flex-shrink: 0; }
+.shape-card-check span { display: flex; flex-direction: column; font-size: 13px; }
+.shape-card-check em { font-style: normal; font-size: 11px; color: var(--color-text-muted); margin-top: 1px; }
+.shape-card-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.shape-card-row > label { min-width: 56px; color: var(--color-text-dim); }
+.shape-card-row input[type="number"] {
+  flex: 1; max-width: 110px; padding: 5px 8px;
+  border: 1px solid var(--color-border); border-radius: 8px;
+  background: var(--color-bg); color: var(--color-text); font-size: 13px; font-family: var(--font);
+}
+.shape-card-unit { color: var(--color-text-muted); font-size: 12px; }
+.shape-card-select {
+  flex: 1; padding: 5px 8px;
+  border: 1px solid var(--color-border); border-radius: 8px;
+  background: var(--color-bg); color: var(--color-text); font-size: 13px; font-family: var(--font);
+}
+.shape-card-hint { font-size: 11px; color: var(--color-text-muted); }
+
+.shape-radius-badge {
+  position: absolute;
+  z-index: 206;
+  transform: translate(-50%, -150%);
+  background: rgba(0,0,0,0.78);
+  color: #fff;
+  font-size: 12px;
+  font-family: var(--font);
+  padding: 3px 8px;
+  border-radius: 10px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.shape-radius-badge.hidden { display: none; }
+
 .fh-mode-label {
   font-size: 11px;
   color: var(--color-warn);

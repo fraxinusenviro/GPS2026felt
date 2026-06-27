@@ -4,6 +4,7 @@ import { MapManager } from './map/MapManager';
 import { BasemapManager } from './map/BasemapManager';
 import { GridOverlay } from './map/GridOverlay';
 import { CaptureManager } from './capture/CaptureManager';
+import { CircleTool } from './capture/CircleTool';
 import { ImportManager } from './io/ImportManager';
 import { ExportManager } from './io/ExportManager';
 import { HUD } from './ui/HUD';
@@ -54,6 +55,7 @@ export class App {
   private basemapManager!: BasemapManager;
   private gridOverlay!: GridOverlay;
   private captureManager!: CaptureManager;
+  private circleTool!: CircleTool;
   private importManager!: ImportManager;
   private exportManager!: ExportManager;
   private hud!: HUD;
@@ -175,6 +177,8 @@ export class App {
     this.gridOverlay = new GridOverlay(this.mapManager);
     this.captureManager = new CaptureManager(this.mapManager);
     this.captureManager.setSettings(this.settings);
+    this.circleTool = new CircleTool(this.mapManager, this.captureManager);
+    this.circleTool.setOnComplete(() => this.circleTool.deactivate());
     this.importManager = new ImportManager(this.mapManager);
     this.exportManager = new ExportManager();
     this.presetManager = new PresetManager();
@@ -1160,6 +1164,7 @@ export class App {
         const hudEl2 = document.getElementById('point-entry-hud');
         if (hudEl2 && sketchTools.includes(currentTool)) hudEl2.style.display = 'none';
         if (sketchTools.includes(currentTool)) this.activateTool('none');
+        this.circleTool?.deactivate();
         this.closeSketchFlyouts();
         break;
       }
@@ -1922,7 +1927,7 @@ export class App {
 
       // Photo points open the photo viewer on click (independent of the active
       // tool, except while actively sketching or editing geometry).
-      if (!['edit-geometry', 'sketch-line', 'sketch-polygon', 'measure'].includes(tool)) {
+      if (!['edit-geometry', 'sketch-line', 'sketch-polygon', 'sketch-shape', 'measure'].includes(tool)) {
         if (this.handlePhotoPointClick(lngLat.lng, lngLat.lat)) return;
       }
 
@@ -2098,25 +2103,52 @@ export class App {
       if (!btn || !flyout) return;
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
+        this.circleTool.deactivate(); // opening a flyout cancels an in-progress shape
         const wasOpen = !flyout.classList.contains('hidden');
         this.closeSketchFlyouts();
         if (!wasOpen) open(btn, flyout);
       });
-      // Inert sub-tool buttons: single-select highlight only (function wired next step).
+      // Sub-tool buttons: activate the matching tool (only Circle is wired so far).
       flyout.querySelectorAll<HTMLButtonElement>('.flyout-btn').forEach(b => {
         b.addEventListener('click', () => {
           flyout.querySelectorAll('.flyout-btn').forEach(x => x.classList.remove('active'));
           b.classList.add('active');
-          // TODO: activate the corresponding shape/annotation tool here.
+          if (b.dataset.shape === 'circle') {
+            this.closeSketchFlyouts();
+            this.populateCircleTypeSelector();
+            this.circleTool.activate();
+          }
+          // TODO: wire the remaining shape/annotation tools here.
         });
       });
     });
 
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.closeSketchFlyouts(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (this.circleTool.isActive()) this.circleTool.deactivate();
+      else this.closeSketchFlyouts();
+    });
     document.addEventListener('click', (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('.sketch-flyout') || t.closest('#btn-sketch-shape') || t.closest('#btn-annotate')) return;
       this.closeSketchFlyouts();
+    });
+
+    document.getElementById('circle-cancel')?.addEventListener('click', () => this.circleTool.deactivate());
+  }
+
+  /** Fill the circle options card's Type selector with the active project's Polygon presets. */
+  private populateCircleTypeSelector(): void {
+    const sel = document.getElementById('circle-type') as HTMLSelectElement | null;
+    if (!sel) return;
+    const current = sel.value;
+    const presets = this.presetManager.getPresetsForGeomType('Polygon');
+    sel.innerHTML = '<option value="">None</option>';
+    presets.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.label; opt.textContent = p.label;
+      if (p.label === current) opt.selected = true;
+      sel.appendChild(opt);
     });
   }
 
