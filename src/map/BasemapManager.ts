@@ -6,6 +6,7 @@ import { SymbologyStudio } from '../ui/SymbologyStudio';
 import { RasterSymbologyStudio } from '../ui/RasterSymbologyStudio';
 import { RASTER_RAMPS, EXTENDED_COLOR_RAMPS, buildRgbLut, buildCogColormap, computeClassBreaks } from '../lib/rasterRamps';
 import { equalIntervalClasses, breaksToClasses, classifiedRowsHtml } from '../lib/rasterLegend';
+import { buildLegend } from '../lib/symbologyEngine';
 import { MapManager } from './MapManager';
 import { NSPRDVectorLayer } from './NSPRDVectorLayer';
 import { NSHNVectorLayer } from './NSHNVectorLayer';
@@ -1685,6 +1686,43 @@ export class BasemapManager {
         return `<div class="legend-row"><span class="legend-swatch-line" style="border-top:3px solid ${line}"></span><span class="legend-row-label">Line feature</span></div>`;
       }
       return `<div class="legend-row"><span class="legend-swatch" style="background:${fill};border-color:${line}"></span><span class="legend-row-label">Polygon feature</span></div>`;
+    }
+
+    // Static GeoJSON overlay from the shared data library. Mirrors the vector
+    // symbology: a per-class swatch list when categorical/graduated symbology is
+    // applied, otherwise a single swatch keyed to the detected geometry type.
+    if (ltype === 'geojson') {
+      const geom = this.geojsonGeomType.get(layer.instanceId)
+        ?? (this.getVectorConfig(layer)?.geomType === 'line' ? 'line' : undefined);
+      const feats = this.geojsonOverlays.get(layer.instanceId);
+      const state = layer.symbologyState;
+      const lf = state?.label_field;
+      const note = lf
+        ? `<div class="legend-row-label" style="opacity:0.6">Labelled by ${escHtml(lf)}</div>`
+        : '';
+
+      const swatch = (color: string): string =>
+        geom === 'line'
+          ? `<span class="legend-swatch-line" style="border-top:3px solid ${color}"></span>`
+          : geom === 'point'
+            ? `<span class="legend-swatch" style="background:${color};border-color:${color};border-radius:50%;width:12px;height:12px"></span>`
+            : `<span class="legend-swatch" style="background:${color};border-color:${color}"></span>`;
+
+      // Per-class rows once features are loaded and a data-driven method is set.
+      if (state && state.method !== 'single' && state.method !== 'proportional' && feats && feats.length) {
+        const entries = buildLegend(feats, state);
+        if (entries.length) {
+          const rows = entries
+            .map(e => `<div class="legend-row">${swatch(e.color)}<span class="legend-row-label">${escHtml(e.label)}</span></div>`)
+            .join('');
+          return rows + note;
+        }
+      }
+
+      // Single symbology, or features not yet fetched: one swatch by geometry type.
+      const color = this.geojsonColor(layer);
+      const label = geom === 'line' ? 'Line feature' : geom === 'point' ? 'Point feature' : 'Polygon feature';
+      return `<div class="legend-row">${swatch(color)}<span class="legend-row-label">${label}</span></div>` + note;
     }
 
     if (ltype === 'cog-contour') {
