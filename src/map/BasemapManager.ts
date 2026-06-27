@@ -169,7 +169,7 @@ export class BasemapManager {
   private onLayerStateChange: ((id: string, updates: { visible?: boolean; opacity?: number; symbologyState?: SymbologyState | null }) => void) | null = null;
   // All sections collapsed by default; user expands what they need
   private collapsedSections = new Set<string>([
-    'active-layers', 'field-data',
+    'active-layers', 'field-data', 'annotations',
     'basemaps', 'pdfs', 'lidar', 'userlayers', 'cutfill-runs',
     ...[...new Set(
       BASEMAP_OVERLAYS.filter(o => o.group)
@@ -229,6 +229,11 @@ export class BasemapManager {
   // TypePresets for collected data symbology TOC
   private typePresets: TypePreset[] = [];
   private collectedFeatures: FieldFeature[] = [];
+
+  // Annotations group (graphical, scoped to the active map)
+  private annotationsVisible = true;
+  private annotationsCount = 0;
+  private annotationsAvailable = false;
   private onTypePresetChange: ((preset: TypePreset) => void) | null = null;
   private stylePicker = new SingleSymbologyStudio();
   private mapBgColor = '#000000';
@@ -262,6 +267,13 @@ export class BasemapManager {
       if (this.panelState) {
         this.renderContent(this.panelState.container, this.panelState.onClose);
       }
+    });
+
+    // Keep the Annotations TOC group in sync with the active map's annotations.
+    EventBus.on<{ count: number; available: boolean }>('annotations-count', ({ count, available }) => {
+      this.annotationsCount = count;
+      this.annotationsAvailable = available;
+      if (this.panelState) this.renderContent(this.panelState.container, this.panelState.onClose);
     });
 
     // Load persisted runs on startup
@@ -2252,6 +2264,31 @@ export class BasemapManager {
 
   // ---- Collected Data section — stacked type list with feature counts ----
 
+  // ---- Annotations section (graphical, scoped to the active map) ----
+  private renderAnnotationsSection(): string {
+    if (!this.annotationsAvailable) return '';
+    const eye = this.annotationsVisible;
+    const hint = `${this.annotationsCount} item${this.annotationsCount !== 1 ? 's' : ''}`;
+    const row = `
+      <div class="fd-row">
+        <button id="bm-anno-vis" class="vis-tog ${eye ? 'active' : ''}" title="Show/hide annotations"></button>
+        <span class="fd-label">Map annotations</span>
+        <span class="fd-count">${this.annotationsCount}</span>
+      </div>
+      <div class="settings-hint" style="padding:4px 8px">Graphical only — text, arrows, callouts &amp; shapes placed on this map. Scale with zoom from where they were placed.</div>
+    `;
+    return this.sectionToggle('annotations', 'Annotations', hint, false) +
+      this.sectionBody('annotations', `<div class="fd-body">${row}</div>`);
+  }
+
+  private wireAnnotations(container: HTMLElement): void {
+    container.querySelector('#bm-anno-vis')?.addEventListener('click', () => {
+      this.annotationsVisible = !this.annotationsVisible;
+      this.mapManager.setAnnotationsVisible(this.annotationsVisible);
+      if (this.panelState) this.renderContent(this.panelState.container, this.panelState.onClose);
+    });
+  }
+
   private renderMapDisplaySection(): string {
     return this.sectionToggle('map-display', 'Map Display', 'appearance settings') +
       this.sectionBody('map-display', `
@@ -3583,6 +3620,7 @@ export class BasemapManager {
 
         ${this.renderViewAsControl()}
         ${this.renderFieldDataSection()}
+        ${this.renderAnnotationsSection()}
         ${this.renderGlobalOverlaySection()}
         ${this.renderCutFillSection()}
 
@@ -3605,6 +3643,7 @@ export class BasemapManager {
 
     container.querySelector('#bm-close')?.addEventListener('click', onClose);
     this.wireFieldData(container);
+    this.wireAnnotations(container);
     this.wireMapDisplay(container);
     this.wireCutFillSection(container);
     this.wireContent(container, onClose);

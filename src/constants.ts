@@ -892,7 +892,7 @@ export const LAYER_IDS = {
 
 // ---- Storage Keys ----
 export const DB_NAME = 'FieldMapper2026';
-export const DB_VERSION = 7;
+export const DB_VERSION = 8;
 export const STORE_FEATURES = 'features';
 export const STORE_SETTINGS = 'settings';
 export const STORE_PRESETS = 'presets';
@@ -906,6 +906,7 @@ export const STORE_PROJECTS = 'projects';
 export const STORE_SHARED_LAYERS = 'shared_layers';
 export const STORE_INVENTORY_SURVEYS = 'inventory_surveys';  // device-local draft surveys (not synced)
 export const STORE_PROJECT_MAPS = 'project_maps';            // named views within a project
+export const STORE_ANNOTATIONS = 'annotations';              // graphical annotations, scoped per map
 
 // ---- Project defaults ----
 

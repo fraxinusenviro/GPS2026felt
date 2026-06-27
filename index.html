@@ -76,6 +76,69 @@
         </div>
       </div>
 
+      <!-- Shape picker flyout (opened by the SKETCH > Shapes button) -->
+      <div id="shape-flyout" class="shape-flyout hidden" aria-label="Shape picker">
+        <button class="shf-btn active" data-shape="circle" title="Circle">● Circle</button>
+        <button class="shf-btn" data-shape="ellipse" title="Ellipse">⬭ Ellipse</button>
+        <button class="shf-btn" data-shape="rectangle" title="Rectangle">▭ Rectangle</button>
+        <button class="shf-btn" data-shape="square" title="Square">▢ Square</button>
+        <button class="shf-btn" data-shape="ngon" title="Regular polygon">⬡ N-gon</button>
+        <button class="shf-btn" data-shape="arc" title="Arc">◜ Arc</button>
+        <button class="shf-btn" data-shape="bezier" title="Bézier curve">∿ Bézier</button>
+        <button class="shf-btn" data-shape="buffer" title="Buffer a feature">◎ Buffer</button>
+      </div>
+
+      <!-- Shape drawing options pill -->
+      <div id="shape-options" class="freehand-pill hidden" aria-label="Shape options"><span class="fh-drag-handle" title="Drag to reposition"></span>
+        <div class="fh-geom-group">
+          <button id="sh-method-drag" class="fh-type-btn active">Drag</button>
+          <button id="sh-method-param" class="fh-type-btn">By value</button>
+        </div>
+        <div class="fh-divider"></div>
+        <div class="fh-geom-group">
+          <button id="sh-target-data" class="fh-type-btn active" title="Save as project data">Data</button>
+          <button id="sh-target-anno" class="fh-type-btn" title="Save onto the Annotations layer">Annotation</button>
+        </div>
+        <div class="fh-divider"></div>
+        <div class="sh-params" id="sh-params">
+          <label class="sh-field" data-for="radius"><span>Radius</span><input type="number" id="sh-radius" value="50" min="1" step="1"><i>m</i></label>
+          <label class="sh-field" data-for="major"><span>Major</span><input type="number" id="sh-major" value="80" min="1" step="1"><i>m</i></label>
+          <label class="sh-field" data-for="minor"><span>Minor</span><input type="number" id="sh-minor" value="40" min="1" step="1"><i>m</i></label>
+          <label class="sh-field" data-for="width"><span>Width</span><input type="number" id="sh-width" value="100" min="1" step="1"><i>m</i></label>
+          <label class="sh-field" data-for="height"><span>Height</span><input type="number" id="sh-height" value="60" min="1" step="1"><i>m</i></label>
+          <label class="sh-field" data-for="sides"><span>Sides</span><input type="number" id="sh-sides" value="6" min="3" step="1"><i>#</i></label>
+          <label class="sh-field" data-for="buffer"><span>Buffer</span><input type="number" id="sh-buffer" value="25" min="1" step="1"><i>m</i></label>
+          <label class="sh-field" data-for="rotation"><span>Rotate</span><input type="number" id="sh-rotation" value="0" step="5"><i>°</i></label>
+          <label class="sh-field" data-for="start"><span>Start</span><input type="number" id="sh-start-angle" value="0" step="5"><i>°</i></label>
+          <label class="sh-field" data-for="end"><span>End</span><input type="number" id="sh-end-angle" value="180" step="5"><i>°</i></label>
+        </div>
+        <div class="fh-divider"></div>
+        <div class="fh-tol-group">
+          <label for="sh-segments" class="fh-label">Detail</label>
+          <input type="range" id="sh-segments" class="fh-slider" min="8" max="128" value="64" step="4">
+          <span id="sh-segments-val" class="fh-tol-val">64</span>
+        </div>
+      </div>
+
+      <!-- Annotation options pill -->
+      <div id="annotation-options" class="freehand-pill hidden" aria-label="Annotation options"><span class="fh-drag-handle" title="Drag to reposition"></span>
+        <div class="fh-geom-group">
+          <select id="anno-kind" class="anno-select" title="Annotation type">
+            <option value="text">Text</option>
+            <option value="arrow">Arrow</option>
+            <option value="callout">Callout</option>
+          </select>
+        </div>
+        <div class="fh-divider"></div>
+        <input type="text" id="anno-text" class="anno-text" placeholder="Annotation text…">
+        <input type="color" id="anno-color" class="anno-color" value="#ffd400" title="Colour">
+        <div class="fh-tol-group">
+          <label for="anno-size" class="fh-label">Size</label>
+          <input type="range" id="anno-size" class="fh-slider" min="8" max="48" value="16" step="1">
+          <span id="anno-size-val" class="fh-tol-val">16</span>
+        </div>
+      </div>
+
       <div id="lasso-hud" class="lasso-hud hidden">
         <span id="lasso-count" class="lasso-count">0 selected</span>
         <button id="lasso-edit-attrs" class="lasso-action" title="View/edit attributes">Attributes</button>
@@ -180,6 +243,14 @@
             <button id="btn-sketch-freehand" class="tool-btn" data-tool="sketch-freehand" title="Freehand Sketch (tap map to start, move to draw, tap again to complete)">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M227.32,73.37,182.63,28.69a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H216a8,8,0,0,0,0-16H115.32l112-112A16,16,0,0,0,227.32,73.37ZM79.32,188l90.34-90.34,16.69,16.68L96,204.69Zm79-101.66h0L68,176.69,51.31,160l90.35-90.34ZM48,179.31,76.69,208H48Z"/></svg>
               <span class="tool-btn-label">Freehand</span>
+            </button>
+            <button id="btn-sketch-shape" class="tool-btn" data-tool="sketch-shape" title="Shapes — circle / ellipse / rectangle / arc / curve">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M200,152a47.81,47.81,0,0,0-23.4,6.08L152.6,118.21A48,48,0,1,0,80,118.21L56,158.08A48,48,0,1,0,200,200a47.78,47.78,0,0,0-9.4-28.6A48,48,0,0,0,200,152ZM116,80a12,12,0,1,1,12,12A12,12,0,0,1,116,80ZM56,232a32,32,0,1,1,32-32A32,32,0,0,1,56,232Zm72-72a48.06,48.06,0,0,0-21.4,5l21.4-35.6,21.4,35.6A48.06,48.06,0,0,0,128,160Zm72,72a32,32,0,1,1,32-32A32,32,0,0,1,200,232Z"/></svg>
+              <span class="tool-btn-label">Shapes</span>
+            </button>
+            <button id="btn-annotate" class="tool-btn" data-tool="annotate" title="Annotation — place text / arrows / callouts (active map only)">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M216,40H40A16,16,0,0,0,24,56V176a16,16,0,0,0,16,16H80v32a8,8,0,0,0,12.8,6.4L138.67,192H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,136H136a8,8,0,0,0-4.8,1.6L96,204v-20a8,8,0,0,0-8-8H40V56H216ZM84,116a12,12,0,1,1,12,12A12,12,0,0,1,84,116Zm44,0a12,12,0,1,1,12,12A12,12,0,0,1,128,116Zm44,0a12,12,0,1,1,12,12A12,12,0,0,1,172,116Z"/></svg>
+              <span class="tool-btn-label">Annotate</span>
             </button>
           </div>
         </div>

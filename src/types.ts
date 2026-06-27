@@ -7,8 +7,31 @@ export type CaptureMethod = 'gps' | 'sketch';
 export type ToolMode =
   | 'gps-point' | 'gps-point-stream' | 'gps-line' | 'gps-polygon'
   | 'sketch-point' | 'sketch-line' | 'sketch-polygon' | 'sketch-freehand'
+  | 'sketch-shape' | 'annotate'
   | 'select' | 'edit-attrs' | 'delete' | 'edit-geometry' | 'lasso-select' | 'measure'
   | 'wetlands-plot' | 'photo-point' | 'none';
+
+// ---- Shape drawing tools (Part 1) ----
+// Geometric shapes drawn into the active sketch layer as ordinary project data
+// (Polygon for area shapes, LineString for arc/bezier), or onto the graphical
+// Annotations layer when the shape target is 'annotation'.
+export type ShapeKind = 'circle' | 'ellipse' | 'rectangle' | 'square'
+                      | 'arc' | 'bezier' | 'ngon' | 'buffer';
+export type ShapeMethod = 'drag' | 'parametric';
+export type ShapeTarget = 'data' | 'annotation';
+export interface ShapeParams {
+  radiusM: number;       // circle / arc / ngon radius
+  majorM: number;        // ellipse semi-major axis (E-W)
+  minorM: number;        // ellipse semi-minor axis (N-S)
+  widthM: number;        // rectangle width
+  heightM: number;       // rectangle height
+  rotationDeg: number;   // shape rotation
+  startAngleDeg: number; // arc start bearing
+  endAngleDeg: number;   // arc end bearing
+  segments: number;      // densification steps for circle/ellipse/arc
+  sides: number;         // regular N-gon side count
+  bufferM: number;       // buffer-around-feature distance
+}
 
 // ---- Feature Data Model ----
 export interface FieldFeature {
@@ -217,6 +240,31 @@ export interface GeoJSONPoint { type: 'Point'; coordinates: [number, number] | [
 export interface GeoJSONLineString { type: 'LineString'; coordinates: Array<[number, number] | [number, number, number]>; }
 export interface GeoJSONPolygon { type: 'Polygon'; coordinates: Array<Array<[number, number] | [number, number, number]>>; }
 export type GeoJSONGeometry = GeoJSONPoint | GeoJSONLineString | GeoJSONPolygon;
+
+// ---- Graphical annotations (Part 2) ----
+// Cartographic decoration scoped to a single ProjectMap. NOT field data: never
+// listed in attribute tables nor included in feature/data exports. Each
+// annotation records the zoom it was placed at (base_zoom) so it can be rendered
+// at a constant ground size — growing/shrinking as the user zooms relative to
+// that baseline (see MapManager size expressions).
+export type AnnotationKind = 'text' | 'arrow' | 'callout' | 'shape';
+export interface Annotation {
+  id: string;
+  map_id: string;               // owning ProjectMap.id — the scoping key
+  project_id: string;           // for convenience / cascade cleanup
+  kind: AnnotationKind;
+  geometry: GeoJSONPoint | GeoJSONLineString | GeoJSONPolygon; // text/callout=Point anchor; arrow/leader=LineString; shape=Polygon|LineString
+  text?: string;                // label / callout text
+  tail_to?: [number, number];   // callout leader-line endpoint (optional)
+  base_zoom: number;            // map.getZoom() at placement — scaling baseline
+  base_size: number;            // px at base_zoom (text size px, or line width px)
+  color: string;
+  halo_color?: string;
+  rotation?: number;            // degrees, for text / arrow
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+}
 
 export interface GeoJSONFeature {
   type: 'Feature';

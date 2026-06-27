@@ -533,6 +533,26 @@ export class CaptureManager {
     });
   }
 
+  /**
+   * Persist a generated shape (from ShapeTool) as an ordinary project-data feature.
+   * `coords` is the densified ring/path; for a Polygon pass an OPEN ring (no repeated
+   * closing vertex) — saveSketchFeature closes it.
+   */
+  async saveShapeFeature(
+    geomType: 'LineString' | 'Polygon',
+    coords: Array<[number, number]>,
+    typePreset: string,
+    description: string
+  ): Promise<void> {
+    let ring = coords;
+    if (geomType === 'Polygon' && ring.length > 1) {
+      const first = ring[0], last = ring[ring.length - 1];
+      if (first[0] === last[0] && first[1] === last[1]) ring = ring.slice(0, -1);
+    }
+    this.sketchVertices = ring;
+    await this.saveSketchFeature(geomType, typePreset, description);
+  }
+
   async saveSketchFeature(geomType: GeometryType, typePreset: string, description: string): Promise<void> {
     const vertices = [...this.sketchVertices];
     this.clearSketch();
