@@ -18,6 +18,9 @@ interface AnnotationStyle { kind: AnnotationKind; text: string; color: string; s
 export class AnnotationTool {
   private active = false;
   private pointerCleanup: (() => void) | null = null;
+  private mode: 'place' | 'edit' = 'place';
+  private annos: Annotation[] = [];          // last-loaded annotations for the active map
+  private selected: Annotation | null = null; // currently selected annotation (edit mode)
 
   constructor(
     private mapManager: MapManager,
@@ -39,14 +42,7 @@ export class AnnotationTool {
 
   activate(): void {
     this.active = true;
-    const map = this.mapManager.getMap();
-    const kind = this.style().kind;
-    if (kind === 'arrow' || kind === 'callout') {
-      map.dragPan.disable();
-      this.attachPointerEvents();
-    } else {
-      map.dragPan.enable();
-    }
+    this.applyPointerMode();
   }
 
   deactivate(): void {
@@ -54,15 +50,26 @@ export class AnnotationTool {
     this.detachPointerEvents();
     this.mapManager.getMap().dragPan.enable();
     this.mapManager.clearSketchPreview();
+    this.deselect();
   }
 
-  /** Re-evaluate pointer capture after the user switches annotation kind. */
-  refreshMode(): void {
+  setMode(mode: 'place' | 'edit'): void {
+    this.mode = mode;
+    if (mode === 'place') this.deselect();
+    this.applyPointerMode();
+  }
+
+  /** Re-evaluate pointer capture after the user switches annotation kind/mode. */
+  refreshMode(): void { this.applyPointerMode(); }
+
+  /** Attach the press-drag overlay only when placing arrows/callouts. */
+  private applyPointerMode(): void {
     if (!this.active) return;
     this.detachPointerEvents();
     const map = this.mapManager.getMap();
     const kind = this.style().kind;
-    if (kind === 'arrow' || kind === 'callout') {
+    const needsDrag = this.mode === 'place' && (kind === 'arrow' || kind === 'callout');
+    if (needsDrag) {
       map.dragPan.disable();
       this.attachPointerEvents();
     } else {
@@ -70,11 +77,57 @@ export class AnnotationTool {
     }
   }
 
-  // ---- click-to-place text (routed from App.wireMapInteractions) ----
+  // ---- map clicks (routed from App.wireMapInteractions) ----
   handleClick(lng: number, lat: number): void {
     if (!this.active) return;
+    if (this.mode === 'edit') { this.selectAt(lng, lat); return; }
     if (this.style().kind !== 'text') return;
     void this.placeText(lng, lat);
+  }
+
+  // ---- selection / edit (edit mode) ----
+  private selectAt(lng: number, lat: number): void {
+    const map = this.mapManager.getMap();
+    const hits = this.mapManager.queryAnnotationsAtPoint(map.project([lng, lat]));
+    const id = hits[0]?.properties?.id as string | undefined;
+    if (!id) { this.deselect(); return; }
+    const anno = this.annos.find(a => a.id === id);
+    if (!anno) { this.deselect(); return; }
+    this.selected = anno;
+    this.mapManager.highlightGeometry(anno.geometry);
+    EventBus.emit('annotation-selected', { annotation: anno });
+  }
+
+  scaleSelected(size: number, persist: boolean): void {
+    if (!this.selected || isNaN(size)) return;
+    this.selected.base_size = size;
+    this.mapManager.updateAnnotations(this.annos); // live preview
+    if (persist) void this.storage.saveAnnotation(this.selected);
+  }
+
+  recolorSelected(color: string, persist: boolean): void {
+    if (!this.selected) return;
+    this.selected.color = color;
+    this.mapManager.updateAnnotations(this.annos);
+    if (persist) void this.storage.saveAnnotation(this.selected);
+  }
+
+  async deleteSelected(): Promise<void> {
+    if (!this.selected) return;
+    if (!confirm('Delete this annotation?')) return;
+    const id = this.selected.id;
+    await this.storage.deleteAnnotation(id);
+    this.selected = null;
+    this.mapManager.highlightGeometry(null);
+    EventBus.emit('annotation-deselected', {});
+    await this.refresh();
+  }
+
+  deselect(): void {
+    if (!this.selected) return;
+    this.selected = null;
+    this.mapManager.highlightGeometry(null);
+    EventBus.emit('annotation-deselected', {});
   }
 
   private base(): Omit<Annotation, 'geometry' | 'kind'> {
@@ -159,11 +212,13 @@ export class AnnotationTool {
   /** Reload annotations for the active map and push them to the map source. */
   async refresh(): Promise<void> {
     if (!this.isMapScoped() || !this.getActiveMapId()) {
+      this.annos = [];
       this.mapManager.clearAnnotations();
       EventBus.emit('annotations-count', { count: 0, available: false });
       return;
     }
     const annos = await this.storage.getAnnotationsByMap(this.getActiveMapId());
+    this.annos = annos;
     this.mapManager.updateAnnotations(annos);
     EventBus.emit('annotations-count', { count: annos.length, available: true });
   }

@@ -6385,41 +6385,26 @@ input[type=color] {
   text-align: right;
 }
 
-/* ---- Shape picker flyout + shape/annotation option fields ---- */
-.shape-flyout {
-  position: fixed;
-  top: calc(var(--header-height) + 52px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 301;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-hover);
+/* ---- Shape / annotation option fields ---- */
+/* The shape/annotation pills can wrap on narrow screens — allow it so the
+   single consolidated bar never overflows or occludes the map controls. */
+#shape-options, #annotation-options, #annotation-editor { flex-wrap: wrap; max-width: min(96vw, 920px); }
+
+.fh-stop-btn {
+  padding: 3px 11px;
   border-radius: 12px;
-  padding: 6px;
-  display: grid;
-  grid-template-columns: repeat(4, auto);
-  gap: 4px;
-  box-shadow: var(--shadow-sm);
-}
-.shape-flyout.hidden { display: none; }
-.shf-btn {
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-muted);
+  border: 1px solid var(--color-border-hover);
+  background: var(--color-bg);
+  color: var(--color-text-dim);
   font-size: 12px;
   font-family: var(--font);
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.shf-btn.active {
-  background: var(--color-accent-dim);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-.shf-btn:hover:not(.active) { border-color: var(--color-border-hover); color: var(--color-text-dim); }
+.fh-stop-btn:hover { border-color: var(--color-accent); color: var(--color-text); }
+.fh-danger-btn { color: var(--color-danger, #e05656); border-color: var(--color-danger, #e05656); }
+.fh-danger-btn:hover { background: var(--color-danger, #e05656); color: #fff; border-color: var(--color-danger, #e05656); }
 
 .sh-params { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sh-field { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--color-text-muted); }
