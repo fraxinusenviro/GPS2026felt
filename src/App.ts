@@ -1170,6 +1170,7 @@ export class App {
         if (sketchTools.includes(currentTool)) this.activateTool('none');
         this.circleTool?.deactivate();
         this.shapeTool?.deactivate();
+        this.closeAnnoCard();
         this.closeSketchFlyouts();
         break;
       }
@@ -1201,13 +1202,17 @@ export class App {
   private initHudDraggable(): void {
     const pointHud    = document.getElementById('point-entry-hud');
     const captureHud  = document.getElementById('capture-controls');
-    const freehandPill = document.getElementById('freehand-options');
     const pointHandle   = pointHud?.querySelector<HTMLElement>('.hud-drag-handle');
     const captureHandle = captureHud?.querySelector<HTMLElement>('.hud-drag-handle');
-    const fhHandle      = freehandPill?.querySelector<HTMLElement>('.fh-drag-handle');
     if (pointHud    && pointHandle)   this.makeDraggable(pointHud,    pointHandle);
     if (captureHud  && captureHandle) this.makeDraggable(captureHud,  captureHandle);
-    if (freehandPill && fhHandle)     this.makeDraggable(freehandPill, fhHandle);
+
+    // SKETCH option cards: the accent header acts as the drag handle.
+    ['circle-options', 'shape-options', 'freehand-options', 'anno-options'].forEach(id => {
+      const card = document.getElementById(id);
+      const head = card?.querySelector<HTMLElement>('.shape-card-head');
+      if (card && head) this.makeDraggable(card, head);
+    });
   }
 
   private makeDraggable(el: HTMLElement, handle: HTMLElement): void {
@@ -1262,8 +1267,13 @@ export class App {
       document.addEventListener('touchend',  onTE);
     };
 
-    handle.addEventListener('mousedown',  (e) => { e.preventDefault(); begin(e.clientX, e.clientY); });
-    handle.addEventListener('touchstart', (e) => { e.preventDefault(); begin(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+    // Don't start a drag when the press lands on an interactive control inside the handle
+    // (e.g. the Cancel button when the whole card header acts as the handle).
+    const onControl = (t: EventTarget | null) =>
+      t instanceof Element && !!t.closest('button, input, select, textarea, a, [contenteditable]');
+
+    handle.addEventListener('mousedown',  (e) => { if (onControl(e.target)) return; e.preventDefault(); begin(e.clientX, e.clientY); });
+    handle.addEventListener('touchstart', (e) => { if (onControl(e.target)) return; e.preventDefault(); begin(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
   }
 
   private wireToolbar(): void {
@@ -1842,6 +1852,7 @@ export class App {
     if (tool === 'sketch-freehand') {
       map.dragPan.disable();
       this.attachFreehandPointerEvents();
+      this.populateFreehandTypeSelector();
       pill?.classList.remove('hidden');
     } else if (tool === 'lasso-select') {
       map.dragPan.disable();
@@ -2009,7 +2020,8 @@ export class App {
     };
 
     const onUp = (_e: PointerEvent) => {
-      this.captureManager.completeFreehand(this.freehandToleranceM, this.freehandGeomType);
+      const type = (document.getElementById('fh-type') as HTMLSelectElement | null)?.value ?? '';
+      this.captureManager.completeFreehand(this.freehandToleranceM, this.freehandGeomType, type);
     };
 
     canvas.addEventListener('pointerdown', onDown, { passive: false });
@@ -2040,17 +2052,36 @@ export class App {
       this.freehandGeomType = 'LineString';
       btnLine.classList.add('active');
       btnPoly?.classList.remove('active');
+      this.populateFreehandTypeSelector();
     });
 
     btnPoly?.addEventListener('click', () => {
       this.freehandGeomType = 'Polygon';
       btnPoly.classList.add('active');
       btnLine?.classList.remove('active');
+      this.populateFreehandTypeSelector();
     });
 
     slider?.addEventListener('input', () => {
       this.freehandToleranceM = parseInt(slider.value, 10);
       if (valLbl) valLbl.textContent = `${slider.value} m`;
+    });
+
+    document.getElementById('freehand-cancel')?.addEventListener('click', () => this.activateTool('none'));
+  }
+
+  /** Fill the freehand Type selector with presets matching the current geometry. */
+  private populateFreehandTypeSelector(): void {
+    const sel = document.getElementById('fh-type') as HTMLSelectElement | null;
+    if (!sel) return;
+    const current = sel.value;
+    const presets = this.presetManager.getPresetsForGeomType(this.freehandGeomType);
+    sel.innerHTML = '<option value="">None</option>';
+    presets.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.label; opt.textContent = p.label;
+      if (p.label === current) opt.selected = true;
+      sel.appendChild(opt);
     });
   }
 
@@ -2110,16 +2141,18 @@ export class App {
         e.stopPropagation();
         this.circleTool.deactivate(); // opening a flyout cancels an in-progress shape
         this.shapeTool.deactivate();
+        this.closeAnnoCard();
         const wasOpen = !flyout.classList.contains('hidden');
         this.closeSketchFlyouts();
         if (!wasOpen) open(btn, flyout);
       });
-      // Sub-tool buttons: activate the matching shape tool.
+      // Sub-tool buttons: activate the matching shape tool, or open an annotation card.
       flyout.querySelectorAll<HTMLButtonElement>('.flyout-btn').forEach(b => {
         b.addEventListener('click', () => {
           flyout.querySelectorAll('.flyout-btn').forEach(x => x.classList.remove('active'));
           b.classList.add('active');
           const shape = b.dataset.shape;
+          const anno = b.dataset.anno;
           if (shape === 'circle') {
             this.closeSketchFlyouts();
             this.populateCircleTypeSelector();
@@ -2130,8 +2163,11 @@ export class App {
             this.configureShapeCard(kind);
             this.populateShapeTypeSelector();
             this.shapeTool.activate(kind);
+          } else if (anno) {
+            // Scaffold only: open the (movable) annotation options card. Drawing is wired later.
+            this.closeSketchFlyouts();
+            this.openAnnoCard(anno);
           }
-          // TODO: wire the annotation tools here.
         });
       });
     });
@@ -2140,6 +2176,7 @@ export class App {
       if (e.key !== 'Escape') return;
       if (this.circleTool.isActive()) this.circleTool.deactivate();
       else if (this.shapeTool.isActive()) this.shapeTool.deactivate();
+      else if (!document.getElementById('anno-options')?.classList.contains('hidden')) this.closeAnnoCard();
       else this.closeSketchFlyouts();
     });
     document.addEventListener('click', (e) => {
@@ -2151,6 +2188,75 @@ export class App {
     document.getElementById('circle-cancel')?.addEventListener('click', () => this.circleTool.deactivate());
     document.getElementById('shape-cancel')?.addEventListener('click', () => this.shapeTool.deactivate());
     document.getElementById('f-tritype')?.addEventListener('change', () => this.updateTriangleRows());
+    document.getElementById('anno-cancel')?.addEventListener('click', () => this.closeAnnoCard());
+  }
+
+  private closeAnnoCard(): void {
+    document.getElementById('anno-options')?.classList.add('hidden');
+    document.querySelectorAll('#annotate-subtoolbar .flyout-btn.active').forEach(b => b.classList.remove('active'));
+  }
+
+  /** Open the shared annotation options card configured for the given annotation tool (scaffold). */
+  private openAnnoCard(tool: string): void {
+    this.circleTool.deactivate();
+    this.shapeTool.deactivate();
+    this.configureAnnoCard(tool);
+    document.getElementById('anno-options')?.classList.remove('hidden');
+  }
+
+  /**
+   * Build the per-tool fields + header for the annotation options card. These are
+   * scaffolding only — the drawing/save behaviour for annotation tools is wired later.
+   */
+  private configureAnnoCard(tool: string): void {
+    const set = (id: string, html: string) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+
+    const row = (label: string, control: string) =>
+      `<div class="shape-card-row"><label>${label}</label>${control}</div>`;
+    const color = (val: string) => `<input type="color" value="${val}">`;
+    const text  = (ph: string) => `<input type="text" placeholder="${ph}" autocomplete="off">`;
+    const numF  = (val: number, min = 1) => `<input type="number" value="${val}" min="${min}" step="1"><span class="shape-card-unit">px</span>`;
+    const range = (val: number, max = 100) => `<input type="range" class="shape-slider" min="0" max="${max}" value="${val}">`;
+
+    // [glyph svg, title, subtitle, fields html]
+    const stroke = 'M5 12h14';
+    const cfg: Record<string, [string, string, string, string]> = {
+      marker:      ['<path d="M12 21s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+                    'Marker', 'Drop a labelled pin.',
+                    row('Label', text('Marker label')) + row('Colour', color('#ef4444'))],
+      text:        ['<path d="M6 5h12M12 5v14"/>',
+                    'Text', 'Place a text label.',
+                    row('Text', text('Label text')) + row('Size', numF(16)) + row('Colour', color('#ffffff'))],
+      note:        ['<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h6M9 16h4"/>',
+                    'Note', 'Attach a sticky note.',
+                    row('Note', '<textarea placeholder="Note text"></textarea>') + row('Colour', color('#fcd34d'))],
+      circle:      ['<circle cx="12" cy="12" r="8"/>',
+                    'Circle', 'Annotation circle.',
+                    row('Stroke', color('#22d3ee')) + row('Fill', color('#22d3ee')) + row('Opacity', range(20)) + row('Width', numF(2))],
+      rectangle:   ['<rect x="3" y="6" width="18" height="12" rx="1.5"/>',
+                    'Rectangle', 'Annotation rectangle.',
+                    row('Stroke', color('#22d3ee')) + row('Fill', color('#22d3ee')) + row('Opacity', range(20)) + row('Width', numF(2))],
+      pentagon:    ['<path d="M12 3 21 10 17.5 20 6.5 20 3 10Z"/>',
+                    'Polygon', 'Annotation polygon.',
+                    row('Sides', '<input type="number" value="5" min="3" max="24" step="1"><span class="shape-card-unit">n</span>') +
+                    row('Stroke', color('#22d3ee')) + row('Fill', color('#22d3ee')) + row('Opacity', range(20))],
+      arrow:       ['<path d="M6 18 18 6"/><path d="M9 6h9v9"/>',
+                    'Arrow', 'Draw a directional arrow.',
+                    row('Colour', color('#f87171')) + row('Width', numF(3)) +
+                    `<label class="shape-card-check"><input type="checkbox"><strong>Double-headed</strong></label>`],
+      highlighter: ['<path d="M4 20l3-.8 10-10-2.2-2.2-10 10z"/><path d="M14 6l4 4"/><path d="M3 21h7"/>',
+                    'Highlighter', 'Translucent highlight stroke.',
+                    row('Colour', color('#fde047')) + row('Width', numF(12)) + row('Opacity', range(40))],
+      freehand:    ['<path d="M5 18l1-3L17 4l3 3L9 18z"/><path d="M14 5l3 3"/>',
+                    'Freehand', 'Free drawing annotation.',
+                    row('Colour', color('#34d399')) + row('Width', numF(3))],
+    };
+
+    const [glyph, title, sub, fields] = cfg[tool] ?? [stroke, 'Annotation', 'Annotation tool', ''];
+    set('anno-glyph', `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${glyph}</svg>`);
+    set('anno-title', title);
+    set('anno-sub', sub);
+    set('anno-fields', fields);
   }
 
   /** Adapt the shared shape-options card (title, glyph, visible rows, hint) to the kind. */

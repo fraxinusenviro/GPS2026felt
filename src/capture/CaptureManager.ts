@@ -437,7 +437,7 @@ export class CaptureManager {
     return result;
   }
 
-  completeFreehand(toleranceM = 5, geomType: 'LineString' | 'Polygon' = 'LineString'): void {
+  completeFreehand(toleranceM = 5, geomType: 'LineString' | 'Polygon' = 'LineString', typePreset = '', description = ''): void {
     if (!this.isFreehandDrawing) return;
     this.isFreehandDrawing = false;
     if (this.sketchVertices.length < 2) {
@@ -451,7 +451,8 @@ export class CaptureManager {
       EventBus.emit('toast', { message: 'Draw a larger shape for a polygon', type: 'warning' });
       return;
     }
-    this.promptFeatureAttributes(geomType, 'sketch');
+    // Type is chosen up front in the freehand card, so save straight away.
+    void this.saveSketchFeature(geomType, typePreset, description);
   }
 
   private updateSketchPreviewFromVertices(vertices?: Array<[number, number]>): void {
