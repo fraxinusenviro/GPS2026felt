@@ -4,6 +4,8 @@ import { MapManager } from './map/MapManager';
 import { BasemapManager } from './map/BasemapManager';
 import { GridOverlay } from './map/GridOverlay';
 import { CaptureManager } from './capture/CaptureManager';
+import { ShapeTool } from './capture/ShapeTool';
+import { AnnotationTool } from './capture/AnnotationTool';
 import { ImportManager } from './io/ImportManager';
 import { ExportManager } from './io/ExportManager';
 import { HUD } from './ui/HUD';
@@ -44,6 +46,7 @@ import { PhotoViewerModal } from './photos/PhotoViewerModal';
 import { runPhotoDownscaleMigration } from './photos/photoMigration';
 import { AttributeTablePanel } from './ui/AttributeTablePanel';
 import type { SharedLayer, BasemapDef, ImportedLayer } from './types';
+import type { ShapeKind, ShapeMethod, ShapeParams } from './types';
 import { sharedLayerToDef } from './data/sharedLayerDefs';
 import * as turf from '@turf/turf';
 
@@ -53,6 +56,8 @@ export class App {
   private basemapManager!: BasemapManager;
   private gridOverlay!: GridOverlay;
   private captureManager!: CaptureManager;
+  private shapeTool!: ShapeTool;
+  private annotationTool!: AnnotationTool;
   private importManager!: ImportManager;
   private exportManager!: ExportManager;
   private hud!: HUD;
@@ -174,6 +179,16 @@ export class App {
     this.gridOverlay = new GridOverlay(this.mapManager);
     this.captureManager = new CaptureManager(this.mapManager);
     this.captureManager.setSettings(this.settings);
+    this.shapeTool = new ShapeTool(this.mapManager, this.captureManager);
+    this.annotationTool = new AnnotationTool(
+      this.mapManager,
+      this.storage,
+      () => this.activeMapId,
+      () => this.settings.active_project_id || 'default',
+      () => this.settings.user_id || 'USER',
+      () => !this.allDataMode && !!this.activeMapId && this.activeMapId !== ALL_DATA_MAP_ID,
+    );
+    this.shapeTool.setAnnotationSink((geomType, coords) => void this.annotationTool.placeShape(geomType, coords));
     this.importManager = new ImportManager(this.mapManager);
     this.exportManager = new ExportManager();
     this.presetManager = new PresetManager();
@@ -283,6 +298,7 @@ export class App {
     this.features = await this.storage.getFeaturesByProject(activeProjectId);
     this.projectLayerPresets = await this.storage.getLayersByProject(activeProjectId);
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
+    void this.annotationTool.refresh();
     // Restore global overlay state from the active map setting.
     const globalOverlayEnabled = activeMap?.show_global_overlay ?? false;
     this.basemapManager.setGlobalOverlayState(globalOverlayEnabled);
@@ -305,6 +321,8 @@ export class App {
     this.wireMapInteractions();
     this.wireCaptureControls();
     this.wireFreehandPill();
+    this.wireShapeControls();
+    this.wireAnnotationPill();
     this.wireLassoHud();
 
     this.gridOverlay.setVisible(this.settings.grid_visible);
@@ -1261,7 +1279,7 @@ export class App {
 
         // Toggle tools: tapping an already-active tool completes/stops it
         // gps-point is two-phase: first click = activate HUD, second click = drop point
-        const isToggle = ['sketch-line', 'sketch-polygon', 'sketch-freehand', 'lasso-select', 'gps-line', 'gps-polygon', 'gps-point-stream', 'measure'].includes(tool);
+        const isToggle = ['sketch-line', 'sketch-polygon', 'sketch-freehand', 'sketch-shape', 'annotate', 'lasso-select', 'gps-line', 'gps-polygon', 'gps-point-stream', 'measure'].includes(tool);
         if (isToggle && currentTool === tool) {
           if (tool === 'measure') {
             this.measurePanel.stop();
@@ -1824,6 +1842,21 @@ export class App {
     const map = this.mapManager.getMap();
     this.detachFreehandPointerEvents();
     const pill = document.getElementById('freehand-options');
+    const shPill = document.getElementById('shape-options');
+    const shFlyout = document.getElementById('shape-flyout');
+    const anPill = document.getElementById('annotation-options');
+
+    // Tear down the stateful drawing tools whenever we leave them.
+    if (tool !== 'sketch-shape') {
+      this.shapeTool.deactivate();
+      shPill?.classList.add('hidden');
+      shFlyout?.classList.add('hidden');
+    }
+    if (tool !== 'annotate') {
+      this.annotationTool.deactivate();
+      anPill?.classList.add('hidden');
+    }
+
     if (tool === 'sketch-freehand') {
       map.dragPan.disable();
       this.attachFreehandPointerEvents();
@@ -1831,6 +1864,17 @@ export class App {
     } else if (tool === 'lasso-select') {
       map.dragPan.disable();
       this.attachLassoPointerEvents();
+    } else if (tool === 'sketch-shape') {
+      pill?.classList.add('hidden');
+      this.clearLassoSelection();
+      shPill?.classList.remove('hidden');
+      shFlyout?.classList.remove('hidden');
+      this.shapeTool.activate();        // manages dragPan itself
+    } else if (tool === 'annotate') {
+      pill?.classList.add('hidden');
+      this.clearLassoSelection();
+      anPill?.classList.remove('hidden');
+      this.annotationTool.activate();   // manages dragPan itself
     } else {
       map.dragPan.enable();
       pill?.classList.add('hidden');
@@ -1868,6 +1912,14 @@ export class App {
       this.captureManager.completeSketch(type, desc);
     } else if (tool === 'sketch-freehand') {
       // With press-drag-release, re-tapping the button cancels/deactivates the tool
+      this.activateTool('none');
+      return;
+    } else if (tool === 'sketch-shape') {
+      // Re-tapping finishes a bezier path (if any), otherwise just exits the tool.
+      this.shapeTool.complete();
+      this.activateTool('none');
+      return;
+    } else if (tool === 'annotate') {
       this.activateTool('none');
       return;
     } else if (tool === 'lasso-select') {
@@ -1917,7 +1969,7 @@ export class App {
 
       // Photo points open the photo viewer on click (independent of the active
       // tool, except while actively sketching or editing geometry).
-      if (!['edit-geometry', 'sketch-line', 'sketch-polygon', 'measure'].includes(tool)) {
+      if (!['edit-geometry', 'sketch-line', 'sketch-polygon', 'sketch-shape', 'annotate', 'measure'].includes(tool)) {
         if (this.handlePhotoPointClick(lngLat.lng, lngLat.lat)) return;
       }
 
@@ -1932,6 +1984,11 @@ export class App {
         void this.captureManager.saveSketchPointDirect(lngLat.lng, lngLat.lat, type, desc);
       } else if (['sketch-line', 'sketch-polygon'].includes(tool)) {
         this.captureManager.handleSketchClick(lngLat.lng, lngLat.lat);
+      } else if (tool === 'sketch-shape') {
+        // Parametric placement, bezier control points, and buffer-target picking.
+        this.shapeTool.handleClick(lngLat.lng, lngLat.lat);
+      } else if (tool === 'annotate') {
+        this.annotationTool.handleClick(lngLat.lng, lngLat.lat);
       } else if (tool === 'select' || tool === 'edit-attrs') {
         this.captureManager.handleSelectOrDelete(lngLat.lng, lngLat.lat, false);
       } else if (tool === 'delete') {
@@ -1943,6 +2000,8 @@ export class App {
       const tool = this.captureManager.getCurrentTool();
       if (['sketch-line', 'sketch-polygon'].includes(tool)) {
         this.captureManager.handleSketchMouseMove(lngLat.lng, lngLat.lat);
+      } else if (tool === 'sketch-shape') {
+        this.shapeTool.handleMove(lngLat.lng, lngLat.lat);
       }
     });
   }
@@ -2037,6 +2096,95 @@ export class App {
       this.freehandToleranceM = parseInt(slider.value, 10);
       if (valLbl) valLbl.textContent = `${slider.value} m`;
     });
+  }
+
+  /** Show only the parametric input fields relevant to the current shape/method. */
+  private updateShapeFields(shape: ShapeKind, method: ShapeMethod): void {
+    const param = method === 'parametric';
+    const show: Record<ShapeKind, Partial<Record<string, boolean>>> = {
+      circle:    { radius: param },
+      ellipse:   { major: param, minor: param, rotation: true },
+      rectangle: { width: param, height: param, rotation: true },
+      square:    { width: param, rotation: true },
+      ngon:      { sides: true, rotation: true, radius: param },
+      arc:       { start: true, end: true, radius: param },
+      bezier:    {},
+      buffer:    { buffer: true },
+    };
+    const allowed = show[shape] ?? {};
+    document.querySelectorAll<HTMLElement>('#sh-params .sh-field').forEach(el => {
+      const key = el.dataset.for ?? '';
+      el.classList.toggle('hidden', !allowed[key]);
+    });
+  }
+
+  private wireShapeControls(): void {
+    let method: ShapeMethod = 'drag';
+    let shape: ShapeKind = 'circle';
+
+    // Shape picker flyout
+    document.querySelectorAll<HTMLButtonElement>('#shape-flyout .shf-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        shape = btn.dataset.shape as ShapeKind;
+        document.querySelectorAll('#shape-flyout .shf-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.shapeTool.setShape(shape);
+        this.updateShapeFields(shape, method);
+      });
+    });
+
+    // Method toggle (drag vs by-value)
+    const mDrag = document.getElementById('sh-method-drag');
+    const mParam = document.getElementById('sh-method-param');
+    const setMethod = (m: ShapeMethod) => {
+      method = m;
+      mDrag?.classList.toggle('active', m === 'drag');
+      mParam?.classList.toggle('active', m === 'parametric');
+      this.shapeTool.setMethod(m);
+      this.updateShapeFields(shape, method);
+    };
+    mDrag?.addEventListener('click', () => setMethod('drag'));
+    mParam?.addEventListener('click', () => setMethod('parametric'));
+
+    // Target toggle (project data vs annotation layer)
+    const tData = document.getElementById('sh-target-data');
+    const tAnno = document.getElementById('sh-target-anno');
+    tData?.addEventListener('click', () => {
+      tData.classList.add('active'); tAnno?.classList.remove('active'); this.shapeTool.setTarget('data');
+    });
+    tAnno?.addEventListener('click', () => {
+      tAnno.classList.add('active'); tData?.classList.remove('active'); this.shapeTool.setTarget('annotation');
+    });
+
+    // Numeric param inputs
+    const numWire = (id: string, key: keyof ShapeParams) => {
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      el?.addEventListener('input', () => {
+        const v = parseFloat(el.value);
+        if (!isNaN(v)) this.shapeTool.setParams({ [key]: v } as Partial<ShapeParams>);
+      });
+    };
+    numWire('sh-radius', 'radiusM'); numWire('sh-major', 'majorM'); numWire('sh-minor', 'minorM');
+    numWire('sh-width', 'widthM'); numWire('sh-height', 'heightM'); numWire('sh-sides', 'sides');
+    numWire('sh-buffer', 'bufferM'); numWire('sh-rotation', 'rotationDeg');
+    numWire('sh-start-angle', 'startAngleDeg'); numWire('sh-end-angle', 'endAngleDeg');
+
+    const seg = document.getElementById('sh-segments') as HTMLInputElement | null;
+    const segVal = document.getElementById('sh-segments-val');
+    seg?.addEventListener('input', () => {
+      this.shapeTool.setParams({ segments: parseInt(seg.value, 10) });
+      if (segVal) segVal.textContent = seg.value;
+    });
+
+    this.updateShapeFields(shape, method);
+  }
+
+  private wireAnnotationPill(): void {
+    const kind = document.getElementById('anno-kind') as HTMLSelectElement | null;
+    kind?.addEventListener('change', () => this.annotationTool.refreshMode());
+    const size = document.getElementById('anno-size') as HTMLInputElement | null;
+    const sizeVal = document.getElementById('anno-size-val');
+    size?.addEventListener('input', () => { if (sizeVal) sizeVal.textContent = size.value; });
   }
 
   private attachLassoPointerEvents(): void {
@@ -2899,6 +3047,8 @@ export class App {
       this.features = await this.storage.getAllFeatures();
       const allLayers = await this.storage.getAllLayerPresets();
       this.mapManager.updateCollectedFeatures(this.features, allLayers, this.presetManager.getPresets());
+      this.mapManager.clearAnnotations(); // annotations are map-scoped — none in the All-Data overview
+      EventBus.emit('annotations-count', { count: 0, available: false });
       this.updateHeaderNames(undefined, 'All Data');
       this.projectLibraryModal.refreshIfOpen();
 
@@ -2927,6 +3077,7 @@ export class App {
 
     this.allDataMode = false;
     this.activeMapId = mapId;
+    void this.annotationTool.refresh(); // load this map's annotations
 
     // If switching projects, reload features and layers.
     const projectChanged = projectId !== (this.settings.active_project_id || 'default');
@@ -3020,6 +3171,7 @@ export class App {
   async deleteMap(mapId: string): Promise<void> {
     const map = await this.storage.getMap(mapId);
     if (!map) return;
+    await this.storage.deleteAnnotationsByMap(mapId); // cascade: drop this map's annotations
     await this.storage.deleteMap(mapId);
 
     // If deleted map was active, switch to another map in same project.
@@ -3139,6 +3291,7 @@ export class App {
     await this.storage.deleteFeaturesByProject(id);
     await this.storage.deleteLayersByProject(id);
     await this.storage.deleteImportedLayersByProject(id);
+    await this.storage.deleteAnnotationsByProject(id);
     await this.storage.deleteMapsByProject(id);
     await this.storage.deleteProject(id);
 

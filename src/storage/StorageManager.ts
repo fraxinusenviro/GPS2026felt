@@ -2,14 +2,14 @@ import { openDB, type IDBPDatabase } from 'idb';
 import type {
   FieldFeature, AppSettings, TypePreset, LayerPreset,
   SavedConnection, ImportedLayer, OnlineLayer, TileCacheRecord, Project, SharedLayer,
-  ProjectMap
+  ProjectMap, Annotation
 } from '../types';
 import {
   DB_NAME, DB_VERSION,
   STORE_FEATURES, STORE_SETTINGS, STORE_PRESETS,
   STORE_LAYERS, STORE_CONNECTIONS, STORE_IMPORTED,
   STORE_TILES, STORE_ONLINE_LAYERS, STORE_TILE_CACHES, STORE_PROJECTS, STORE_SHARED_LAYERS,
-  STORE_INVENTORY_SURVEYS, STORE_PROJECT_MAPS,
+  STORE_INVENTORY_SURVEYS, STORE_PROJECT_MAPS, STORE_ANNOTATIONS,
   DEFAULT_SETTINGS, DEFAULT_LAYER_PRESETS, DEFAULT_CONNECTIONS,
   DEFAULT_PROJECT_LAYER_PRESETS, buildDefaultProjectStack
 } from '../constants';
@@ -22,7 +22,7 @@ import type { InventorySurvey } from '../types';
  */
 export interface StorageSyncHook {
   mark(
-    kind: 'projects' | 'features' | 'layer_presets' | 'type_presets' | 'shared_layers' | 'project_maps',
+    kind: 'projects' | 'features' | 'layer_presets' | 'type_presets' | 'shared_layers' | 'project_maps' | 'annotations',
     id: string,
     op: 'upsert' | 'delete',
     updatedAt: string
@@ -139,6 +139,15 @@ export class StorageManager {
           if (!db.objectStoreNames.contains(STORE_PROJECT_MAPS)) {
             const ms = db.createObjectStore(STORE_PROJECT_MAPS, { keyPath: 'id' });
             ms.createIndex('by_project', 'project_id');
+          }
+        }
+
+        if (oldVersion < 8) {
+          // Graphical annotations, scoped per map (synced, last-write-wins).
+          if (!db.objectStoreNames.contains(STORE_ANNOTATIONS)) {
+            const as = db.createObjectStore(STORE_ANNOTATIONS, { keyPath: 'id' });
+            as.createIndex('by_map', 'map_id');
+            as.createIndex('by_project', 'project_id');
           }
         }
       }
@@ -545,6 +554,60 @@ export class StorageManager {
 
   async getMapCountByProject(projectId: string): Promise<number> {
     return this.db.countFromIndex(STORE_PROJECT_MAPS, 'by_project', projectId);
+  }
+
+  // ---- Annotations (graphical, scoped per map) ----
+  async getAnnotation(id: string): Promise<Annotation | undefined> {
+    return this.db.get(STORE_ANNOTATIONS, id);
+  }
+
+  async getAnnotationsByMap(mapId: string): Promise<Annotation[]> {
+    return this.db.getAllFromIndex(STORE_ANNOTATIONS, 'by_map', mapId);
+  }
+
+  async getAnnotationsByProject(projectId: string): Promise<Annotation[]> {
+    return this.db.getAllFromIndex(STORE_ANNOTATIONS, 'by_project', projectId);
+  }
+
+  async getAllAnnotations(): Promise<Annotation[]> {
+    return this.db.getAll(STORE_ANNOTATIONS);
+  }
+
+  async saveAnnotation(anno: Annotation): Promise<void> {
+    if (!this.applyingRemote) anno.updated_at = new Date().toISOString();
+    await this.db.put(STORE_ANNOTATIONS, anno);
+    if (!this.applyingRemote) this.syncHook?.mark('annotations', anno.id, 'upsert', anno.updated_at);
+  }
+
+  async deleteAnnotation(id: string): Promise<void> {
+    await this.db.delete(STORE_ANNOTATIONS, id);
+    if (!this.applyingRemote) this.syncHook?.mark('annotations', id, 'delete', new Date().toISOString());
+  }
+
+  async deleteAnnotationsByMap(mapId: string): Promise<void> {
+    const tx = this.db.transaction(STORE_ANNOTATIONS, 'readwrite');
+    const index = tx.store.index('by_map');
+    let cursor = await index.openCursor(mapId);
+    while (cursor) {
+      const id = cursor.value.id as string;
+      await cursor.delete();
+      if (!this.applyingRemote) this.syncHook?.mark('annotations', id, 'delete', new Date().toISOString());
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+  }
+
+  async deleteAnnotationsByProject(projectId: string): Promise<void> {
+    const tx = this.db.transaction(STORE_ANNOTATIONS, 'readwrite');
+    const index = tx.store.index('by_project');
+    let cursor = await index.openCursor(projectId);
+    while (cursor) {
+      const id = cursor.value.id as string;
+      await cursor.delete();
+      if (!this.applyingRemote) this.syncHook?.mark('annotations', id, 'delete', new Date().toISOString());
+      cursor = await cursor.continue();
+    }
+    await tx.done;
   }
 
   /**

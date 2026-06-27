@@ -1,6 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import type { Map as MLMap, LngLat, StyleSpecification } from 'maplibre-gl';
-import type { FieldFeature, AppSettings, LayerPreset, TypePreset, SymbologyState, GeometryType, HatchPattern } from '../types';
+import type { FieldFeature, AppSettings, LayerPreset, TypePreset, SymbologyState, GeometryType, HatchPattern, Annotation } from '../types';
 import { LAYER_IDS, BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import { buildColorExpression, buildRadiusExpression, buildLegend } from '../lib/symbologyEngine';
 import type { LegendEntry } from '../lib/symbologyEngine';
@@ -10,6 +10,24 @@ import { SymbolRenderer, renderIconImageData, renderShapeSprite, renderHatchImag
 import { wetlandPlotColor } from '../wetlands/wetlandSurvey';
 import { getGroupColor } from '../inventory/inventorySurvey';
 import proj4 from 'proj4';
+
+// ---- Zoom-relative annotation sizing ----
+// A placed annotation keeps a constant *ground* size: its rendered pixel size is
+// base_size * 2^(zoom - base_zoom). An exponential-base-2 interpolation between two
+// zoom anchors reproduces that exactly (the interpolated output is base_size*2^zoom),
+// so two stops suffice. Per-stop min/max clamps keep sizes sane at extreme zoom
+// deltas. zoom is the top-level interpolate input (required by MapLibre); the
+// outputs reference per-feature properties, which is permitted.
+function zoomRelativeSizeExpr(minPx: number, maxPx: number): unknown {
+  const at = (z: number): unknown => [
+    'max', minPx,
+    ['min', maxPx,
+      ['*', ['get', 'base_size'], ['^', 2, ['-', z, ['get', 'base_zoom']]]]],
+  ];
+  return ['interpolate', ['exponential', 2], ['zoom'], 0, at(0), 24, at(24)];
+}
+const ANNOTATION_TEXT_SIZE_EXPR = zoomRelativeSizeExpr(4, 200);
+const ANNOTATION_LINE_WIDTH_EXPR = zoomRelativeSizeExpr(0.5, 60);
 
 // ---- Module-level COG colormap registry (mutable so ramp can be changed at runtime) ----
 type CogColorStop = [number, number, number, number, number]; // [value, R, G, B, alpha 0-255]
@@ -428,6 +446,12 @@ export class MapManager {
       data: { type: 'FeatureCollection', features: [] }
     });
 
+    // --- Graphical annotations (scoped to the active map) ---
+    this.map.addSource('annotations', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
+
     // --- Global dataset overlay sources (cross-project, read-only reference) ---
     this.map.addSource('global-collected-points', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     this.map.addSource('global-collected-lines', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -828,6 +852,52 @@ export class MapManager {
         'text-color': '#d1fae5',
         'text-halo-color': 'rgba(0,0,0,0.85)',
         'text-halo-width': 2
+      }
+    });
+
+    // --- Annotation layers (graphical decoration, scoped to active map) ---
+    // Callout boxes / shape fills (ground geometry → scales with zoom naturally)
+    this.map.addLayer({
+      id: 'annotations-fill',
+      type: 'fill',
+      source: 'annotations',
+      filter: ['==', '$type', 'Polygon'],
+      paint: {
+        'fill-color': ['coalesce', ['get', 'fill_color'], 'rgba(0,0,0,0.55)'],
+        'fill-outline-color': ['coalesce', ['get', 'color'], '#ffffff'],
+      }
+    });
+    // Arrows / leader lines / shape lines
+    this.map.addLayer({
+      id: 'annotations-line',
+      type: 'line',
+      source: 'annotations',
+      filter: ['==', '$type', 'LineString'],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#ffffff'],
+        'line-width': ANNOTATION_LINE_WIDTH_EXPR as never,
+      }
+    });
+    // Text labels / callout text
+    this.map.addLayer({
+      id: 'annotations-text',
+      type: 'symbol',
+      source: 'annotations',
+      filter: ['==', ['get', 'is_text'], true],
+      layout: {
+        'text-field': ['coalesce', ['get', 'text'], ''],
+        'text-font': ['literal', ['Open Sans Regular', 'Arial Unicode MS Regular']],
+        'text-size': ANNOTATION_TEXT_SIZE_EXPR as never,
+        'text-rotate': ['coalesce', ['get', 'rotation'], 0],
+        'text-anchor': 'center',
+        'text-allow-overlap': true,
+        'text-ignore-placement': true,
+      },
+      paint: {
+        'text-color': ['coalesce', ['get', 'color'], '#ffffff'],
+        'text-halo-color': ['coalesce', ['get', 'halo_color'], 'rgba(0,0,0,0.85)'],
+        'text-halo-width': 2,
       }
     });
 
@@ -1497,6 +1567,127 @@ export class MapManager {
 
   clearSketchPreview(): void {
     this.updateSketchPreview([]);
+  }
+
+  // ---- Graphical annotations (scoped to the active map) ----
+  /** Approximate ground metres per screen pixel at a given zoom/latitude (Web Mercator). */
+  private static metersPerPixel(zoom: number, lat: number): number {
+    return 156543.03392 * Math.cos((lat * Math.PI) / 180) / Math.pow(2, zoom);
+  }
+
+  /** Offset a [lng,lat] by an east/north metre delta (small-offset approximation). */
+  private static offsetMeters(lng: number, lat: number, east: number, north: number): [number, number] {
+    const dLat = north / 111320;
+    const dLng = east / (111320 * Math.max(0.01, Math.cos((lat * Math.PI) / 180)));
+    return [lng + dLng, lat + dLat];
+  }
+
+  /** Convert stored annotations into renderable GeoJSON and push to the source. */
+  updateAnnotations(annos: Annotation[]): void {
+    if (!this.initialized) return;
+    const features: object[] = [];
+
+    for (const a of annos) {
+      const baseProps = {
+        id: a.id,
+        kind: a.kind,
+        base_zoom: a.base_zoom,
+        base_size: a.base_size,
+        color: a.color,
+        halo_color: a.halo_color ?? 'rgba(0,0,0,0.85)',
+        rotation: a.rotation ?? 0,
+      };
+
+      if (a.kind === 'text') {
+        features.push({
+          type: 'Feature',
+          geometry: a.geometry,
+          properties: { ...baseProps, is_text: true, text: a.text ?? '' },
+        });
+        continue;
+      }
+
+      if (a.kind === 'callout') {
+        const anchor = (a.geometry as { coordinates: [number, number] }).coordinates;
+        const [lng, lat] = anchor;
+        const mpp = MapManager.metersPerPixel(a.base_zoom, lat);
+        const text = a.text ?? '';
+        // Box sized in ground metres so it scales with zoom like the text does.
+        const halfW = (Math.max(2, text.length) * a.base_size * 0.32) * mpp;
+        const halfH = (a.base_size * 0.8) * mpp;
+        const ring = [
+          MapManager.offsetMeters(lng, lat, -halfW, -halfH),
+          MapManager.offsetMeters(lng, lat, halfW, -halfH),
+          MapManager.offsetMeters(lng, lat, halfW, halfH),
+          MapManager.offsetMeters(lng, lat, -halfW, halfH),
+        ];
+        ring.push(ring[0]);
+        if (a.tail_to) {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [anchor, a.tail_to] },
+            properties: { ...baseProps, base_size: Math.max(1.5, a.base_size / 8) },
+          });
+        }
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [ring] },
+          properties: { ...baseProps, fill_color: a.halo_color ?? 'rgba(0,0,0,0.6)' },
+        });
+        features.push({
+          type: 'Feature',
+          geometry: a.geometry,
+          properties: { ...baseProps, is_text: true, text },
+        });
+        continue;
+      }
+
+      if (a.kind === 'arrow') {
+        const coords = (a.geometry as { coordinates: [number, number][] }).coordinates;
+        features.push({ type: 'Feature', geometry: a.geometry, properties: { ...baseProps } });
+        if (coords.length >= 2) {
+          const [px, py] = coords[coords.length - 2];
+          const [ex, ey] = coords[coords.length - 1];
+          const lat = ey;
+          const ang = Math.atan2(ey - py, ex - px);
+          const headM = Math.max(6, a.base_size * 3) * MapManager.metersPerPixel(a.base_zoom, lat);
+          const wing = (a: number): [number, number] => {
+            const east = -Math.cos(a) * headM, north = -Math.sin(a) * headM;
+            return MapManager.offsetMeters(ex, ey, east, north);
+          };
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [wing(ang - Math.PI / 7), [ex, ey], wing(ang + Math.PI / 7)] },
+            properties: { ...baseProps },
+          });
+        }
+        continue;
+      }
+
+      // shape: Polygon or LineString stored geometry, rendered as-is.
+      features.push({
+        type: 'Feature',
+        geometry: a.geometry,
+        properties: { ...baseProps, fill_color: a.halo_color ?? 'rgba(0,0,0,0.25)' },
+      });
+    }
+
+    (this.map.getSource('annotations') as maplibregl.GeoJSONSource)?.setData({
+      type: 'FeatureCollection',
+      features: features as never[],
+    });
+  }
+
+  clearAnnotations(): void {
+    if (!this.initialized) return;
+    (this.map.getSource('annotations') as maplibregl.GeoJSONSource)?.setData({
+      type: 'FeatureCollection', features: [],
+    });
+  }
+
+  setAnnotationsVisible(visible: boolean): void {
+    ['annotations-fill', 'annotations-line', 'annotations-text']
+      .forEach(id => this.setLayerVisibility(id, visible));
   }
 
   updateProfilePreview(features: object[]): void {
