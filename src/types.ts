@@ -11,27 +11,6 @@ export type ToolMode =
   | 'select' | 'edit-attrs' | 'delete' | 'edit-geometry' | 'lasso-select' | 'measure'
   | 'wetlands-plot' | 'photo-point' | 'none';
 
-// ---- Shape drawing tools (Part 1) ----
-// Geometric shapes drawn into the active sketch layer as ordinary project data
-// (Polygon for area shapes, LineString for arc/bezier), or onto the graphical
-// Annotations layer when the shape target is 'annotation'.
-export type ShapeKind = 'circle' | 'ellipse' | 'rectangle' | 'square'
-                      | 'arc' | 'bezier' | 'ngon' | 'buffer';
-export type ShapeMethod = 'drag' | 'parametric';
-export type ShapeTarget = 'data' | 'annotation';
-export interface ShapeParams {
-  radiusM: number;       // circle / arc / ngon radius
-  majorM: number;        // ellipse semi-major axis (E-W)
-  minorM: number;        // ellipse semi-minor axis (N-S)
-  widthM: number;        // rectangle width
-  heightM: number;       // rectangle height
-  rotationDeg: number;   // shape rotation
-  startAngleDeg: number; // arc start bearing
-  endAngleDeg: number;   // arc end bearing
-  segments: number;      // densification steps for circle/ellipse/arc
-  sides: number;         // regular N-gon side count
-  bufferM: number;       // buffer-around-feature distance
-}
 
 // ---- Feature Data Model ----
 export interface FieldFeature {

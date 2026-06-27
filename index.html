@@ -76,97 +76,51 @@
         </div>
       </div>
 
-      <!-- Shape drawing options pill (single consolidated control bar) -->
-      <div id="shape-options" class="freehand-pill hidden" aria-label="Shape options"><span class="fh-drag-handle" title="Drag to reposition"></span>
-        <select id="sh-kind" class="anno-select" title="Shape">
-          <option value="circle">● Circle</option>
-          <option value="ellipse">⬭ Ellipse</option>
-          <option value="rectangle">▭ Rectangle</option>
-          <option value="square">▢ Square</option>
-          <option value="ngon">⬡ N-gon</option>
-          <option value="arc">◜ Arc</option>
-          <option value="bezier">∿ Bézier</option>
-          <option value="buffer">◎ Buffer</option>
-        </select>
-        <div class="fh-divider"></div>
-        <div class="fh-geom-group">
-          <button id="sh-method-drag" class="fh-type-btn active">Drag</button>
-          <button id="sh-method-param" class="fh-type-btn">By value</button>
-        </div>
-        <div class="fh-divider"></div>
-        <div class="fh-geom-group">
-          <button id="sh-target-data" class="fh-type-btn active" title="Save as project data">Data</button>
-          <button id="sh-target-anno" class="fh-type-btn" title="Save onto the Annotations layer">Annotation</button>
-        </div>
-        <div class="fh-divider" id="sh-type-divider"></div>
-        <label class="sh-field" id="sh-type-field"><span>Type</span>
-          <select id="sh-type" class="anno-select" title="Preset type for created shapes"></select>
-        </label>
-        <div class="fh-divider"></div>
-        <div class="sh-params" id="sh-params">
-          <label class="sh-field" data-for="radius"><span>Radius</span><input type="number" id="sh-radius" value="50" min="1" step="1"><i>m</i></label>
-          <label class="sh-field" data-for="major"><span>Major</span><input type="number" id="sh-major" value="80" min="1" step="1"><i>m</i></label>
-          <label class="sh-field" data-for="minor"><span>Minor</span><input type="number" id="sh-minor" value="40" min="1" step="1"><i>m</i></label>
-          <label class="sh-field" data-for="width"><span>Width</span><input type="number" id="sh-width" value="100" min="1" step="1"><i>m</i></label>
-          <label class="sh-field" data-for="height"><span>Height</span><input type="number" id="sh-height" value="60" min="1" step="1"><i>m</i></label>
-          <label class="sh-field" data-for="sides"><span>Sides</span><input type="number" id="sh-sides" value="6" min="3" step="1"><i>#</i></label>
-          <label class="sh-field" data-for="buffer"><span>Buffer</span><input type="number" id="sh-buffer" value="25" min="1" step="1"><i>m</i></label>
-          <label class="sh-field" data-for="rotation"><span>Rotate</span><input type="number" id="sh-rotation" value="0" step="5"><i>°</i></label>
-          <label class="sh-field" data-for="start"><span>Start</span><input type="number" id="sh-start-angle" value="0" step="5"><i>°</i></label>
-          <label class="sh-field" data-for="end"><span>End</span><input type="number" id="sh-end-angle" value="180" step="5"><i>°</i></label>
-        </div>
-        <div class="fh-divider"></div>
-        <div class="fh-tol-group">
-          <label for="sh-segments" class="fh-label">Detail</label>
-          <input type="range" id="sh-segments" class="fh-slider" min="8" max="128" value="64" step="4">
-          <span id="sh-segments-val" class="fh-tol-val">64</span>
-        </div>
-        <div class="fh-divider"></div>
-        <button id="sh-stop" class="fh-stop-btn" title="Stop drawing shapes">✕ Done</button>
+      <!-- SHAPES flyout subtoolbar (opened by the SKETCH > Shapes button) -->
+      <div id="shapes-subtoolbar" class="sketch-flyout hidden" role="menu" aria-label="Shape tools">
+        <button class="flyout-btn" data-shape="ellipse" role="menuitem" title="Ellipse">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="12" rx="9" ry="6"/></svg>
+        </button>
+        <button class="flyout-btn" data-shape="rectangle" role="menuitem" title="Rectangle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="1.5"/></svg>
+        </button>
+        <button class="flyout-btn" data-shape="triangle" role="menuitem" title="Triangle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 21 20 3 20Z"/></svg>
+        </button>
+        <button class="flyout-btn" data-shape="pentagon" role="menuitem" title="Pentagon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 10 17.5 20 6.5 20 3 10Z"/></svg>
+        </button>
       </div>
 
-      <!-- Annotation options pill -->
-      <div id="annotation-options" class="freehand-pill hidden" aria-label="Annotation options"><span class="fh-drag-handle" title="Drag to reposition"></span>
-        <div class="fh-geom-group">
-          <button id="an-mode-place" class="fh-type-btn active" title="Place new annotations">Place</button>
-          <button id="an-mode-edit" class="fh-type-btn" title="Select &amp; edit placed annotations">Edit</button>
-        </div>
-        <div class="fh-divider"></div>
-        <div id="an-place-group" class="fh-geom-group" style="gap:8px;align-items:center">
-          <select id="anno-kind" class="anno-select" title="Annotation type">
-            <option value="text">Text</option>
-            <option value="marker">Marker</option>
-            <option value="note">Note</option>
-            <option value="arrow">Arrow</option>
-            <option value="callout">Callout</option>
-            <option value="highlighter">Highlighter</option>
-          </select>
-          <input type="text" id="anno-text" class="anno-text" placeholder="Annotation text…">
-          <input type="color" id="anno-color" class="anno-color" value="#ffd400" title="Colour">
-          <div class="fh-tol-group">
-            <label for="anno-size" class="fh-label">Size</label>
-            <input type="range" id="anno-size" class="fh-slider" min="8" max="48" value="16" step="1">
-            <span id="anno-size-val" class="fh-tol-val">16</span>
-          </div>
-        </div>
-        <span id="an-edit-hint" class="fh-label" style="display:none">Tap an annotation to edit it</span>
-        <div class="fh-divider"></div>
-        <button id="an-stop" class="fh-stop-btn" title="Stop annotating">✕ Done</button>
-      </div>
-
-      <!-- Annotation editor pill (shown when an annotation is selected in Edit mode) -->
-      <div id="annotation-editor" class="freehand-pill hidden" aria-label="Annotation editor"><span class="fh-drag-handle" title="Drag to reposition"></span>
-        <span class="fh-label" id="an-edit-kind">Annotation</span>
-        <div class="fh-divider"></div>
-        <div class="fh-tol-group">
-          <label for="an-size-edit" class="fh-label">Scale</label>
-          <input type="range" id="an-size-edit" class="fh-slider" min="4" max="120" value="16" step="1">
-          <span id="an-size-edit-val" class="fh-tol-val">16</span>
-        </div>
-        <input type="color" id="an-color-edit" class="anno-color" value="#ffd400" title="Colour">
-        <div class="fh-divider"></div>
-        <button id="an-delete" class="fh-stop-btn fh-danger-btn" title="Delete annotation">🗑 Delete</button>
-        <button id="an-deselect" class="fh-type-btn" title="Done editing">Done</button>
+      <!-- ANNOTATE flyout subtoolbar (opened by the SKETCH > Annotate button) -->
+      <div id="annotate-subtoolbar" class="sketch-flyout hidden" role="menu" aria-label="Annotation tools">
+        <button class="flyout-btn" data-anno="marker" role="menuitem" title="Marker">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>
+        </button>
+        <button class="flyout-btn" data-anno="text" role="menuitem" title="Text">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5h12M12 5v14"/></svg>
+        </button>
+        <button class="flyout-btn" data-anno="note" role="menuitem" title="Note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h6M9 16h4"/></svg>
+        </button>
+        <button class="flyout-btn" data-anno="circle" role="menuitem" title="Circle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/></svg>
+        </button>
+        <button class="flyout-btn" data-anno="rectangle" role="menuitem" title="Rectangle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="1.5"/></svg>
+        </button>
+        <button class="flyout-btn" data-anno="pentagon" role="menuitem" title="Pentagon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 10 17.5 20 6.5 20 3 10Z"/></svg>
+        </button>
+        <button class="flyout-btn" data-anno="arrow" role="menuitem" title="Arrow">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18 18 6"/><path d="M9 6h9v9"/></svg>
+        </button>
+        <button class="flyout-btn" data-anno="highlighter" role="menuitem" title="Highlighter">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l3-.8 10-10-2.2-2.2-10 10z"/><path d="M14 6l4 4"/><path d="M3 21h7"/></svg>
+        </button>
+        <button class="flyout-btn" data-anno="freehand" role="menuitem" title="Freehand">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18l1-3L17 4l3 3L9 18z"/><path d="M14 5l3 3"/></svg>
+        </button>
       </div>
 
       <div id="lasso-hud" class="lasso-hud hidden">
@@ -274,11 +228,11 @@
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M227.32,73.37,182.63,28.69a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H216a8,8,0,0,0,0-16H115.32l112-112A16,16,0,0,0,227.32,73.37ZM79.32,188l90.34-90.34,16.69,16.68L96,204.69Zm79-101.66h0L68,176.69,51.31,160l90.35-90.34ZM48,179.31,76.69,208H48Z"/></svg>
               <span class="tool-btn-label">Freehand</span>
             </button>
-            <button id="btn-sketch-shape" class="tool-btn" data-tool="sketch-shape" title="Shapes — circle / ellipse / rectangle / arc / curve">
+            <button id="btn-sketch-shape" class="tool-btn" aria-haspopup="true" aria-expanded="false" title="Shapes — ellipse / rectangle / triangle / pentagon">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M200,152a47.81,47.81,0,0,0-23.4,6.08L152.6,118.21A48,48,0,1,0,80,118.21L56,158.08A48,48,0,1,0,200,200a47.78,47.78,0,0,0-9.4-28.6A48,48,0,0,0,200,152ZM116,80a12,12,0,1,1,12,12A12,12,0,0,1,116,80ZM56,232a32,32,0,1,1,32-32A32,32,0,0,1,56,232Zm72-72a48.06,48.06,0,0,0-21.4,5l21.4-35.6,21.4,35.6A48.06,48.06,0,0,0,128,160Zm72,72a32,32,0,1,1,32-32A32,32,0,0,1,200,232Z"/></svg>
               <span class="tool-btn-label">Shapes</span>
             </button>
-            <button id="btn-annotate" class="tool-btn" data-tool="annotate" title="Annotation — place text / arrows / callouts (active map only)">
+            <button id="btn-annotate" class="tool-btn" aria-haspopup="true" aria-expanded="false" title="Annotate — marker / text / note / shapes / arrow / highlighter / freehand">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="currentColor"><path d="M216,40H40A16,16,0,0,0,24,56V176a16,16,0,0,0,16,16H80v32a8,8,0,0,0,12.8,6.4L138.67,192H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40Zm0,136H136a8,8,0,0,0-4.8,1.6L96,204v-20a8,8,0,0,0-8-8H40V56H216ZM84,116a12,12,0,1,1,12,12A12,12,0,0,1,84,116Zm44,0a12,12,0,1,1,12,12A12,12,0,0,1,128,116Zm44,0a12,12,0,1,1,12,12A12,12,0,0,1,172,116Z"/></svg>
               <span class="tool-btn-label">Annotate</span>
             </button>

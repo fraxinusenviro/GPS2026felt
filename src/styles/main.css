@@ -6385,60 +6385,56 @@ input[type=color] {
   text-align: right;
 }
 
-/* ---- Shape / annotation option fields ---- */
-/* The shape/annotation pills can wrap on narrow screens — allow it so the
-   single consolidated bar never overflows or occludes the map controls. */
-#shape-options, #annotation-options, #annotation-editor { flex-wrap: wrap; max-width: min(96vw, 920px); }
-
-.fh-stop-btn {
-  padding: 3px 11px;
-  border-radius: 12px;
-  border: 1px solid var(--color-border-hover);
-  background: var(--color-bg);
+/* ---- Sketch flyout subtoolbars (SHAPES / ANNOTATE) ---- */
+.sketch-flyout {
+  position: fixed;
+  z-index: 210;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.sketch-flyout.hidden { display: none; }
+/* Left-pointing notch aligned to the anchoring button (top set inline via --notch-top). */
+.sketch-flyout::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: var(--notch-top, 24px);
+  width: 10px;
+  height: 10px;
+  transform: translateY(-50%) rotate(45deg);
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+.flyout-btn {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
   color: var(--color-text-dim);
-  font-size: 12px;
-  font-family: var(--font);
   cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
-.fh-stop-btn:hover { border-color: var(--color-accent); color: var(--color-text); }
-.fh-danger-btn { color: var(--color-danger, #e05656); border-color: var(--color-danger, #e05656); }
-.fh-danger-btn:hover { background: var(--color-danger, #e05656); color: #fff; border-color: var(--color-danger, #e05656); }
-
-.sh-params { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.sh-field { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--color-text-muted); }
-.sh-field.hidden { display: none; }
-.sh-field input {
-  width: 52px;
-  padding: 2px 5px;
-  border-radius: 8px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-size: 11px;
-  font-family: var(--font);
+.flyout-btn svg { width: 26px; height: 26px; }
+.flyout-btn:hover {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  border-color: var(--color-border-hover);
 }
-.sh-field i { font-style: normal; color: var(--color-text-dim); }
-
-.anno-select, .anno-text {
-  padding: 3px 8px;
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-size: 12px;
-  font-family: var(--font);
-}
-.anno-text { width: 150px; }
-.anno-color {
-  width: 28px;
-  height: 22px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: none;
-  cursor: pointer;
-  padding: 1px 2px;
+.flyout-btn.active {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 .fh-mode-label {
