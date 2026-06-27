@@ -151,6 +151,39 @@
         <div class="shape-card-hint">Tap on the map to set center. Radius will be applied.</div>
       </div>
 
+      <!-- Rectangle / triangle / N-gon tool options card (shared; non-blocking) -->
+      <div id="shape-options" class="shape-card hidden" aria-label="Shape options">
+        <div class="shape-card-head">
+          <span class="shape-card-glyph" id="shape-glyph">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>
+          </span>
+          <div class="shape-card-titles">
+            <div class="shape-card-title" id="shape-title">Rectangle</div>
+            <div class="shape-card-sub" id="shape-sub">Tap a corner, then drag to the opposite corner.</div>
+          </div>
+          <button id="shape-cancel" class="shape-card-cancel">Cancel</button>
+        </div>
+        <label class="shape-card-check" id="shape-constrain-row">
+          <input type="checkbox" id="shape-constrain">
+          <span><strong>Constrain to square</strong><em>Creates a square with equal width and height.</em></span>
+        </label>
+        <div class="shape-card-row" id="shape-sides-row">
+          <label for="shape-sides">Sides</label>
+          <input type="number" id="shape-sides" value="5" min="3" max="24" step="1">
+          <span class="shape-card-unit">n</span>
+        </div>
+        <div class="shape-card-row">
+          <label for="shape-size" id="shape-size-label">Size</label>
+          <input type="number" id="shape-size" value="50" min="1" step="1">
+          <span class="shape-card-unit">m</span>
+        </div>
+        <div class="shape-card-row">
+          <label for="shape-type">Type</label>
+          <select id="shape-type" class="shape-card-select" title="Preset type for the created shape"></select>
+        </div>
+        <div class="shape-card-hint" id="shape-hint">Tap on the map to drop a centered shape using the size above.</div>
+      </div>
+
       <!-- Live radius readout while dragging a shape -->
       <div id="shape-radius-badge" class="shape-radius-badge hidden">R: 0 m</div>
 
