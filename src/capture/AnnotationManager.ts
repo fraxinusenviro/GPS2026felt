@@ -172,7 +172,7 @@ export class AnnotationManager {
       case 'arrow': {
         if (!moved) return;
         const ring = buildArrowRing(down, up, s.arrow);
-        void this.save({ ...this.base('arrow', s), geometry: { type: 'Polygon', coordinates: [ring] } });
+        void this.save({ ...this.base('arrow', s), shape: s.arrow, geometry: { type: 'Polygon', coordinates: [ring] } });
         break;
       }
       case 'highlighter': {
