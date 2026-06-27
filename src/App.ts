@@ -398,57 +398,62 @@ export class App {
     this.symbolRenderer.registerAll(this.presetManager.getPresets());
     this.mapManager.updateCollectedFeatures(this.features, this.projectLayerPresets, this.presetManager.getPresets());
 
-    // Adopt a synced basemap stack (loaded layers/symbology/labels) if the active
-    // project's stored stack now differs from what's on the map. setActiveProjectStack
+    // Adopt a synced basemap stack from the active map if it changed. The map is
+    // the authoritative source for the user's current view. setActiveProjectStack
     // suppresses re-persist, so this can't loop back into sync.
     //
-    // Guard: if the user made stack changes (e.g. added shared layers) more
-    // recently than the remote project's updated_at, keep the local version.
-    // Without this, a sync pull arriving after startup can overwrite a
-    // locally-fresh stack with a stale remote snapshot — specifically when a
-    // version-update reload happened inside the 1.5 s persistStackToProject
-    // debounce window, leaving the remote without the latest changes.
-    const project = await this.storage.getProject(activeId);
-    if (project?.basemap_stack_json) {
-      let view = this.projectStackForUser(project);
+    // Guard: if the user made stack changes more recently than the remote map's
+    // updated_at, keep the local version. Without this, a sync pull can overwrite
+    // a locally-fresh stack with a stale remote snapshot — specifically when a
+    // version-update reload happened inside the 1.5 s persistStackToProject debounce
+    // window, leaving the remote without the latest changes.
+    const activeMapId = this.settings.active_map_id || this.activeMapId;
+    const activeMap = (activeMapId && activeMapId !== ALL_DATA_MAP_ID)
+      ? await this.storage.getMap(activeMapId) : undefined;
+    if (activeMap?.basemap_stack_json) {
+      const uid = this.settings.user_id || 'USER';
+      let view = activeMap.user_layer_views?.[uid] ?? activeMap.basemap_stack_json;
       if (view && this.stackLayersDiffer(view)) {
         const localTs = localStorage.getItem('fm2026_bm_stack_ts');
-        const remoteTs = project.updated_at;
+        const remoteTs = activeMap.updated_at;
         if (localTs && remoteTs && localTs > remoteTs) {
-          console.info('[App] refreshAfterSync: keeping local stack — it is newer than remote', { localTs, remoteTs });
-          return;
-        }
-        // Merge any shared/static-library layers from the local stack that are absent
-        // from the incoming remote view. Shared layers are org-wide references; another
-        // user's save (which may predate this user's addition of the layer) must not
-        // silently drop them. No permission check applies to shared layers — if the
-        // user could see them when added they remain valid references.
-        try {
-          const localObj = JSON.parse(this.basemapManager.getCurrentStackJson()) as { stack?: Array<{ defId: string; label: string }> };
-          const localShared = (localObj.stack ?? []).filter(l => l.defId?.startsWith('shared:'));
-          if (localShared.length > 0) {
-            const remoteObj = JSON.parse(view) as { stack?: Array<{ defId?: string }>; collapsed?: unknown[] };
-            const remoteSharedIds = new Set(
-              (remoteObj.stack ?? [])
-                .filter(l => l.defId?.startsWith('shared:'))
-                .map(l => l.defId as string)
-            );
-            const missing = localShared.filter(l => !remoteSharedIds.has(l.defId));
-            if (missing.length > 0) {
-              console.info(
-                `[App] refreshAfterSync: merging ${missing.length} shared layer(s) absent from remote stack — ` +
-                `treated as shared-library references (not user-owned, no permission check): ` +
-                missing.map(l => l.label).join(', ')
+          console.info('[App] refreshAfterSync: keeping local stack — it is newer than remote map', { localTs, remoteTs });
+        } else {
+          // Merge any shared/static-library layers from the local stack that are absent
+          // from the incoming remote view. Shared layers are org-wide references; another
+          // user's save (which may predate this user's addition of the layer) must not
+          // silently drop them. No permission check applies to shared layers — if the
+          // user could see them when added they remain valid references.
+          try {
+            const localObj = JSON.parse(this.basemapManager.getCurrentStackJson()) as { stack?: Array<{ defId: string; label: string }> };
+            const localShared = (localObj.stack ?? []).filter(l => l.defId?.startsWith('shared:'));
+            if (localShared.length > 0) {
+              const remoteObj = JSON.parse(view) as { stack?: Array<{ defId?: string }>; collapsed?: unknown[] };
+              const remoteSharedIds = new Set(
+                (remoteObj.stack ?? [])
+                  .filter(l => l.defId?.startsWith('shared:'))
+                  .map(l => l.defId as string)
               );
-              remoteObj.stack = [...missing, ...(remoteObj.stack ?? [])] as typeof remoteObj.stack;
-              view = JSON.stringify(remoteObj);
+              const missing = localShared.filter(l => !remoteSharedIds.has(l.defId));
+              if (missing.length > 0) {
+                console.info(
+                  `[App] refreshAfterSync: merging ${missing.length} shared layer(s) absent from remote stack — ` +
+                  `treated as shared-library references (not user-owned, no permission check): ` +
+                  missing.map(l => l.label).join(', ')
+                );
+                remoteObj.stack = [...missing, ...(remoteObj.stack ?? [])] as typeof remoteObj.stack;
+                view = JSON.stringify(remoteObj);
+              }
             }
+          } catch (e) {
+            console.warn('[App] refreshAfterSync: could not merge shared layers into remote stack', e);
           }
-        } catch (e) {
-          console.warn('[App] refreshAfterSync: could not merge shared layers into remote stack', e);
+          this.basemapManager.setActiveProjectStack(view, activeId);
         }
-        this.basemapManager.setActiveProjectStack(view, activeId);
       }
+      // Refresh header in case the map was renamed remotely.
+      const project = await this.storage.getProject(activeId);
+      this.updateHeaderNames(project?.name, activeMap.name);
     }
   }
 
@@ -881,8 +886,12 @@ export class App {
     // Cloud sync pulled remote changes — reload + redraw the active project.
     EventBus.on('cloud-data-changed', () => {
       void this.refreshAfterSync();
+      // Seed maps for any projects that arrived via this pull without maps.
+      void this.storage.seedMapsFromProjects();
       // Refresh shared static-data layers so newly-synced ones appear without a reload.
       void this.reloadSharedDefs().then(() => this.dataLibraryModal.refreshIfOpen());
+      // Refresh the project/map library so newly-synced projects and maps appear.
+      this.projectLibraryModal.refreshIfOpen();
     });
 
     // Cloud sync config/actions from the Settings panel.
