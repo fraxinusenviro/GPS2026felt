@@ -62,18 +62,35 @@
     <div id="map-container">
       <div id="map"></div>
 
-      <!-- Freehand Options Pill -->
-      <div id="freehand-options" class="freehand-pill hidden" aria-label="Freehand drawing options"><span class="fh-drag-handle" title="Drag to reposition"></span>
-        <div class="fh-geom-group" id="fh-geom-group">
-          <button id="fh-btn-line" class="fh-type-btn active">Line</button>
-          <button id="fh-btn-polygon" class="fh-type-btn">Polygon</button>
+      <!-- Freehand tool options card (non-blocking; stays open during map interaction) -->
+      <div id="freehand-options" class="shape-card hidden" aria-label="Freehand drawing options">
+        <div class="shape-card-head">
+          <span class="shape-card-glyph">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 18l1-3L17 4l3 3L9 18z"/><path d="M14 5l3 3"/></svg>
+          </span>
+          <div class="shape-card-titles">
+            <div class="shape-card-title">Freehand</div>
+            <div class="shape-card-sub">Press and drag on the map to draw.</div>
+          </div>
+          <button id="freehand-cancel" class="shape-card-cancel">Cancel</button>
         </div>
-        <div class="fh-divider" id="fh-geom-divider"></div>
-        <div class="fh-tol-group">
-          <label for="fh-tolerance" class="fh-label">Simplify</label>
-          <input type="range" id="fh-tolerance" class="fh-slider" min="1" max="50" value="5" step="1">
-          <span id="fh-tolerance-val" class="fh-tol-val">5 m</span>
+        <div class="shape-card-row">
+          <label>Shape</label>
+          <div class="shape-seg" id="fh-geom-group" role="group" aria-label="Freehand geometry">
+            <button id="fh-btn-line" class="shape-seg-btn active">Line</button>
+            <button id="fh-btn-polygon" class="shape-seg-btn">Polygon</button>
+          </div>
         </div>
+        <div class="shape-card-row">
+          <label for="fh-type">Type</label>
+          <select id="fh-type" class="shape-card-select" title="Preset type for the drawn feature"></select>
+        </div>
+        <div class="shape-card-row">
+          <label for="fh-tolerance">Simplify</label>
+          <input type="range" id="fh-tolerance" class="shape-slider" min="1" max="50" value="5" step="1">
+          <span id="fh-tolerance-val" class="shape-card-unit">5 m</span>
+        </div>
+        <div class="shape-card-hint">Pick a shape and type, then press-drag on the map. Re-tap Freehand to finish.</div>
       </div>
 
       <!-- SHAPES flyout subtoolbar (opened by the SKETCH > Shapes button) -->
@@ -236,6 +253,23 @@
 
       <!-- Live radius readout while dragging a shape -->
       <div id="shape-radius-badge" class="shape-radius-badge hidden">R: 0 m</div>
+
+      <!-- Shared annotation tool options card (scaffold; per-tool fields built in JS, wired later) -->
+      <div id="anno-options" class="shape-card hidden" aria-label="Annotation options">
+        <div class="shape-card-head">
+          <span class="shape-card-glyph" id="anno-glyph">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>
+          </span>
+          <div class="shape-card-titles">
+            <div class="shape-card-title" id="anno-title">Marker</div>
+            <div class="shape-card-sub" id="anno-sub">Annotation tool</div>
+          </div>
+          <button id="anno-cancel" class="shape-card-cancel">Cancel</button>
+        </div>
+        <!-- Per-tool fields are injected here by configureAnnoCard(). -->
+        <div id="anno-fields"></div>
+        <div class="shape-card-hint" id="anno-hint">Drawing for annotation tools is not wired up yet.</div>
+      </div>
 
       <div id="lasso-hud" class="lasso-hud hidden">
         <span id="lasso-count" class="lasso-count">0 selected</span>

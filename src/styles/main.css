@@ -6289,101 +6289,8 @@ input[type=color] {
 /* ============================================================
    Freehand Options Pill
    ============================================================ */
-.freehand-pill {
-  position: fixed;
-  top: calc(var(--header-height) + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 300;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-hover);
-  border-radius: 24px;
-  padding: 5px 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  box-shadow: var(--shadow-sm);
-  touch-action: none;
-  user-select: none;
-  white-space: nowrap;
-}
-.freehand-pill.hidden { display: none; }
-
-.fh-drag-handle {
-  width: 6px;
-  align-self: stretch;
-  cursor: grab;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  touch-action: none;
-  flex-shrink: 0;
-  margin-right: 4px;
-  opacity: 0.4;
-}
-.fh-drag-handle::before {
-  content: '';
-  display: block;
-  width: 4px;
-  height: 20px;
-  border-radius: 2px;
-  background: var(--color-border-hover);
-}
-
-.fh-geom-group { display: flex; gap: 4px; }
-
-.fh-type-btn {
-  padding: 3px 11px;
-  border-radius: 12px;
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 12px;
-  font-family: var(--font);
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-.fh-type-btn.active {
-  background: var(--color-accent-dim);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-.fh-type-btn:hover:not(.active) {
-  border-color: var(--color-border-hover);
-  color: var(--color-text-dim);
-}
-
-.fh-divider {
-  width: 1px;
-  height: 18px;
-  background: var(--color-border);
-  flex-shrink: 0;
-}
-
-.fh-tol-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.fh-label {
-  font-size: 11px;
-  color: var(--color-text-muted);
-}
-
-.fh-slider {
-  width: 72px;
-  accent-color: var(--color-accent);
-  cursor: pointer;
-  touch-action: pan-x;
-}
-
-.fh-tol-val {
-  font-size: 11px;
-  color: var(--color-text-dim);
-  min-width: 28px;
-  text-align: right;
-}
+/* The freehand options pill was replaced by the shared .shape-card (accent header,
+   type-first, draggable). Its legacy styles were removed. */
 
 /* ---- Sketch flyout subtoolbars (SHAPES / ANNOTATE) ---- */
 .sketch-flyout {
@@ -6496,6 +6403,36 @@ input[type=color] {
   background: var(--color-bg); color: var(--color-text); font-size: 13px; font-family: var(--font);
 }
 .shape-card-hint { font-size: 11px; color: var(--color-text-muted); }
+/* Header doubles as the drag handle for the (movable) SKETCH option cards. */
+.shape-card-head { cursor: move; touch-action: none; user-select: none; }
+.shape-card.hud-dragging { box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+
+/* Segmented toggle (e.g. freehand Line / Polygon) inside a card row. */
+.shape-seg { display: inline-flex; gap: 4px; }
+.shape-seg-btn {
+  padding: 4px 12px; border-radius: 8px;
+  border: 1px solid var(--color-border); background: transparent;
+  color: var(--color-text-muted); font-size: 13px; font-family: var(--font); cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.shape-seg-btn.active { background: var(--color-accent-dim); border-color: var(--color-accent); color: var(--color-accent); }
+.shape-seg-btn:hover:not(.active) { border-color: var(--color-border-hover); color: var(--color-text-dim); }
+
+/* Range slider inside a card row. */
+.shape-slider { flex: 1; accent-color: var(--color-accent); cursor: pointer; touch-action: pan-x; }
+
+/* Injected per-tool annotation fields share the card's column spacing. */
+#anno-fields { display: flex; flex-direction: column; gap: 10px; }
+#anno-fields:empty { display: none; }
+.shape-card-row textarea {
+  flex: 1; padding: 5px 8px; min-height: 48px; resize: vertical;
+  border: 1px solid var(--color-border); border-radius: 8px;
+  background: var(--color-bg); color: var(--color-text); font-size: 13px; font-family: var(--font);
+}
+.shape-card-row input[type="color"] {
+  width: 36px; height: 28px; padding: 0; border: 1px solid var(--color-border);
+  border-radius: 6px; background: var(--color-bg); cursor: pointer;
+}
 
 .shape-radius-badge {
   position: absolute;
@@ -6511,13 +6448,6 @@ input[type=color] {
   white-space: nowrap;
 }
 .shape-radius-badge.hidden { display: none; }
-
-.fh-mode-label {
-  font-size: 11px;
-  color: var(--color-warn);
-  white-space: nowrap;
-  font-style: italic;
-}
 
 /* Lasso Selection HUD */
 .lasso-hud {
