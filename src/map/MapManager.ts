@@ -1,6 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import type { Map as MLMap, LngLat, StyleSpecification } from 'maplibre-gl';
-import type { FieldFeature, AppSettings, LayerPreset, TypePreset, SymbologyState, GeometryType, HatchPattern, Annotation } from '../types';
+import type { FieldFeature, AppSettings, LayerPreset, TypePreset, SymbologyState, GeometryType, HatchPattern, Annotation, GeoJSONGeometry } from '../types';
 import { LAYER_IDS, BASEMAPS, BASEMAP_OVERLAYS } from '../constants';
 import { buildColorExpression, buildRadiusExpression, buildLegend } from '../lib/symbologyEngine';
 import type { LegendEntry } from '../lib/symbologyEngine';
@@ -1747,17 +1747,35 @@ export class MapManager {
   }
 
   highlightFeature(feature: FieldFeature | null): void {
+    this.highlightGeometry(feature ? feature.geometry : null);
+  }
+
+  /** Highlight an arbitrary geometry (features or annotations) via the shared
+   *  `selected-feature` source/layers. Pass null to clear. */
+  highlightGeometry(geometry: GeoJSONGeometry | null): void {
     if (!this.initialized) return;
-    if (!feature) {
-      (this.map.getSource('selected-feature') as maplibregl.GeoJSONSource)?.setData({
-        type: 'FeatureCollection', features: []
-      });
+    const src = this.map.getSource('selected-feature') as maplibregl.GeoJSONSource | undefined;
+    if (!geometry) {
+      src?.setData({ type: 'FeatureCollection', features: [] });
       return;
     }
-    (this.map.getSource('selected-feature') as maplibregl.GeoJSONSource)?.setData({
+    src?.setData({
       type: 'FeatureCollection',
-      features: [{ type: 'Feature', geometry: feature.geometry as never, properties: {} }]
+      features: [{ type: 'Feature', geometry: geometry as never, properties: {} }]
     });
+  }
+
+  /** Query placed annotations near a screen point (touch-friendly padded box). */
+  queryAnnotationsAtPoint(point: maplibregl.Point): maplibregl.MapGeoJSONFeature[] {
+    if (!this.initialized) return [];
+    const box: [maplibregl.PointLike, maplibregl.PointLike] = [
+      [point.x - 12, point.y - 12],
+      [point.x + 12, point.y + 12],
+    ];
+    const layers = ['annotations-fill', 'annotations-line', 'annotations-text']
+      .filter(id => this.map.getLayer(id));
+    if (!layers.length) return [];
+    return this.map.queryRenderedFeatures(box, { layers });
   }
 
   highlightFeatures(features: FieldFeature[]): void {

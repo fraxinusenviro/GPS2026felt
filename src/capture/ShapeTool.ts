@@ -347,8 +347,7 @@ export class ShapeTool {
       this.annotationSink?.(b.geomType, b.coords);
       return;
     }
-    const type = (document.getElementById('type-selector') as HTMLSelectElement | null)?.value ?? '';
-    const desc = (document.getElementById('point-entry-desc') as HTMLInputElement | null)?.value ?? '';
-    void this.captureManager.saveShapeFeature(b.geomType, b.coords, type, desc);
+    const type = (document.getElementById('sh-type') as HTMLSelectElement | null)?.value ?? '';
+    void this.captureManager.saveShapeFeature(b.geomType, b.coords, type, '');
   }
 }

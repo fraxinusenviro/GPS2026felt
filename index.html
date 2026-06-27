@@ -76,20 +76,19 @@
         </div>
       </div>
 
-      <!-- Shape picker flyout (opened by the SKETCH > Shapes button) -->
-      <div id="shape-flyout" class="shape-flyout hidden" aria-label="Shape picker">
-        <button class="shf-btn active" data-shape="circle" title="Circle">● Circle</button>
-        <button class="shf-btn" data-shape="ellipse" title="Ellipse">⬭ Ellipse</button>
-        <button class="shf-btn" data-shape="rectangle" title="Rectangle">▭ Rectangle</button>
-        <button class="shf-btn" data-shape="square" title="Square">▢ Square</button>
-        <button class="shf-btn" data-shape="ngon" title="Regular polygon">⬡ N-gon</button>
-        <button class="shf-btn" data-shape="arc" title="Arc">◜ Arc</button>
-        <button class="shf-btn" data-shape="bezier" title="Bézier curve">∿ Bézier</button>
-        <button class="shf-btn" data-shape="buffer" title="Buffer a feature">◎ Buffer</button>
-      </div>
-
-      <!-- Shape drawing options pill -->
+      <!-- Shape drawing options pill (single consolidated control bar) -->
       <div id="shape-options" class="freehand-pill hidden" aria-label="Shape options"><span class="fh-drag-handle" title="Drag to reposition"></span>
+        <select id="sh-kind" class="anno-select" title="Shape">
+          <option value="circle">● Circle</option>
+          <option value="ellipse">⬭ Ellipse</option>
+          <option value="rectangle">▭ Rectangle</option>
+          <option value="square">▢ Square</option>
+          <option value="ngon">⬡ N-gon</option>
+          <option value="arc">◜ Arc</option>
+          <option value="bezier">∿ Bézier</option>
+          <option value="buffer">◎ Buffer</option>
+        </select>
+        <div class="fh-divider"></div>
         <div class="fh-geom-group">
           <button id="sh-method-drag" class="fh-type-btn active">Drag</button>
           <button id="sh-method-param" class="fh-type-btn">By value</button>
@@ -99,6 +98,10 @@
           <button id="sh-target-data" class="fh-type-btn active" title="Save as project data">Data</button>
           <button id="sh-target-anno" class="fh-type-btn" title="Save onto the Annotations layer">Annotation</button>
         </div>
+        <div class="fh-divider" id="sh-type-divider"></div>
+        <label class="sh-field" id="sh-type-field"><span>Type</span>
+          <select id="sh-type" class="anno-select" title="Preset type for created shapes"></select>
+        </label>
         <div class="fh-divider"></div>
         <div class="sh-params" id="sh-params">
           <label class="sh-field" data-for="radius"><span>Radius</span><input type="number" id="sh-radius" value="50" min="1" step="1"><i>m</i></label>
@@ -118,25 +121,49 @@
           <input type="range" id="sh-segments" class="fh-slider" min="8" max="128" value="64" step="4">
           <span id="sh-segments-val" class="fh-tol-val">64</span>
         </div>
+        <div class="fh-divider"></div>
+        <button id="sh-stop" class="fh-stop-btn" title="Stop drawing shapes">✕ Done</button>
       </div>
 
       <!-- Annotation options pill -->
       <div id="annotation-options" class="freehand-pill hidden" aria-label="Annotation options"><span class="fh-drag-handle" title="Drag to reposition"></span>
         <div class="fh-geom-group">
+          <button id="an-mode-place" class="fh-type-btn active" title="Place new annotations">Place</button>
+          <button id="an-mode-edit" class="fh-type-btn" title="Select &amp; edit placed annotations">Edit</button>
+        </div>
+        <div class="fh-divider"></div>
+        <div id="an-place-group" class="fh-geom-group" style="gap:8px;align-items:center">
           <select id="anno-kind" class="anno-select" title="Annotation type">
             <option value="text">Text</option>
             <option value="arrow">Arrow</option>
             <option value="callout">Callout</option>
           </select>
+          <input type="text" id="anno-text" class="anno-text" placeholder="Annotation text…">
+          <input type="color" id="anno-color" class="anno-color" value="#ffd400" title="Colour">
+          <div class="fh-tol-group">
+            <label for="anno-size" class="fh-label">Size</label>
+            <input type="range" id="anno-size" class="fh-slider" min="8" max="48" value="16" step="1">
+            <span id="anno-size-val" class="fh-tol-val">16</span>
+          </div>
         </div>
+        <span id="an-edit-hint" class="fh-label" style="display:none">Tap an annotation to edit it</span>
         <div class="fh-divider"></div>
-        <input type="text" id="anno-text" class="anno-text" placeholder="Annotation text…">
-        <input type="color" id="anno-color" class="anno-color" value="#ffd400" title="Colour">
+        <button id="an-stop" class="fh-stop-btn" title="Stop annotating">✕ Done</button>
+      </div>
+
+      <!-- Annotation editor pill (shown when an annotation is selected in Edit mode) -->
+      <div id="annotation-editor" class="freehand-pill hidden" aria-label="Annotation editor"><span class="fh-drag-handle" title="Drag to reposition"></span>
+        <span class="fh-label" id="an-edit-kind">Annotation</span>
+        <div class="fh-divider"></div>
         <div class="fh-tol-group">
-          <label for="anno-size" class="fh-label">Size</label>
-          <input type="range" id="anno-size" class="fh-slider" min="8" max="48" value="16" step="1">
-          <span id="anno-size-val" class="fh-tol-val">16</span>
+          <label for="an-size-edit" class="fh-label">Scale</label>
+          <input type="range" id="an-size-edit" class="fh-slider" min="4" max="120" value="16" step="1">
+          <span id="an-size-edit-val" class="fh-tol-val">16</span>
         </div>
+        <input type="color" id="an-color-edit" class="anno-color" value="#ffd400" title="Colour">
+        <div class="fh-divider"></div>
+        <button id="an-delete" class="fh-stop-btn fh-danger-btn" title="Delete annotation">🗑 Delete</button>
+        <button id="an-deselect" class="fh-type-btn" title="Done editing">Done</button>
       </div>
 
       <div id="lasso-hud" class="lasso-hud hidden">

@@ -46,7 +46,7 @@ import { PhotoViewerModal } from './photos/PhotoViewerModal';
 import { runPhotoDownscaleMigration } from './photos/photoMigration';
 import { AttributeTablePanel } from './ui/AttributeTablePanel';
 import type { SharedLayer, BasemapDef, ImportedLayer } from './types';
-import type { ShapeKind, ShapeMethod, ShapeParams } from './types';
+import type { ShapeKind, ShapeMethod, ShapeParams, Annotation } from './types';
 import { sharedLayerToDef } from './data/sharedLayerDefs';
 import * as turf from '@turf/turf';
 
@@ -1160,7 +1160,7 @@ export class App {
   private deactivateSectionTools(sectionId: string): void {
     const currentTool = this.captureManager.getCurrentTool();
     const gpsTools    = ['gps-point', 'gps-point-stream', 'gps-line', 'gps-polygon'];
-    const sketchTools = ['sketch-point', 'sketch-line', 'sketch-polygon', 'sketch-freehand'];
+    const sketchTools = ['sketch-point', 'sketch-line', 'sketch-polygon', 'sketch-freehand', 'sketch-shape', 'annotate'];
     const editTools   = ['select', 'lasso-select', 'edit-attrs', 'delete', 'edit-geometry'];
 
     switch (sectionId) {
@@ -1843,18 +1843,17 @@ export class App {
     this.detachFreehandPointerEvents();
     const pill = document.getElementById('freehand-options');
     const shPill = document.getElementById('shape-options');
-    const shFlyout = document.getElementById('shape-flyout');
     const anPill = document.getElementById('annotation-options');
 
     // Tear down the stateful drawing tools whenever we leave them.
     if (tool !== 'sketch-shape') {
       this.shapeTool.deactivate();
       shPill?.classList.add('hidden');
-      shFlyout?.classList.add('hidden');
     }
     if (tool !== 'annotate') {
       this.annotationTool.deactivate();
       anPill?.classList.add('hidden');
+      document.getElementById('annotation-editor')?.classList.add('hidden');
     }
 
     if (tool === 'sketch-freehand') {
@@ -1868,7 +1867,7 @@ export class App {
       pill?.classList.add('hidden');
       this.clearLassoSelection();
       shPill?.classList.remove('hidden');
-      shFlyout?.classList.remove('hidden');
+      this.populateShapeTypeSelector(this.shapeTool.getShape());
       this.shapeTool.activate();        // manages dragPan itself
     } else if (tool === 'annotate') {
       pill?.classList.add('hidden');
@@ -2118,19 +2117,37 @@ export class App {
     });
   }
 
+  /** Output geometry a shape kind produces — drives the type-preset list. */
+  private shapeOutputGeom(kind: ShapeKind): GeometryType {
+    return kind === 'arc' || kind === 'bezier' ? 'LineString' : 'Polygon';
+  }
+
+  /** Fill #sh-type with the presets valid for the current shape's output geometry. */
+  private populateShapeTypeSelector(kind: ShapeKind): void {
+    const sel = document.getElementById('sh-type') as HTMLSelectElement | null;
+    if (!sel) return;
+    const current = sel.value;
+    const presets = this.presetManager.getPresetsForGeomType(this.shapeOutputGeom(kind));
+    sel.innerHTML = '<option value="">None</option>';
+    presets.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.label; opt.textContent = p.label;
+      if (p.label === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
   private wireShapeControls(): void {
     let method: ShapeMethod = 'drag';
     let shape: ShapeKind = 'circle';
 
-    // Shape picker flyout
-    document.querySelectorAll<HTMLButtonElement>('#shape-flyout .shf-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        shape = btn.dataset.shape as ShapeKind;
-        document.querySelectorAll('#shape-flyout .shf-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.shapeTool.setShape(shape);
-        this.updateShapeFields(shape, method);
-      });
+    // Shape picker (consolidated dropdown — no separate flyout)
+    const kindSel = document.getElementById('sh-kind') as HTMLSelectElement | null;
+    kindSel?.addEventListener('change', () => {
+      shape = kindSel.value as ShapeKind;
+      this.shapeTool.setShape(shape);
+      this.updateShapeFields(shape, method);
+      this.populateShapeTypeSelector(shape);
     });
 
     // Method toggle (drag vs by-value)
@@ -2146,15 +2163,26 @@ export class App {
     mDrag?.addEventListener('click', () => setMethod('drag'));
     mParam?.addEventListener('click', () => setMethod('parametric'));
 
-    // Target toggle (project data vs annotation layer)
+    // Target toggle (project data vs annotation layer) — type preset only applies to data
     const tData = document.getElementById('sh-target-data');
     const tAnno = document.getElementById('sh-target-anno');
+    const typeField = document.getElementById('sh-type-field');
+    const typeDiv = document.getElementById('sh-type-divider');
+    const setTypeVisible = (vis: boolean) => {
+      typeField?.classList.toggle('hidden', !vis);
+      if (typeDiv) typeDiv.style.display = vis ? '' : 'none';
+    };
     tData?.addEventListener('click', () => {
-      tData.classList.add('active'); tAnno?.classList.remove('active'); this.shapeTool.setTarget('data');
+      tData.classList.add('active'); tAnno?.classList.remove('active');
+      this.shapeTool.setTarget('data'); setTypeVisible(true);
     });
     tAnno?.addEventListener('click', () => {
-      tAnno.classList.add('active'); tData?.classList.remove('active'); this.shapeTool.setTarget('annotation');
+      tAnno.classList.add('active'); tData?.classList.remove('active');
+      this.shapeTool.setTarget('annotation'); setTypeVisible(false);
     });
+
+    // Stop button — disarm the tool entirely
+    document.getElementById('sh-stop')?.addEventListener('click', () => this.activateTool('none'));
 
     // Numeric param inputs
     const numWire = (id: string, key: keyof ShapeParams) => {
@@ -2177,6 +2205,7 @@ export class App {
     });
 
     this.updateShapeFields(shape, method);
+    this.populateShapeTypeSelector(shape);
   }
 
   private wireAnnotationPill(): void {
@@ -2185,6 +2214,51 @@ export class App {
     const size = document.getElementById('anno-size') as HTMLInputElement | null;
     const sizeVal = document.getElementById('anno-size-val');
     size?.addEventListener('input', () => { if (sizeVal) sizeVal.textContent = size.value; });
+
+    // Place / Edit mode toggle
+    const mPlace = document.getElementById('an-mode-place');
+    const mEdit = document.getElementById('an-mode-edit');
+    const placeGroup = document.getElementById('an-place-group');
+    const editHint = document.getElementById('an-edit-hint');
+    const setMode = (mode: 'place' | 'edit') => {
+      mPlace?.classList.toggle('active', mode === 'place');
+      mEdit?.classList.toggle('active', mode === 'edit');
+      if (placeGroup) placeGroup.style.display = mode === 'place' ? '' : 'none';
+      if (editHint) editHint.style.display = mode === 'edit' ? '' : 'none';
+      this.annotationTool.setMode(mode);
+      if (mode === 'place') this.annotationTool.deselect();
+    };
+    mPlace?.addEventListener('click', () => setMode('place'));
+    mEdit?.addEventListener('click', () => setMode('edit'));
+
+    // Stop button — disarm the annotate tool entirely
+    document.getElementById('an-stop')?.addEventListener('click', () => this.activateTool('none'));
+
+    // ---- Annotation editor (Edit mode selection) ----
+    const editor = document.getElementById('annotation-editor');
+    const eSize = document.getElementById('an-size-edit') as HTMLInputElement | null;
+    const eSizeVal = document.getElementById('an-size-edit-val');
+    const eColor = document.getElementById('an-color-edit') as HTMLInputElement | null;
+    const eKind = document.getElementById('an-edit-kind');
+
+    EventBus.on<{ annotation: Annotation }>('annotation-selected', ({ annotation }) => {
+      if (eKind) eKind.textContent = annotation.kind.charAt(0).toUpperCase() + annotation.kind.slice(1);
+      if (eSize) eSize.value = String(annotation.base_size);
+      if (eSizeVal) eSizeVal.textContent = String(Math.round(annotation.base_size));
+      if (eColor) eColor.value = annotation.color || '#ffd400';
+      editor?.classList.remove('hidden');
+    });
+    EventBus.on('annotation-deselected', () => editor?.classList.add('hidden'));
+
+    eSize?.addEventListener('input', () => {
+      if (eSizeVal) eSizeVal.textContent = eSize.value;
+      this.annotationTool.scaleSelected(parseFloat(eSize.value), false);
+    });
+    eSize?.addEventListener('change', () => this.annotationTool.scaleSelected(parseFloat(eSize.value), true));
+    eColor?.addEventListener('input', () => this.annotationTool.recolorSelected(eColor.value, false));
+    eColor?.addEventListener('change', () => this.annotationTool.recolorSelected(eColor.value, true));
+    document.getElementById('an-delete')?.addEventListener('click', () => void this.annotationTool.deleteSelected());
+    document.getElementById('an-deselect')?.addEventListener('click', () => this.annotationTool.deselect());
   }
 
   private attachLassoPointerEvents(): void {
