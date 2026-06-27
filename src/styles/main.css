@@ -9763,6 +9763,30 @@ input[type=color] {
   gap: 12px;
   background: var(--color-surface);
 }
+/* Map preview and legend preview sit side by side to save vertical space. */
+.ss-preview-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.ss-preview-col {
+  flex: 1 1 58%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ss-legend-card {
+  flex: 1 1 42%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ss-legend-card #ss-legend-preview {
+  overflow-y: auto;
+  min-height: 0;
+}
 .ss-preview-head {
   display: flex;
   align-items: center;
@@ -9805,6 +9829,25 @@ input[type=color] {
   color: var(--color-text);
   margin-bottom: 6px;
 }
+/* Collapsible "Current symbology" card (collapsed by default). */
+.ss-card-collapsible > summary.ss-card-title {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+}
+.ss-card-collapsible > summary.ss-card-title::-webkit-details-marker { display: none; }
+.ss-card-collapsible > summary.ss-card-title::before {
+  content: '▸';
+  font-size: 9px;
+  color: var(--color-text-muted);
+  transition: transform 0.12s;
+}
+.ss-card-collapsible[open] > summary.ss-card-title::before { transform: rotate(90deg); }
+.ss-card-collapsible[open] > summary.ss-card-title { margin-bottom: 6px; }
 .ss-sum-row {
   display: flex;
   align-items: center;
@@ -9867,6 +9910,8 @@ input[type=color] {
     border-left: none;
     border-top: 1px solid var(--color-border);
   }
+  .ss-preview-row { flex-direction: column; }
+  .ss-legend-card { max-height: 180px; }
   .ss-preview-map { height: 200px; }
 }
 

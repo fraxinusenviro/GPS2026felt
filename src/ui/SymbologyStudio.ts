@@ -274,8 +274,8 @@ export class SymbologyStudio {
             </div>
 
             ${this.accordion('Colour & palette', `
-              <div id="ss-color-section">${this.buildColorSection(state, features)}</div>
               <div id="ss-classifier-section" class="${state.method === 'graduated' ? '' : 'ss-hidden'}">${this.buildClassifierSection(state)}</div>
+              <div id="ss-color-section">${this.buildColorSection(state, features)}</div>
             `)}
 
             ${this.accordion(styleTitle, `${sizeOpacityHtml}${pointStyleHtml}${lineStyleHtml}${polygonStyleHtml}${labelsHtml}`)}
@@ -298,19 +298,23 @@ export class SymbologyStudio {
           </div><!-- /ss-body -->
 
           <div class="ss-col-right">
-            <div class="ss-preview-head">
-              <span class="ss-lbl">Preview</span>
-              <a class="ss-link" id="ss-zoom-extent">Zoom to extent</a>
+            <div class="ss-preview-row">
+              <div class="ss-preview-col">
+                <div class="ss-preview-head">
+                  <span class="ss-lbl">Map preview</span>
+                  <a class="ss-link" id="ss-zoom-extent">Zoom to extent</a>
+                </div>
+                <div class="ss-preview-map" id="ss-preview-map"></div>
+              </div>
+              <div class="ss-card ss-legend-card">
+                <div class="ss-card-title">Legend preview</div>
+                <div id="ss-legend-preview">${this.buildLegendPreviewHtml(state, features, geomType)}</div>
+              </div>
             </div>
-            <div class="ss-preview-map" id="ss-preview-map"></div>
-            <div class="ss-card">
-              <div class="ss-card-title">Current symbology</div>
+            <details class="ss-card ss-card-collapsible">
+              <summary class="ss-card-title">Current symbology</summary>
               <div id="ss-summary">${this.buildSummaryHtml(state, geomType)}</div>
-            </div>
-            <div class="ss-card">
-              <div class="ss-card-title">Legend preview</div>
-              <div id="ss-legend-preview">${this.buildLegendPreviewHtml(state, features, geomType)}</div>
-            </div>
+            </details>
             <button class="btn-outline ss-reset-btn" id="ss-reset">↺ Reset symbology</button>
           </div>
         </div>
@@ -943,7 +947,7 @@ export class SymbologyStudio {
     const numEl = overlay.querySelector<HTMLElement>('#ss-cls-num');
     const changeClasses = (delta: number) => {
       const next = (state.classes ?? 5) + delta;
-      if (next < 3 || next > 7) return;
+      if (next < 3 || next > 20) return;
       state.classes = next;
       if (numEl) numEl.textContent = String(state.classes);
       this.refreshRampChips(overlay, state);
