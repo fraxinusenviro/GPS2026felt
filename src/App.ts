@@ -5,6 +5,7 @@ import { BasemapManager } from './map/BasemapManager';
 import { GridOverlay } from './map/GridOverlay';
 import { CaptureManager } from './capture/CaptureManager';
 import { CircleTool } from './capture/CircleTool';
+import { ShapeTool, type ShapeKind } from './capture/ShapeTool';
 import { ImportManager } from './io/ImportManager';
 import { ExportManager } from './io/ExportManager';
 import { HUD } from './ui/HUD';
@@ -56,6 +57,7 @@ export class App {
   private gridOverlay!: GridOverlay;
   private captureManager!: CaptureManager;
   private circleTool!: CircleTool;
+  private shapeTool!: ShapeTool;
   private importManager!: ImportManager;
   private exportManager!: ExportManager;
   private hud!: HUD;
@@ -179,6 +181,8 @@ export class App {
     this.captureManager.setSettings(this.settings);
     this.circleTool = new CircleTool(this.mapManager, this.captureManager);
     this.circleTool.setOnComplete(() => this.circleTool.deactivate());
+    this.shapeTool = new ShapeTool(this.mapManager, this.captureManager);
+    this.shapeTool.setOnComplete(() => this.shapeTool.deactivate());
     this.importManager = new ImportManager(this.mapManager);
     this.exportManager = new ExportManager();
     this.presetManager = new PresetManager();
@@ -1165,6 +1169,7 @@ export class App {
         if (hudEl2 && sketchTools.includes(currentTool)) hudEl2.style.display = 'none';
         if (sketchTools.includes(currentTool)) this.activateTool('none');
         this.circleTool?.deactivate();
+        this.shapeTool?.deactivate();
         this.closeSketchFlyouts();
         break;
       }
@@ -2104,21 +2109,29 @@ export class App {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.circleTool.deactivate(); // opening a flyout cancels an in-progress shape
+        this.shapeTool.deactivate();
         const wasOpen = !flyout.classList.contains('hidden');
         this.closeSketchFlyouts();
         if (!wasOpen) open(btn, flyout);
       });
-      // Sub-tool buttons: activate the matching tool (only Circle is wired so far).
+      // Sub-tool buttons: activate the matching shape tool.
       flyout.querySelectorAll<HTMLButtonElement>('.flyout-btn').forEach(b => {
         b.addEventListener('click', () => {
           flyout.querySelectorAll('.flyout-btn').forEach(x => x.classList.remove('active'));
           b.classList.add('active');
-          if (b.dataset.shape === 'circle') {
+          const shape = b.dataset.shape;
+          if (shape === 'circle') {
             this.closeSketchFlyouts();
             this.populateCircleTypeSelector();
             this.circleTool.activate();
+          } else if (shape === 'rectangle' || shape === 'triangle' || shape === 'pentagon') {
+            this.closeSketchFlyouts();
+            const kind: ShapeKind = shape === 'pentagon' ? 'ngon' : shape;
+            this.configureShapeCard(kind);
+            this.populateShapeTypeSelector();
+            this.shapeTool.activate(kind);
           }
-          // TODO: wire the remaining shape/annotation tools here.
+          // TODO: wire the annotation tools here.
         });
       });
     });
@@ -2126,6 +2139,7 @@ export class App {
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;
       if (this.circleTool.isActive()) this.circleTool.deactivate();
+      else if (this.shapeTool.isActive()) this.shapeTool.deactivate();
       else this.closeSketchFlyouts();
     });
     document.addEventListener('click', (e) => {
@@ -2135,6 +2149,57 @@ export class App {
     });
 
     document.getElementById('circle-cancel')?.addEventListener('click', () => this.circleTool.deactivate());
+    document.getElementById('shape-cancel')?.addEventListener('click', () => this.shapeTool.deactivate());
+  }
+
+  /** Adapt the shared shape-options card (title, glyph, visible rows, hint) to the kind. */
+  private configureShapeCard(kind: ShapeKind): void {
+    const set = (id: string, html: string) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+    const show = (id: string, on: boolean) => document.getElementById(id)?.classList.toggle('hidden', !on);
+    const rect = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="6" width="16" height="12" rx="1"/></svg>';
+    const tri = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4 L20 19 L4 19 Z"/></svg>';
+    const ngon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 L20.5 9.2 L17.3 19.3 L6.7 19.3 L3.5 9.2 Z"/></svg>';
+
+    if (kind === 'rectangle') {
+      set('shape-glyph', rect);
+      set('shape-title', 'Rectangle');
+      set('shape-sub', 'Tap a corner, then drag to the opposite corner.');
+      set('shape-size-label', 'Side');
+      set('shape-hint', 'Tap on the map to drop a centered square using the side above.');
+      show('shape-constrain-row', true);
+      show('shape-sides-row', false);
+    } else if (kind === 'triangle') {
+      set('shape-glyph', tri);
+      set('shape-title', 'Triangle');
+      set('shape-sub', 'Tap to set the center, then drag to size and rotate.');
+      set('shape-size-label', 'Radius');
+      set('shape-hint', 'Tap on the map to drop a centered triangle using the radius above.');
+      show('shape-constrain-row', false);
+      show('shape-sides-row', false);
+    } else {
+      set('shape-glyph', ngon);
+      set('shape-title', 'Polygon (N-gon)');
+      set('shape-sub', 'Tap to set the center, then drag to size and rotate.');
+      set('shape-size-label', 'Radius');
+      set('shape-hint', 'Set the number of sides, then tap or drag on the map.');
+      show('shape-constrain-row', false);
+      show('shape-sides-row', true);
+    }
+  }
+
+  /** Fill the shape options card's Type selector with the active project's Polygon presets. */
+  private populateShapeTypeSelector(): void {
+    const sel = document.getElementById('shape-type') as HTMLSelectElement | null;
+    if (!sel) return;
+    const current = sel.value;
+    const presets = this.presetManager.getPresetsForGeomType('Polygon');
+    sel.innerHTML = '<option value="">None</option>';
+    presets.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.label; opt.textContent = p.label;
+      if (p.label === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
   }
 
   /** Fill the circle options card's Type selector with the active project's Polygon presets. */
