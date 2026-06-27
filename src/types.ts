@@ -247,7 +247,7 @@ export type GeoJSONGeometry = GeoJSONPoint | GeoJSONLineString | GeoJSONPolygon;
 // annotation records the zoom it was placed at (base_zoom) so it can be rendered
 // at a constant ground size — growing/shrinking as the user zooms relative to
 // that baseline (see MapManager size expressions).
-export type AnnotationKind = 'text' | 'arrow' | 'callout' | 'shape';
+export type AnnotationKind = 'text' | 'arrow' | 'callout' | 'shape' | 'marker' | 'highlighter' | 'note';
 export interface Annotation {
   id: string;
   map_id: string;               // owning ProjectMap.id — the scoping key

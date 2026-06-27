@@ -21,6 +21,7 @@ export class AnnotationTool {
   private mode: 'place' | 'edit' = 'place';
   private annos: Annotation[] = [];          // last-loaded annotations for the active map
   private selected: Annotation | null = null; // currently selected annotation (edit mode)
+  private onComplete: (() => void) | null = null;
 
   constructor(
     private mapManager: MapManager,
@@ -68,7 +69,7 @@ export class AnnotationTool {
     this.detachPointerEvents();
     const map = this.mapManager.getMap();
     const kind = this.style().kind;
-    const needsDrag = this.mode === 'place' && (kind === 'arrow' || kind === 'callout');
+    const needsDrag = this.mode === 'place' && (kind === 'arrow' || kind === 'callout' || kind === 'highlighter');
     if (needsDrag) {
       map.dragPan.disable();
       this.attachPointerEvents();
@@ -81,8 +82,12 @@ export class AnnotationTool {
   handleClick(lng: number, lat: number): void {
     if (!this.active) return;
     if (this.mode === 'edit') { this.selectAt(lng, lat); return; }
-    if (this.style().kind !== 'text') return;
-    void this.placeText(lng, lat);
+    // Click-to-place kinds; arrow/callout/highlighter use the press-drag overlay.
+    switch (this.style().kind) {
+      case 'text': void this.placeText(lng, lat); break;
+      case 'marker': void this.placeMarker(lng, lat); break;
+      case 'note': void this.placeNote(lng, lat); break;
+    }
   }
 
   // ---- selection / edit (edit mode) ----
@@ -168,6 +173,37 @@ export class AnnotationTool {
     await this.save(anno);
   }
 
+  async placeMarker(lng: number, lat: number): Promise<void> {
+    if (!this.guardScope()) return;
+    const anno: Annotation = {
+      ...this.base(), kind: 'marker',
+      geometry: { type: 'Point', coordinates: [lng, lat] },
+    };
+    await this.save(anno);
+  }
+
+  async placeNote(lng: number, lat: number): Promise<void> {
+    if (!this.guardScope()) return;
+    const s = this.style();
+    if (!s.text.trim()) { EventBus.emit('toast', { message: 'Enter note text first', type: 'warning' }); return; }
+    const anno: Annotation = {
+      ...this.base(), kind: 'note',
+      geometry: { type: 'Point', coordinates: [lng, lat] },
+    };
+    await this.save(anno);
+  }
+
+  async placeHighlighter(path: LngLat[]): Promise<void> {
+    if (!this.guardScope()) return;
+    if (path.length < 2) return;
+    const anno: Annotation = {
+      ...this.base(), kind: 'highlighter',
+      base_size: Math.max(6, this.style().size),  // thicker stroke for highlights
+      geometry: { type: 'LineString', coordinates: path },
+    };
+    await this.save(anno);
+  }
+
   async placeArrow(start: LngLat, end: LngLat): Promise<void> {
     if (!this.guardScope()) return;
     const anno: Annotation = {
@@ -202,11 +238,16 @@ export class AnnotationTool {
     await this.save(anno);
   }
 
+  /** Invoked after each placed annotation so the host can disarm the tool. */
+  setOnComplete(fn: () => void): void { this.onComplete = fn; }
+
   private async save(anno: Annotation): Promise<void> {
     await this.storage.saveAnnotation(anno);
     await this.refresh();
     EventBus.emit('toast', { message: 'Annotation added', type: 'success', duration: 1200 });
     EventBus.emit('annotations-changed', { mapId: anno.map_id });
+    // One annotation per activation — disarm so the map is usable again.
+    this.onComplete?.();
   }
 
   /** Reload annotations for the active map and push them to the map source. */
@@ -223,11 +264,12 @@ export class AnnotationTool {
     EventBus.emit('annotations-count', { count: annos.length, available: true });
   }
 
-  // ---- press-drag overlay for arrow / callout ----
+  // ---- press-drag overlay for arrow / callout / highlighter ----
   private attachPointerEvents(): void {
     const map = this.mapManager.getMap();
     const canvas = map.getCanvas();
     let start: LngLat | null = null;
+    let path: LngLat[] = [];   // accumulated freehand path (highlighter)
 
     const toLngLat = (e: PointerEvent): LngLat => {
       const r = canvas.getBoundingClientRect();
@@ -239,13 +281,16 @@ export class AnnotationTool {
       e.preventDefault();
       canvas.setPointerCapture(e.pointerId);
       start = toLngLat(e);
+      path = [start];
     };
     const onMove = (e: PointerEvent) => {
       if (!start || !e.buttons) return;
       e.preventDefault();
+      const cur = toLngLat(e);
+      const coords = this.style().kind === 'highlighter' ? (path.push(cur), path) : [start, cur];
       this.mapManager.updateSketchPreview([{
         type: 'Feature',
-        geometry: { type: 'LineString', coordinates: [start, toLngLat(e)] },
+        geometry: { type: 'LineString', coordinates: coords },
         properties: {},
       }]);
     };
@@ -254,9 +299,15 @@ export class AnnotationTool {
       const end = toLngLat(e);
       const s = start; start = null;
       this.mapManager.clearSketchPreview();
+      const kind = this.style().kind;
+      if (kind === 'highlighter') {
+        if (path.length >= 2) void this.placeHighlighter([...path]);
+        path = [];
+        return;
+      }
       const moved = Math.abs(end[0] - s[0]) > 1e-7 || Math.abs(end[1] - s[1]) > 1e-7;
       if (!moved) return;
-      if (this.style().kind === 'arrow') void this.placeArrow(s, end);
+      if (kind === 'arrow') void this.placeArrow(s, end);
       else void this.placeCallout(end, s); // box at release point, leader to press point
     };
 
