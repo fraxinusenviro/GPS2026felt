@@ -6307,6 +6307,22 @@ input[type=color] {
   background: #fff;
 }
 
+/* ---- Annotation TOC items (individual toggle + zoom) ---- */
+.anno-item-list { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.anno-item-row { display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: 6px; }
+.anno-item-row:hover { background: var(--color-accent-subtle); }
+.anno-item-swatch { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.35); }
+.anno-item-glyph { font-size: 12px; color: var(--color-text-muted); width: 14px; text-align: center; flex-shrink: 0; }
+.anno-item-label { flex: 1; min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.anno-item-zoom {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; flex-shrink: 0;
+  border: none; background: transparent; color: var(--color-text-muted);
+  border-radius: 6px; cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.anno-item-zoom svg { width: 15px; height: 15px; }
+.anno-item-zoom:hover { background: var(--color-accent-dim); color: var(--color-accent); }
+
 /* ============================================================
    Freehand Options Pill
    ============================================================ */
@@ -6445,6 +6461,20 @@ input[type=color] {
 /* Injected per-tool annotation fields share the card's column spacing. */
 #anno-fields { display: flex; flex-direction: column; gap: 10px; }
 #anno-fields:empty { display: none; }
+
+/* Pin / arrow thumbnail gallery inside the annotation card. */
+.anno-gallery-row { align-items: flex-start; }
+.anno-gallery { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.anno-gallery-btn {
+  width: 34px; height: 34px; padding: 5px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--color-border); border-radius: 8px;
+  background: var(--color-bg); color: var(--color-text-muted); cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.anno-gallery-btn svg { width: 100%; height: 100%; }
+.anno-gallery-btn:hover { border-color: var(--color-border-hover); color: var(--color-text-dim); }
+.anno-gallery-btn.active { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-dim); }
 .shape-card-row textarea {
   flex: 1; padding: 5px 8px; min-height: 48px; resize: vertical;
   border: 1px solid var(--color-border); border-radius: 8px;

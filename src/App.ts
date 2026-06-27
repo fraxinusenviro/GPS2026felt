@@ -6,6 +6,7 @@ import { GridOverlay } from './map/GridOverlay';
 import { CaptureManager } from './capture/CaptureManager';
 import { CircleTool } from './capture/CircleTool';
 import { ShapeTool, type ShapeKind } from './capture/ShapeTool';
+import { AnnotationManager, type AnnoTool } from './capture/AnnotationManager';
 import { ImportManager } from './io/ImportManager';
 import { ExportManager } from './io/ExportManager';
 import { HUD } from './ui/HUD';
@@ -58,6 +59,7 @@ export class App {
   private captureManager!: CaptureManager;
   private circleTool!: CircleTool;
   private shapeTool!: ShapeTool;
+  private annotationManager!: AnnotationManager;
   private importManager!: ImportManager;
   private exportManager!: ExportManager;
   private hud!: HUD;
@@ -183,6 +185,15 @@ export class App {
     this.circleTool.setOnComplete(() => this.circleTool.deactivate());
     this.shapeTool = new ShapeTool(this.mapManager, this.captureManager);
     this.shapeTool.setOnComplete(() => this.shapeTool.deactivate());
+    this.annotationManager = new AnnotationManager(
+      this.mapManager,
+      this.captureManager,
+      this.storage,
+      () => this.activeMapId,
+      () => this.settings.active_project_id || 'default',
+      () => this.settings.user_id ?? 'USER',
+      () => !this.allDataMode && !!this.activeMapId && this.activeMapId !== ALL_DATA_MAP_ID,
+    );
     this.importManager = new ImportManager(this.mapManager);
     this.exportManager = new ExportManager();
     this.presetManager = new PresetManager();
@@ -1843,6 +1854,8 @@ export class App {
   }
 
   private activateTool(tool: ToolMode): void {
+    // Picking a toolbar tool cancels any in-progress annotation/shape placement.
+    if (tool !== 'none') this.closeAnnoCard();
     this.captureManager.setTool(tool);
 
     const map = this.mapManager.getMap();
@@ -2085,17 +2098,9 @@ export class App {
     });
   }
 
-  /** Load the active map's annotations and render them (no AnnotationTool yet — reset). */
+  /** Load the active map's annotations and render them (delegates to AnnotationManager). */
   private async refreshAnnotations(): Promise<void> {
-    const mapScoped = !this.allDataMode && !!this.activeMapId && this.activeMapId !== ALL_DATA_MAP_ID;
-    if (!mapScoped) {
-      this.mapManager.clearAnnotations();
-      EventBus.emit('annotations-count', { count: 0, available: false });
-      return;
-    }
-    const annos = await this.storage.getAnnotationsByMap(this.activeMapId);
-    this.mapManager.updateAnnotations(annos);
-    EventBus.emit('annotations-count', { count: annos.length, available: true });
+    await this.annotationManager.refresh();
   }
 
   /** Hide both sketch flyout subtoolbars and reset their parent buttons. */
@@ -2164,9 +2169,8 @@ export class App {
             this.populateShapeTypeSelector();
             this.shapeTool.activate(kind);
           } else if (anno) {
-            // Scaffold only: open the (movable) annotation options card. Drawing is wired later.
             this.closeSketchFlyouts();
-            this.openAnnoCard(anno);
+            this.openAnnoCard(anno as AnnoTool);
           }
         });
       });
@@ -2204,71 +2208,122 @@ export class App {
   }
 
   private closeAnnoCard(): void {
+    this.annotationManager?.deactivate();
     document.getElementById('anno-options')?.classList.add('hidden');
     document.querySelectorAll('#annotate-subtoolbar .flyout-btn.active').forEach(b => b.classList.remove('active'));
   }
 
-  /** Open the shared annotation options card configured for the given annotation tool (scaffold). */
-  private openAnnoCard(tool: string): void {
+  /** Open the annotation options card for the tool and arm the AnnotationManager. */
+  private openAnnoCard(tool: AnnoTool): void {
     this.circleTool.deactivate();
     this.shapeTool.deactivate();
     this.configureAnnoCard(tool);
     document.getElementById('anno-options')?.classList.remove('hidden');
+    this.annotationManager.activate(tool);
   }
 
-  /**
-   * Build the per-tool fields + header for the annotation options card. These are
-   * scaffolding only — the drawing/save behaviour for annotation tools is wired later.
-   */
-  private configureAnnoCard(tool: string): void {
+  /** Build the per-tool header + styling fields (incl. pin / arrow galleries) for the annotation card. */
+  private configureAnnoCard(tool: AnnoTool): void {
     const set = (id: string, html: string) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
 
-    const row = (label: string, control: string) =>
-      `<div class="shape-card-row"><label>${label}</label>${control}</div>`;
-    const color = (val: string) => `<input type="color" value="${val}">`;
-    const text  = (ph: string) => `<input type="text" placeholder="${ph}" autocomplete="off">`;
-    const numF  = (val: number, min = 1) => `<input type="number" value="${val}" min="${min}" step="1"><span class="shape-card-unit">px</span>`;
-    const range = (val: number, max = 100) => `<input type="range" class="shape-slider" min="0" max="${max}" value="${val}">`;
-
-    // [glyph svg, title, subtitle, fields html]
-    const stroke = 'M5 12h14';
-    const cfg: Record<string, [string, string, string, string]> = {
-      marker:      ['<path d="M12 21s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
-                    'Marker', 'Drop a labelled pin.',
-                    row('Label', text('Marker label')) + row('Colour', color('#ef4444'))],
-      text:        ['<path d="M6 5h12M12 5v14"/>',
-                    'Text', 'Place a text label.',
-                    row('Text', text('Label text')) + row('Size', numF(16)) + row('Colour', color('#ffffff'))],
-      note:        ['<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h6M9 16h4"/>',
-                    'Note', 'Attach a sticky note.',
-                    row('Note', '<textarea placeholder="Note text"></textarea>') + row('Colour', color('#fcd34d'))],
-      circle:      ['<circle cx="12" cy="12" r="8"/>',
-                    'Circle', 'Annotation circle.',
-                    row('Stroke', color('#22d3ee')) + row('Fill', color('#22d3ee')) + row('Opacity', range(20)) + row('Width', numF(2))],
-      rectangle:   ['<rect x="3" y="6" width="18" height="12" rx="1.5"/>',
-                    'Rectangle', 'Annotation rectangle.',
-                    row('Stroke', color('#22d3ee')) + row('Fill', color('#22d3ee')) + row('Opacity', range(20)) + row('Width', numF(2))],
-      pentagon:    ['<path d="M12 3 21 10 17.5 20 6.5 20 3 10Z"/>',
-                    'Polygon', 'Annotation polygon.',
-                    row('Sides', '<input type="number" value="5" min="3" max="24" step="1"><span class="shape-card-unit">n</span>') +
-                    row('Stroke', color('#22d3ee')) + row('Fill', color('#22d3ee')) + row('Opacity', range(20))],
-      arrow:       ['<path d="M6 18 18 6"/><path d="M9 6h9v9"/>',
-                    'Arrow', 'Draw a directional arrow.',
-                    row('Colour', color('#f87171')) + row('Width', numF(3)) +
-                    `<label class="shape-card-check"><input type="checkbox"><strong>Double-headed</strong></label>`],
-      highlighter: ['<path d="M4 20l3-.8 10-10-2.2-2.2-10 10z"/><path d="M14 6l4 4"/><path d="M3 21h7"/>',
-                    'Highlighter', 'Translucent highlight stroke.',
-                    row('Colour', color('#fde047')) + row('Width', numF(12)) + row('Opacity', range(40))],
-      freehand:    ['<path d="M5 18l1-3L17 4l3 3L9 18z"/><path d="M14 5l3 3"/>',
-                    'Freehand', 'Free drawing annotation.',
-                    row('Colour', color('#34d399')) + row('Width', numF(3))],
+    // Field builders (ids are read back by AnnotationManager.style()).
+    const colorR = (id: string, label: string, v: string) =>
+      `<div class="shape-card-row"><label>${label}</label><input type="color" id="${id}" value="${v}"></div>`;
+    const numR = (id: string, label: string, v: number, unit = 'px', min = 0) =>
+      `<div class="shape-card-row"><label>${label}</label><input type="number" id="${id}" value="${v}" min="${min}" step="1"><span class="shape-card-unit">${unit}</span></div>`;
+    const rangeR = (id: string, label: string, v: number) =>
+      `<div class="shape-card-row"><label>${label}</label><input type="range" class="shape-slider" id="${id}" min="0" max="100" value="${v}"></div>`;
+    const textR = (id: string, label: string, ph: string) =>
+      `<div class="shape-card-row"><label>${label}</label><input type="text" id="${id}" placeholder="${ph}" autocomplete="off"></div>`;
+    const areaR = (id: string, label: string, ph: string) =>
+      `<div class="shape-card-row"><label>${label}</label><textarea id="${id}" placeholder="${ph}"></textarea></div>`;
+    const checkR = (id: string, label: string, on: boolean) =>
+      `<label class="shape-card-check"><input type="checkbox" id="${id}"${on ? ' checked' : ''}><strong>${label}</strong></label>`;
+    const galleryR = (id: string, label: string, items: Record<string, string>) => {
+      const keys = Object.keys(items);
+      const btns = keys.map((k, i) =>
+        `<button type="button" class="anno-gallery-btn${i === 0 ? ' active' : ''}" data-key="${k}" title="${k}"><svg viewBox="0 0 24 24" fill="currentColor">${items[k]}</svg></button>`).join('');
+      return `<input type="hidden" id="${id}" value="${keys[0]}">` +
+        `<div class="shape-card-row anno-gallery-row"><label>${label}</label><div class="anno-gallery" data-target="${id}">${btns}</div></div>`;
     };
 
-    const [glyph, title, sub, fields] = cfg[tool] ?? [stroke, 'Annotation', 'Annotation tool', ''];
+    const pins: Record<string, string> = {
+      pin: '<path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/>',
+      circle: '<circle cx="12" cy="12" r="8"/>',
+      square: '<rect x="5" y="5" width="14" height="14" rx="1.5"/>',
+      diamond: '<path d="M12 3 21 12 12 21 3 12Z"/>',
+      triangle: '<path d="M12 4 20 19 4 19Z"/>',
+      star: '<path d="M12 3l2.6 6.3 6.8.5-5.2 4.4 1.7 6.6L12 17.7 6.1 21.3l1.7-6.6L2.6 9.8l6.8-.5z"/>',
+      burst: '<path d="M12 2l1.7 3.5 3.8-1.1-1.1 3.8L20 12l-3.6 1.8 1.1 3.8-3.8-1.1L12 22l-1.7-3.5-3.8 1.1 1.1-3.8L4 12l3.6-1.8L6.5 6.4l3.8 1.1z"/>',
+      heart: '<path d="M12 21s-7-4.6-9.2-9.1C1.3 8.4 3.6 5.5 6.6 5.5c2 0 3.4 1.2 5.4 3.2 2-2 3.4-3.2 5.4-3.2 3 0 5.3 2.9 3.8 6.4C19 16.4 12 21 12 21z"/>',
+    };
+    const arrows: Record<string, string> = {
+      simple: '<path d="M2 10h11V6l8 6-8 6v-4H2z"/>',
+      block: '<path d="M2 8h10V4l9 8-9 8v-4H2z"/>',
+      chevron: '<path d="M6 4l8 8-8 8 3.5 0 8-8-8-8z"/>',
+      double: '<path d="M7 4L1 12l6 8v-4h10v4l6-8-6-8v4H7z"/>',
+    };
+
+    // [glyph, title, subtitle, fields html]
+    const cfg: Record<AnnoTool, [string, string, string, string]> = {
+      marker: ['<path d="M12 21s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+        'Marker', 'Tap the map to drop a pin.',
+        galleryR('a-shape', 'Pin', pins) + colorR('a-color', 'Colour', '#ef4444') +
+        colorR('a-stroke', 'Outline', '#ffffff') + numR('a-strokew', 'Outline w', 2) +
+        numR('a-size', 'Size', 22) + textR('a-text', 'Label', 'Optional label')],
+      text: ['<path d="M6 5h12M12 5v14"/>',
+        'Text', 'Tap to place a text label.',
+        textR('a-text', 'Text', 'Label text') + numR('a-size', 'Size', 18) + colorR('a-color', 'Colour', '#ffffff') +
+        checkR('a-outline', 'Outline', true) + colorR('a-stroke', 'Outline c', '#000000') + numR('a-strokew', 'Outline w', 2)],
+      note: ['<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h6M9 16h4"/>',
+        'Note', 'Tap to place a text box.',
+        areaR('a-text', 'Note', 'Note text') + colorR('a-color', 'Text', '#ffffff') + colorR('a-bg', 'Box', '#1f2937') +
+        rangeR('a-fillop', 'Fill op', 90) + colorR('a-stroke', 'Stroke', '#000000') + numR('a-strokew', 'Stroke w', 1) +
+        numR('a-padding', 'Padding', 8) + numR('a-size', 'Size', 16) + checkR('a-shadow', 'Drop shadow', true)],
+      arrow: ['<path d="M6 18 18 6"/><path d="M9 6h9v9"/>',
+        'Arrow', 'Press-drag from tail to head.',
+        galleryR('a-arrow', 'Style', arrows) + colorR('a-fill', 'Fill', '#f87171') + rangeR('a-fillop', 'Fill op', 100) +
+        colorR('a-stroke', 'Stroke', '#7f1d1d') + numR('a-strokew', 'Stroke w', 1)],
+      highlighter: ['<path d="M4 20l3-.8 10-10-2.2-2.2-10 10z"/><path d="M14 6l4 4"/><path d="M3 21h7"/>',
+        'Highlighter', 'Press-drag to highlight.',
+        colorR('a-fill', 'Colour', '#fde047') + numR('a-strokew', 'Width', 12)],
+      freehand: ['<path d="M5 18l1-3L17 4l3 3L9 18z"/><path d="M14 5l3 3"/>',
+        'Freehand', 'Press-drag to draw.',
+        colorR('a-color', 'Colour', '#34d399') + numR('a-strokew', 'Width', 3)],
+      circle: ['<circle cx="12" cy="12" r="8"/>',
+        'Circle', 'Press at centre, drag to size.',
+        colorR('a-fill', 'Fill', '#22d3ee') + rangeR('a-fillop', 'Fill op', 30) +
+        colorR('a-stroke', 'Stroke', '#0891b2') + numR('a-strokew', 'Stroke w', 2)],
+      rectangle: ['<rect x="3" y="6" width="18" height="12" rx="1.5"/>',
+        'Rectangle', 'Press at centre, drag to size.',
+        colorR('a-fill', 'Fill', '#22d3ee') + rangeR('a-fillop', 'Fill op', 30) +
+        colorR('a-stroke', 'Stroke', '#0891b2') + numR('a-strokew', 'Stroke w', 2)],
+      pentagon: ['<path d="M12 3 21 10 17.5 20 6.5 20 3 10Z"/>',
+        'Polygon', 'Press at centre, drag to size.',
+        colorR('a-fill', 'Fill', '#22d3ee') + rangeR('a-fillop', 'Fill op', 30) +
+        colorR('a-stroke', 'Stroke', '#0891b2') + numR('a-strokew', 'Stroke w', 2)],
+    };
+
+    const [glyph, title, sub, fields] = cfg[tool];
     set('anno-glyph', `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${glyph}</svg>`);
     set('anno-title', title);
     set('anno-sub', sub);
     set('anno-fields', fields);
+    const hint = document.getElementById('anno-hint');
+    if (hint) hint.textContent = 'Each annotation scales with zoom from the level it was placed at.';
+
+    // Wire any galleries: clicking a thumbnail sets the hidden input + active state.
+    document.querySelectorAll<HTMLElement>('#anno-fields .anno-gallery').forEach(g => {
+      const target = g.dataset.target;
+      g.querySelectorAll<HTMLButtonElement>('.anno-gallery-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          g.querySelectorAll('.anno-gallery-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const input = target ? document.getElementById(target) as HTMLInputElement | null : null;
+          if (input) input.value = btn.dataset.key ?? '';
+        });
+      });
+    });
   }
 
   /** Adapt the shared shape-options card (title, glyph, visible rows, hint) to the kind. */
@@ -3209,7 +3264,7 @@ export class App {
       const allLayers = await this.storage.getAllLayerPresets();
       this.mapManager.updateCollectedFeatures(this.features, allLayers, this.presetManager.getPresets());
       this.mapManager.clearAnnotations(); // annotations are map-scoped — none in the All-Data overview
-      EventBus.emit('annotations-count', { count: 0, available: false });
+      EventBus.emit('annotations-count', { count: 0, available: false, annos: [] });
       this.updateHeaderNames(undefined, 'All Data');
       this.projectLibraryModal.refreshIfOpen();
 

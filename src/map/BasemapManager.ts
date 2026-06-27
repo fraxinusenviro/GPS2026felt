@@ -1,7 +1,7 @@
 import maplibregl from 'maplibre-gl';
 import { BASEMAPS, BASEMAP_OVERLAYS, LAYER_IDS } from '../constants';
 import { NS_REST_ALL_DEFS } from '../data/nsRestAll';
-import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature, SymbologyState, RasterSymbologyState, RasterStretchMode, ClassifierName } from '../types';
+import type { BasemapDef, ImportedLayer, OnlineLayer, VectorLayerConfig, GeoJSONGeometry, LayerPreset, TypePreset, GeometryType, FieldFeature, SymbologyState, RasterSymbologyState, RasterStretchMode, ClassifierName, Annotation } from '../types';
 import { SymbologyStudio } from '../ui/SymbologyStudio';
 import { RasterSymbologyStudio } from '../ui/RasterSymbologyStudio';
 import { RASTER_RAMPS, EXTENDED_COLOR_RAMPS, buildRgbLut, buildCogColormap, computeClassBreaks } from '../lib/rasterRamps';
@@ -234,6 +234,7 @@ export class BasemapManager {
   private annotationsVisible = true;
   private annotationsCount = 0;
   private annotationsAvailable = false;
+  private annotations: Annotation[] = [];
   private onTypePresetChange: ((preset: TypePreset) => void) | null = null;
   private stylePicker = new SingleSymbologyStudio();
   private mapBgColor = '#000000';
@@ -270,9 +271,10 @@ export class BasemapManager {
     });
 
     // Keep the Annotations TOC group in sync with the active map's annotations.
-    EventBus.on<{ count: number; available: boolean }>('annotations-count', ({ count, available }) => {
+    EventBus.on<{ count: number; available: boolean; annos?: Annotation[] }>('annotations-count', ({ count, available, annos }) => {
       this.annotationsCount = count;
       this.annotationsAvailable = available;
+      this.annotations = annos ?? [];
       if (this.panelState) this.renderContent(this.panelState.container, this.panelState.onClose);
     });
 
@@ -2265,20 +2267,61 @@ export class BasemapManager {
   // ---- Collected Data section — stacked type list with feature counts ----
 
   // ---- Annotations section (graphical, scoped to the active map) ----
+  /** A short human label + glyph for an annotation TOC row. */
+  private annotationLabel(a: Annotation): { glyph: string; label: string } {
+    const txt = (a.text ?? '').trim();
+    const snip = txt ? `“${txt.length > 22 ? txt.slice(0, 21) + '…' : txt}”` : '';
+    switch (a.kind) {
+      case 'text': return { glyph: 'T', label: snip || 'Text' };
+      case 'note': return { glyph: '▤', label: snip || 'Note' };
+      case 'callout': return { glyph: '▤', label: snip || 'Callout' };
+      case 'marker': return { glyph: '◉', label: txt ? `Pin ${snip}` : `Pin (${a.shape ?? 'pin'})` };
+      case 'arrow': return { glyph: '↗', label: `Arrow (${a.shape ?? 'simple'})` };
+      case 'highlighter': return { glyph: '▰', label: 'Highlight' };
+      default: return { glyph: '◆', label: 'Shape' };
+    }
+  }
+
   private renderAnnotationsSection(): string {
     if (!this.annotationsAvailable) return '';
     const eye = this.annotationsVisible;
     const hint = `${this.annotationsCount} item${this.annotationsCount !== 1 ? 's' : ''}`;
-    const row = `
+    const header = `
       <div class="fd-row">
-        <button id="bm-anno-vis" class="vis-tog ${eye ? 'active' : ''}" title="Show/hide annotations"></button>
-        <span class="fd-label">Map annotations</span>
+        <button id="bm-anno-vis" class="vis-tog ${eye ? 'active' : ''}" title="Show/hide all annotations"></button>
+        <span class="fd-label">All annotations</span>
         <span class="fd-count">${this.annotationsCount}</span>
-      </div>
-      <div class="settings-hint" style="padding:4px 8px">Graphical only — text, arrows, callouts &amp; shapes placed on this map. Scale with zoom from where they were placed.</div>
-    `;
+      </div>`;
+    const items = this.annotations.map(a => {
+      const { glyph, label } = this.annotationLabel(a);
+      const on = !a.hidden;
+      const sw = a.kind === 'marker' || a.kind === 'arrow' ? (a.fill_color ?? a.color) : (a.stroke_color ?? a.color);
+      return `
+        <div class="fd-row anno-item-row" data-id="${a.id}">
+          <button class="vis-tog anno-item-vis ${on ? 'active' : ''}" data-id="${a.id}" title="Show/hide"></button>
+          <span class="anno-item-swatch" style="background:${sw}"></span>
+          <span class="anno-item-glyph">${glyph}</span>
+          <span class="fd-label anno-item-label">${label}</span>
+          <button class="anno-item-zoom" data-id="${a.id}" title="Zoom to annotation">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/></svg>
+          </button>
+        </div>`;
+    }).join('');
+    const list = this.annotations.length
+      ? `<div class="anno-item-list">${items}</div>`
+      : `<div class="settings-hint" style="padding:4px 8px">No annotations yet — use SKETCH ▸ Annotate to place some.</div>`;
     return this.sectionToggle('annotations', 'Annotations', hint, false) +
-      this.sectionBody('annotations', `<div class="fd-body">${row}</div>`);
+      this.sectionBody('annotations', `<div class="fd-body">${header}${list}</div>`);
+  }
+
+  private async toggleAnnotation(id: string): Promise<void> {
+    const a = this.annotations.find(x => x.id === id);
+    if (!a) return;
+    a.hidden = !a.hidden;
+    a.updated_at = new Date().toISOString();
+    this.mapManager.updateAnnotations(this.annotations);
+    await StorageManager.getInstance().saveAnnotation(a);
+    if (this.panelState) this.renderContent(this.panelState.container, this.panelState.onClose);
   }
 
   private wireAnnotations(container: HTMLElement): void {
@@ -2286,6 +2329,16 @@ export class BasemapManager {
       this.annotationsVisible = !this.annotationsVisible;
       this.mapManager.setAnnotationsVisible(this.annotationsVisible);
       if (this.panelState) this.renderContent(this.panelState.container, this.panelState.onClose);
+    });
+    container.querySelectorAll<HTMLElement>('.anno-item-vis').forEach(btn => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); void this.toggleAnnotation(btn.dataset.id ?? ''); });
+    });
+    container.querySelectorAll<HTMLElement>('.anno-item-zoom').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const a = this.annotations.find(x => x.id === btn.dataset.id);
+        if (a) this.mapManager.zoomToAnnotation(a);
+      });
     });
   }
 

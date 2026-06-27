@@ -865,6 +865,7 @@ export class MapManager {
       filter: ['==', '$type', 'Polygon'],
       paint: {
         'fill-color': ['coalesce', ['get', 'fill_color'], 'rgba(0,0,0,0.55)'],
+        'fill-opacity': ['coalesce', ['get', 'fill_opacity'], 1],
         'fill-outline-color': ['coalesce', ['get', 'color'], '#ffffff'],
       }
     });
@@ -913,7 +914,7 @@ export class MapManager {
       paint: {
         'text-color': ['coalesce', ['get', 'color'], '#ffffff'],
         'text-halo-color': ['coalesce', ['get', 'halo_color'], 'rgba(0,0,0,0.85)'],
-        'text-halo-width': 2,
+        'text-halo-width': ['coalesce', ['get', 'halo_width'], 2],
       }
     });
 
@@ -1604,6 +1605,7 @@ export class MapManager {
     const features: object[] = [];
 
     for (const a of annos) {
+      if (a.hidden) continue;
       const baseProps = {
         id: a.id,
         kind: a.kind,
@@ -1613,28 +1615,65 @@ export class MapManager {
         halo_color: a.halo_color ?? 'rgba(0,0,0,0.85)',
         rotation: a.rotation ?? 0,
       };
+      const strokeColor = a.stroke_color ?? a.color;
+      const strokeWidth = a.stroke_width ?? 0;
+      const fillOpacity = a.fill_opacity ?? 1;
+
+      // A filled vector graphic (pin / arrow / shape / note box) + its scaled outline.
+      const pushPolygon = (ring: [number, number][], fill: string, fillOp: number, sColor: string, sWidth: number): void => {
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [ring] },
+          properties: { ...baseProps, fill_color: fill, fill_opacity: fillOp, color: sColor },
+        });
+        if (sWidth > 0) {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: ring },
+            properties: { ...baseProps, color: sColor, base_size: sWidth },
+          });
+        }
+      };
 
       if (a.kind === 'text') {
         features.push({
           type: 'Feature',
           geometry: a.geometry,
-          properties: { ...baseProps, is_text: true, text: a.text ?? '' },
+          properties: {
+            ...baseProps, is_text: true, text: a.text ?? '',
+            halo_width: a.outline === false ? 0 : (a.stroke_width ?? 2),
+          },
         });
         continue;
       }
 
       if (a.kind === 'marker') {
-        // Circle pin (picked up by the annotations-marker layer), plus an optional label.
-        features.push({ type: 'Feature', geometry: a.geometry, properties: { ...baseProps } });
-        if (a.text) {
-          const [lng, lat] = (a.geometry as { coordinates: [number, number] }).coordinates;
-          const mpp = MapManager.metersPerPixel(a.base_zoom, lat);
-          const labelAt = MapManager.offsetMeters(lng, lat, 0, -(a.base_size * 1.6) * mpp);
-          features.push({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: labelAt },
-            properties: { ...baseProps, is_text: true, text: a.text },
-          });
+        if (a.geometry.type === 'Polygon') {
+          pushPolygon(a.geometry.coordinates[0] as [number, number][],
+            a.fill_color ?? a.color, fillOpacity, strokeColor, strokeWidth || 2);
+          if (a.text) {
+            const ring = a.geometry.coordinates[0] as [number, number][];
+            const top = ring.reduce((m, p) => Math.max(m, p[1]), -90);
+            const lng = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+            features.push({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [lng, top] },
+              properties: { ...baseProps, is_text: true, text: a.text },
+            });
+          }
+        } else {
+          // Legacy point marker → circle pin (annotations-marker layer) + optional label.
+          features.push({ type: 'Feature', geometry: a.geometry, properties: { ...baseProps } });
+          if (a.text) {
+            const [lng, lat] = (a.geometry as { coordinates: [number, number] }).coordinates;
+            const mpp = MapManager.metersPerPixel(a.base_zoom, lat);
+            const labelAt = MapManager.offsetMeters(lng, lat, 0, -(a.base_size * 1.6) * mpp);
+            features.push({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: labelAt },
+              properties: { ...baseProps, is_text: true, text: a.text },
+            });
+          }
         }
         continue;
       }
@@ -1648,70 +1687,86 @@ export class MapManager {
         continue;
       }
 
-      // Callout (text box + leader tail) and Note (text box, no tail) share the box build.
+      // Note / callout: a styled text box (bg fill, outline, optional drop shadow + leader).
       if (a.kind === 'callout' || a.kind === 'note') {
         const anchor = (a.geometry as { coordinates: [number, number] }).coordinates;
         const [lng, lat] = anchor;
         const mpp = MapManager.metersPerPixel(a.base_zoom, lat);
         const text = a.text ?? '';
-        // Box sized in ground metres so it scales with zoom like the text does.
-        const halfW = (Math.max(2, text.length) * a.base_size * 0.32) * mpp;
-        const halfH = (a.base_size * 0.8) * mpp;
-        const ring = [
-          MapManager.offsetMeters(lng, lat, -halfW, -halfH),
-          MapManager.offsetMeters(lng, lat, halfW, -halfH),
-          MapManager.offsetMeters(lng, lat, halfW, halfH),
-          MapManager.offsetMeters(lng, lat, -halfW, halfH),
-        ];
-        ring.push(ring[0]);
+        const pad = (a.padding ?? a.base_size * 0.5);
+        const halfW = (Math.max(2, text.length) * a.base_size * 0.32 + pad) * mpp;
+        const halfH = (a.base_size * 0.7 + pad) * mpp;
+        const box = (dxE: number, dyN: number): [number, number][] => {
+          const r: [number, number][] = [
+            MapManager.offsetMeters(lng, lat, -halfW + dxE, -halfH + dyN),
+            MapManager.offsetMeters(lng, lat, halfW + dxE, -halfH + dyN),
+            MapManager.offsetMeters(lng, lat, halfW + dxE, halfH + dyN),
+            MapManager.offsetMeters(lng, lat, -halfW + dxE, halfH + dyN),
+          ];
+          r.push(r[0]);
+          return r;
+        };
         if (a.kind === 'callout' && a.tail_to) {
           features.push({
             type: 'Feature',
             geometry: { type: 'LineString', coordinates: [anchor, a.tail_to] },
-            properties: { ...baseProps, base_size: Math.max(1.5, a.base_size / 8) },
+            properties: { ...baseProps, color: strokeColor, base_size: Math.max(1.5, strokeWidth || a.base_size / 8) },
           });
         }
-        features.push({
-          type: 'Feature',
-          geometry: { type: 'Polygon', coordinates: [ring] },
-          properties: { ...baseProps, fill_color: a.halo_color ?? 'rgba(0,0,0,0.6)' },
-        });
+        if (a.shadow) {
+          const off = a.base_size * 0.28 * mpp;
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'Polygon', coordinates: [box(off, -off)] },
+            properties: { ...baseProps, fill_color: 'rgba(0,0,0,0.45)', fill_opacity: 0.45, color: 'rgba(0,0,0,0)' },
+          });
+        }
+        pushPolygon(box(0, 0), a.bg_color ?? a.fill_color ?? a.halo_color ?? 'rgba(0,0,0,0.65)',
+          fillOpacity, strokeColor, strokeWidth);
         features.push({
           type: 'Feature',
           geometry: a.geometry,
-          properties: { ...baseProps, is_text: true, text },
+          properties: { ...baseProps, is_text: true, text, halo_width: 0 },
         });
         continue;
       }
 
       if (a.kind === 'arrow') {
-        const coords = (a.geometry as { coordinates: [number, number][] }).coordinates;
-        features.push({ type: 'Feature', geometry: a.geometry, properties: { ...baseProps } });
-        if (coords.length >= 2) {
-          const [px, py] = coords[coords.length - 2];
-          const [ex, ey] = coords[coords.length - 1];
-          const lat = ey;
-          const ang = Math.atan2(ey - py, ex - px);
-          const headM = Math.max(6, a.base_size * 3) * MapManager.metersPerPixel(a.base_zoom, lat);
-          const wing = (a: number): [number, number] => {
-            const east = -Math.cos(a) * headM, north = -Math.sin(a) * headM;
-            return MapManager.offsetMeters(ex, ey, east, north);
-          };
-          features.push({
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates: [wing(ang - Math.PI / 7), [ex, ey], wing(ang + Math.PI / 7)] },
-            properties: { ...baseProps },
-          });
+        if (a.geometry.type === 'Polygon') {
+          pushPolygon(a.geometry.coordinates[0] as [number, number][],
+            a.fill_color ?? a.color, fillOpacity, strokeColor, strokeWidth);
+        } else {
+          // Legacy line arrow: stroke + a small chevron head.
+          const coords = (a.geometry as { coordinates: [number, number][] }).coordinates;
+          features.push({ type: 'Feature', geometry: a.geometry, properties: { ...baseProps } });
+          if (coords.length >= 2) {
+            const [px, py] = coords[coords.length - 2];
+            const [ex, ey] = coords[coords.length - 1];
+            const ang = Math.atan2(ey - py, ex - px);
+            const headM = Math.max(6, a.base_size * 3) * MapManager.metersPerPixel(a.base_zoom, ey);
+            const wing = (w: number): [number, number] =>
+              MapManager.offsetMeters(ex, ey, -Math.cos(w) * headM, -Math.sin(w) * headM);
+            features.push({
+              type: 'Feature',
+              geometry: { type: 'LineString', coordinates: [wing(ang - Math.PI / 7), [ex, ey], wing(ang + Math.PI / 7)] },
+              properties: { ...baseProps },
+            });
+          }
         }
         continue;
       }
 
-      // shape: Polygon or LineString stored geometry, rendered as-is.
-      features.push({
-        type: 'Feature',
-        geometry: a.geometry,
-        properties: { ...baseProps, fill_color: a.halo_color ?? 'rgba(0,0,0,0.25)' },
-      });
+      // shape: Polygon (fill + outline) or LineString (stroke) stored geometry.
+      if (a.geometry.type === 'Polygon') {
+        pushPolygon(a.geometry.coordinates[0] as [number, number][],
+          a.fill_color ?? a.halo_color ?? 'rgba(0,0,0,0.25)', fillOpacity, strokeColor, strokeWidth || 2);
+      } else {
+        features.push({
+          type: 'Feature',
+          geometry: a.geometry,
+          properties: { ...baseProps, color: strokeColor, base_size: strokeWidth || a.base_size },
+        });
+      }
     }
 
     (this.map.getSource('annotations') as maplibregl.GeoJSONSource)?.setData({
@@ -1834,6 +1889,26 @@ export class MapManager {
 
   fitBounds(bounds: [[number, number], [number, number]], padding = 40): void {
     this.map.fitBounds(bounds, { padding, duration: 800 });
+  }
+
+  /** Fit / fly the map to an annotation's geometry (TOC "zoom to feature"). */
+  zoomToAnnotation(a: Annotation): void {
+    const coords: [number, number][] = [];
+    const g = a.geometry;
+    if (g.type === 'Point') coords.push(g.coordinates as [number, number]);
+    else if (g.type === 'LineString') coords.push(...(g.coordinates as [number, number][]));
+    else if (g.type === 'Polygon') coords.push(...((g.coordinates as [number, number][][])[0] ?? []));
+    if (coords.length === 0) return;
+    if (coords.length === 1) {
+      this.flyTo(coords[0][1], coords[0][0], Math.max(this.map.getZoom(), a.base_zoom));
+      return;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [x, y] of coords) {
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    }
+    this.fitBounds([[minX, minY], [maxX, maxY]], 80);
   }
 
   getCenter(): LngLat {

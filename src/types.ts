@@ -240,6 +240,17 @@ export interface Annotation {
   color: string;
   halo_color?: string;
   rotation?: number;            // degrees, for text / arrow
+  // ---- optional styling (first-pass annotation tools) ----
+  shape?: string;               // marker pin template key (pin/star/circle/…) or arrow style key
+  fill_color?: string;          // polygon graphics (pins/arrows/shapes/note box) fill
+  fill_opacity?: number;        // 0–1, fill translucency
+  stroke_color?: string;        // outline colour for polygon graphics / note box
+  stroke_width?: number;        // outline width px at base_zoom
+  outline?: boolean;            // text: draw halo outline
+  shadow?: boolean;             // note: drop shadow behind the box
+  padding?: number;             // note: box padding px at base_zoom
+  bg_color?: string;            // note: background box colour
+  hidden?: boolean;             // per-annotation visibility (TOC toggle)
   created_at: string;
   updated_at: string;
   created_by: string;
