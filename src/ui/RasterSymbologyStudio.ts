@@ -29,6 +29,8 @@ export interface RasterSymbologyOptions {
   /** Label for the confirm button (default 'Apply'). E.g. 'Add to Map' for pre-add flows. */
   applyLabel?: string;
   onApply: (state: RasterSymbologyState) => void;
+  /** Invoked when the studio is dismissed without applying (cancel / close / backdrop). */
+  onCancel?: () => void;
 }
 
 const CLASSIFIER_NAMES: ClassifierName[] = ['Natural breaks', 'Quantile', 'Equal interval'];
@@ -258,9 +260,11 @@ export class RasterSymbologyStudio {
     options: RasterSymbologyOptions,
     onApply: (s: RasterSymbologyState) => void,
   ): void {
-    overlay.querySelector('#rss-close')?.addEventListener('click', () => this.close());
-    overlay.querySelector('#rss-cancel')?.addEventListener('click', () => this.close());
-    overlay.addEventListener('click', e => { if (e.target === overlay) this.close(); });
+    // Dismiss without applying — notify the caller (e.g. to reopen the Data Library) then close.
+    const cancel = () => { this.close(); options.onCancel?.(); };
+    overlay.querySelector('#rss-close')?.addEventListener('click', () => cancel());
+    overlay.querySelector('#rss-cancel')?.addEventListener('click', () => cancel());
+    overlay.addEventListener('click', e => { if (e.target === overlay) cancel(); });
 
     const refresh = () => {
       this.updatePreview(overlay, state, options);

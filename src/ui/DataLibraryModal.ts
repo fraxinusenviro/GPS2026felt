@@ -310,6 +310,11 @@ export class DataLibraryModal {
     requestAnimationFrame(() => this.overlay.classList.add('dl-open'));
   }
 
+  /** The group currently being browsed — used to restore the view after a cancelled add. */
+  getActiveGroup(): string {
+    return this.activeGroup;
+  }
+
   close(): void {
     this.overlay.classList.remove('dl-open');
     setTimeout(() => { this.overlay.style.display = 'none'; }, 250);
