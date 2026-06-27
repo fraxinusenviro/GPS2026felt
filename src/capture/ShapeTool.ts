@@ -35,6 +35,7 @@ export class ShapeTool {
   private bezierPts: LngLat[] = [];          // click-to-add control points
   private pointerCleanup: (() => void) | null = null;
   private annotationSink: ((geomType: 'LineString' | 'Polygon', coords: LngLat[]) => void) | null = null;
+  private onComplete: (() => void) | null = null;
 
   constructor(private mapManager: MapManager, private captureManager: CaptureManager) {}
 
@@ -49,6 +50,8 @@ export class ShapeTool {
   setAnnotationSink(fn: (geomType: 'LineString' | 'Polygon', coords: LngLat[]) => void): void {
     this.annotationSink = fn;
   }
+  /** Invoked after each completed shape so the host can disarm the tool. */
+  setOnComplete(fn: () => void): void { this.onComplete = fn; }
 
   activate(): void {
     this.active = true;
@@ -345,9 +348,11 @@ export class ShapeTool {
     this.bezierPts = [];
     if (this.target === 'annotation') {
       this.annotationSink?.(b.geomType, b.coords);
-      return;
+    } else {
+      const type = (document.getElementById('sh-type') as HTMLSelectElement | null)?.value ?? '';
+      void this.captureManager.saveShapeFeature(b.geomType, b.coords, type, '');
     }
-    const type = (document.getElementById('sh-type') as HTMLSelectElement | null)?.value ?? '';
-    void this.captureManager.saveShapeFeature(b.geomType, b.coords, type, '');
+    // One feature per activation — disarm so the map is usable again.
+    this.onComplete?.();
   }
 }

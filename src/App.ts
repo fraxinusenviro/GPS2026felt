@@ -189,6 +189,9 @@ export class App {
       () => !this.allDataMode && !!this.activeMapId && this.activeMapId !== ALL_DATA_MAP_ID,
     );
     this.shapeTool.setAnnotationSink((geomType, coords) => void this.annotationTool.placeShape(geomType, coords));
+    // Auto-disarm after each completed shape/annotation so the map isn't locked in draw mode.
+    this.shapeTool.setOnComplete(() => this.activateTool('none'));
+    this.annotationTool.setOnComplete(() => this.activateTool('none'));
     this.importManager = new ImportManager(this.mapManager);
     this.exportManager = new ExportManager();
     this.presetManager = new PresetManager();

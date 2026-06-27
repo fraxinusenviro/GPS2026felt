@@ -28,6 +28,7 @@ function zoomRelativeSizeExpr(minPx: number, maxPx: number): unknown {
 }
 const ANNOTATION_TEXT_SIZE_EXPR = zoomRelativeSizeExpr(4, 200);
 const ANNOTATION_LINE_WIDTH_EXPR = zoomRelativeSizeExpr(0.5, 60);
+const ANNOTATION_MARKER_RADIUS_EXPR = zoomRelativeSizeExpr(3, 120);
 
 // ---- Module-level COG colormap registry (mutable so ramp can be changed at runtime) ----
 type CogColorStop = [number, number, number, number, number]; // [value, R, G, B, alpha 0-255]
@@ -867,7 +868,7 @@ export class MapManager {
         'fill-outline-color': ['coalesce', ['get', 'color'], '#ffffff'],
       }
     });
-    // Arrows / leader lines / shape lines
+    // Arrows / leader lines / shape lines / highlighter strokes
     this.map.addLayer({
       id: 'annotations-line',
       type: 'line',
@@ -877,6 +878,21 @@ export class MapManager {
       paint: {
         'line-color': ['coalesce', ['get', 'color'], '#ffffff'],
         'line-width': ANNOTATION_LINE_WIDTH_EXPR as never,
+        // Highlighter strokes are translucent; everything else is opaque.
+        'line-opacity': ['case', ['==', ['get', 'is_highlight'], true], 0.45, 1],
+      }
+    });
+    // Marker pins (point dots, scaled to the placement zoom)
+    this.map.addLayer({
+      id: 'annotations-marker',
+      type: 'circle',
+      source: 'annotations',
+      filter: ['==', ['get', 'kind'], 'marker'],
+      paint: {
+        'circle-radius': ANNOTATION_MARKER_RADIUS_EXPR as never,
+        'circle-color': ['coalesce', ['get', 'color'], '#ffd400'],
+        'circle-stroke-color': '#ffffff',
+        'circle-stroke-width': 2,
       }
     });
     // Text labels / callout text
@@ -1607,7 +1623,33 @@ export class MapManager {
         continue;
       }
 
-      if (a.kind === 'callout') {
+      if (a.kind === 'marker') {
+        // Circle pin (picked up by the annotations-marker layer), plus an optional label.
+        features.push({ type: 'Feature', geometry: a.geometry, properties: { ...baseProps } });
+        if (a.text) {
+          const [lng, lat] = (a.geometry as { coordinates: [number, number] }).coordinates;
+          const mpp = MapManager.metersPerPixel(a.base_zoom, lat);
+          const labelAt = MapManager.offsetMeters(lng, lat, 0, -(a.base_size * 1.6) * mpp);
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: labelAt },
+            properties: { ...baseProps, is_text: true, text: a.text },
+          });
+        }
+        continue;
+      }
+
+      if (a.kind === 'highlighter') {
+        features.push({
+          type: 'Feature',
+          geometry: a.geometry,
+          properties: { ...baseProps, is_highlight: true },
+        });
+        continue;
+      }
+
+      // Callout (text box + leader tail) and Note (text box, no tail) share the box build.
+      if (a.kind === 'callout' || a.kind === 'note') {
         const anchor = (a.geometry as { coordinates: [number, number] }).coordinates;
         const [lng, lat] = anchor;
         const mpp = MapManager.metersPerPixel(a.base_zoom, lat);
@@ -1622,7 +1664,7 @@ export class MapManager {
           MapManager.offsetMeters(lng, lat, -halfW, halfH),
         ];
         ring.push(ring[0]);
-        if (a.tail_to) {
+        if (a.kind === 'callout' && a.tail_to) {
           features.push({
             type: 'Feature',
             geometry: { type: 'LineString', coordinates: [anchor, a.tail_to] },
@@ -1686,7 +1728,7 @@ export class MapManager {
   }
 
   setAnnotationsVisible(visible: boolean): void {
-    ['annotations-fill', 'annotations-line', 'annotations-text']
+    ['annotations-fill', 'annotations-line', 'annotations-marker', 'annotations-text']
       .forEach(id => this.setLayerVisibility(id, visible));
   }
 
@@ -1772,7 +1814,7 @@ export class MapManager {
       [point.x - 12, point.y - 12],
       [point.x + 12, point.y + 12],
     ];
-    const layers = ['annotations-fill', 'annotations-line', 'annotations-text']
+    const layers = ['annotations-fill', 'annotations-line', 'annotations-marker', 'annotations-text']
       .filter(id => this.map.getLayer(id));
     if (!layers.length) return [];
     return this.map.queryRenderedFeatures(box, { layers });
