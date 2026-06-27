@@ -137,7 +137,8 @@
         </div>
         <label class="shape-card-check">
           <input type="checkbox" id="circle-constrain" checked>
-          <span><strong>Constrain to circle</strong><em>Creates a perfect circle with equal width and height.</em></span>
+          <strong>Constrain to circle</strong>
+          <em>Creates a perfect circle with equal width and height.</em>
         </label>
         <div class="shape-card-row">
           <label for="circle-radius">Radius</label>
@@ -163,25 +164,74 @@
           </div>
           <button id="shape-cancel" class="shape-card-cancel">Cancel</button>
         </div>
-        <label class="shape-card-check" id="shape-constrain-row">
-          <input type="checkbox" id="shape-constrain">
-          <span><strong>Constrain to square</strong><em>Creates a square with equal width and height.</em></span>
+
+        <!-- Rectangle: constrain + width/height -->
+        <label class="shape-card-check" id="row-square">
+          <input type="checkbox" id="f-square">
+          <strong>Constrain to square</strong>
+          <em>Forces equal width and height.</em>
         </label>
-        <div class="shape-card-row" id="shape-sides-row">
-          <label for="shape-sides">Sides</label>
-          <input type="number" id="shape-sides" value="5" min="3" max="24" step="1">
-          <span class="shape-card-unit">n</span>
-        </div>
-        <div class="shape-card-row">
-          <label for="shape-size" id="shape-size-label">Size</label>
-          <input type="number" id="shape-size" value="50" min="1" step="1">
+        <div class="shape-card-row" id="row-width">
+          <label for="f-width">Width</label>
+          <input type="number" id="f-width" value="100" min="1" step="1">
           <span class="shape-card-unit">m</span>
         </div>
+        <div class="shape-card-row" id="row-rheight">
+          <label for="f-rheight">Height</label>
+          <input type="number" id="f-rheight" value="60" min="1" step="1">
+          <span class="shape-card-unit">m</span>
+        </div>
+
+        <!-- Triangle: type + parameters -->
+        <div class="shape-card-row" id="row-tritype">
+          <label for="f-tritype">Triangle</label>
+          <select id="f-tritype" class="shape-card-select" title="Triangle type">
+            <option value="equilateral">Equilateral</option>
+            <option value="isosceles">Isosceles</option>
+            <option value="right">Right-angled</option>
+          </select>
+        </div>
+        <div class="shape-card-row" id="row-side">
+          <label for="f-side">Side</label>
+          <input type="number" id="f-side" value="100" min="1" step="1">
+          <span class="shape-card-unit">m</span>
+        </div>
+        <div class="shape-card-row" id="row-base">
+          <label for="f-base">Base</label>
+          <input type="number" id="f-base" value="100" min="1" step="1">
+          <span class="shape-card-unit">m</span>
+        </div>
+        <div class="shape-card-row" id="row-theight">
+          <label for="f-theight">Height</label>
+          <input type="number" id="f-theight" value="80" min="1" step="1">
+          <span class="shape-card-unit">m</span>
+        </div>
+
+        <!-- N-gon: sides + radius mode + radius -->
+        <div class="shape-card-row" id="row-sides">
+          <label for="f-sides">Sides</label>
+          <input type="number" id="f-sides" value="5" min="3" max="24" step="1">
+          <span class="shape-card-unit">n</span>
+        </div>
+        <div class="shape-card-row" id="row-radmode">
+          <label for="f-radmode">Radius</label>
+          <select id="f-radmode" class="shape-card-select" title="Which enclosing circle the radius refers to">
+            <option value="circ">Outer — to a vertex (circumscribed)</option>
+            <option value="insc">Inner — to a side (inscribed)</option>
+          </select>
+        </div>
+        <div class="shape-card-row" id="row-radius">
+          <label for="f-radius" id="lbl-radius">Radius</label>
+          <input type="number" id="f-radius" value="50" min="1" step="1">
+          <span class="shape-card-unit">m</span>
+        </div>
+
+        <!-- All: preset type -->
         <div class="shape-card-row">
           <label for="shape-type">Type</label>
           <select id="shape-type" class="shape-card-select" title="Preset type for the created shape"></select>
         </div>
-        <div class="shape-card-hint" id="shape-hint">Tap on the map to drop a centered shape using the size above.</div>
+        <div class="shape-card-hint" id="shape-hint">Tap on the map to drop a centered shape using the dimensions above.</div>
       </div>
 
       <!-- Live radius readout while dragging a shape -->

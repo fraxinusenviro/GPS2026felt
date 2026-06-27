@@ -6454,24 +6454,36 @@ input[type=color] {
   gap: 10px;
   color: var(--color-text);
   font-family: var(--font);
+  overflow: hidden;
 }
 .shape-card.hidden { display: none; }
-.shape-card-head { display: flex; align-items: flex-start; gap: 10px; }
-.shape-card-glyph { color: var(--color-accent); flex-shrink: 0; }
+/* Coloured header band that bleeds to the card edges, using the active accent. */
+.shape-card-head {
+  display: flex; align-items: center; gap: 10px;
+  margin: -12px -14px 2px;
+  padding: 10px 14px;
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.shape-card-glyph { color: var(--color-accent-text); flex-shrink: 0; display: flex; }
 .shape-card-glyph svg { width: 26px; height: 26px; }
 .shape-card-titles { flex: 1; min-width: 0; }
-.shape-card-title { font-size: 15px; font-weight: 700; }
-.shape-card-sub { font-size: 12px; color: var(--color-text-muted); margin-top: 1px; }
+.shape-card-title { font-size: 15px; font-weight: 700; color: var(--color-accent-text); }
+.shape-card-sub { font-size: 12px; color: var(--color-accent-text); opacity: 0.75; margin-top: 1px; }
 .shape-card-cancel {
-  background: none; border: none; color: var(--color-accent);
-  font-size: 13px; font-weight: 600; cursor: pointer; padding: 2px 4px; flex-shrink: 0;
+  background: rgba(0,0,0,0.14); border: none; color: var(--color-accent-text);
+  border-radius: 6px;
+  font-size: 13px; font-weight: 600; cursor: pointer; padding: 3px 8px; flex-shrink: 0;
 }
-.shape-card-check { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
-.shape-card-check input { width: 18px; height: 18px; margin-top: 1px; accent-color: var(--color-accent); flex-shrink: 0; }
-.shape-card-check span { display: flex; flex-direction: column; font-size: 13px; }
-.shape-card-check em { font-style: normal; font-size: 11px; color: var(--color-text-muted); margin-top: 1px; }
+.shape-card-check { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; cursor: pointer; }
+.shape-card-check.hidden { display: none; }
+.shape-card-check input { width: 18px; height: 18px; accent-color: var(--color-accent); flex-shrink: 0; }
+.shape-card-check strong { font-size: 13px; font-weight: 600; }
+.shape-card-check em { flex-basis: 100%; font-style: normal; font-size: 11px; color: var(--color-text-muted); padding-left: 26px; }
 .shape-card-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.shape-card-row > label { min-width: 56px; color: var(--color-text-dim); }
+.shape-card-row.hidden { display: none; }
+.shape-card-row > label { flex-direction: row; min-width: 56px; margin: 0; color: var(--color-text-dim); }
 .shape-card-row input[type="number"] {
   flex: 1; max-width: 110px; padding: 5px 8px;
   border: 1px solid var(--color-border); border-radius: 8px;

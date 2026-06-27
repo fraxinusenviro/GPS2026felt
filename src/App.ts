@@ -2150,6 +2150,7 @@ export class App {
 
     document.getElementById('circle-cancel')?.addEventListener('click', () => this.circleTool.deactivate());
     document.getElementById('shape-cancel')?.addEventListener('click', () => this.shapeTool.deactivate());
+    document.getElementById('f-tritype')?.addEventListener('change', () => this.updateTriangleRows());
   }
 
   /** Adapt the shared shape-options card (title, glyph, visible rows, hint) to the kind. */
@@ -2160,31 +2161,43 @@ export class App {
     const tri = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4 L20 19 L4 19 Z"/></svg>';
     const ngon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 L20.5 9.2 L17.3 19.3 L6.7 19.3 L3.5 9.2 Z"/></svg>';
 
+    // Hide every optional row, then reveal only the ones this kind needs.
+    ['row-square', 'row-width', 'row-rheight', 'row-tritype', 'row-side', 'row-base',
+     'row-theight', 'row-sides', 'row-radmode', 'row-radius'].forEach(id => show(id, false));
+
     if (kind === 'rectangle') {
       set('shape-glyph', rect);
       set('shape-title', 'Rectangle');
       set('shape-sub', 'Tap a corner, then drag to the opposite corner.');
-      set('shape-size-label', 'Side');
-      set('shape-hint', 'Tap on the map to drop a centered square using the side above.');
-      show('shape-constrain-row', true);
-      show('shape-sides-row', false);
+      set('shape-hint', 'Tap once to drop a centered rectangle of the width × height above.');
+      show('row-square', true);
+      show('row-width', true);
+      show('row-rheight', true);
     } else if (kind === 'triangle') {
       set('shape-glyph', tri);
       set('shape-title', 'Triangle');
-      set('shape-sub', 'Tap to set the center, then drag to size and rotate.');
-      set('shape-size-label', 'Radius');
-      set('shape-hint', 'Tap on the map to drop a centered triangle using the radius above.');
-      show('shape-constrain-row', false);
-      show('shape-sides-row', false);
+      set('shape-sub', 'Tap to place; drag to rotate toward the cursor.');
+      set('shape-hint', 'The triangle is built from the dimensions above. Tap once to place it.');
+      show('row-tritype', true);
+      this.updateTriangleRows();
     } else {
       set('shape-glyph', ngon);
       set('shape-title', 'Polygon (N-gon)');
       set('shape-sub', 'Tap to set the center, then drag to size and rotate.');
-      set('shape-size-label', 'Radius');
-      set('shape-hint', 'Set the number of sides, then tap or drag on the map.');
-      show('shape-constrain-row', false);
-      show('shape-sides-row', true);
+      set('shape-hint', 'Set the sides and radius, then tap or drag on the map.');
+      show('row-sides', true);
+      show('row-radmode', true);
+      show('row-radius', true);
     }
+  }
+
+  /** Show the right triangle parameter rows for the selected triangle type. */
+  private updateTriangleRows(): void {
+    const show = (id: string, on: boolean) => document.getElementById(id)?.classList.toggle('hidden', !on);
+    const type = (document.getElementById('f-tritype') as HTMLSelectElement | null)?.value ?? 'equilateral';
+    show('row-side', type === 'equilateral');
+    show('row-base', type !== 'equilateral');
+    show('row-theight', type !== 'equilateral');
   }
 
   /** Fill the shape options card's Type selector with the active project's Polygon presets. */
